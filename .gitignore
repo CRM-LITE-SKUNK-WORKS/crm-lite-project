@@ -1,0 +1,19 @@
+# Build output
+target/
+**/target/
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Maven wrapper (kept minimal; wrapper jars are downloaded on demand)
+!.mvn/wrapper/maven-wrapper.properties

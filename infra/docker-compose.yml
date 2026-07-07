@@ -1,0 +1,41 @@
+# CRM Lite - local orchestration
+#
+# Vendor-neutral Compose Spec. Runs identically on:
+#   - Rancher Desktop (dockerd backend):  docker compose ...
+#   - Podman:                             podman-compose ...  (or: podman compose ...)
+#
+# NOTE: build context is the repository ROOT (..), not the service folder,
+# because each service's pom.xml inherits from the root parent pom.xml.
+
+services:
+  discovery-server:
+    build:
+      context: ..
+      dockerfile: backend/discovery-server/Dockerfile
+    image: crm-lite/discovery-server:local
+    container_name: discovery-server
+    ports:
+      - "8761:8761"
+    networks:
+      - crm-net
+
+  api-gateway:
+    build:
+      context: ..
+      dockerfile: backend/api-gateway/Dockerfile
+    image: crm-lite/api-gateway:local
+    container_name: api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      # Inside the container network the gateway must reach Eureka by its
+      # service name, NOT localhost. This overrides the value in application.yml.
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+    depends_on:
+      - discovery-server
+    networks:
+      - crm-net
+
+networks:
+  crm-net:
+    driver: bridge

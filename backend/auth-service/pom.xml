@@ -5,21 +5,18 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>org.springframework.boot</groupId>
-        <artifactId>spring-boot-starter-parent</artifactId>
-        <version>4.1.0</version>
-        <relativePath/>
+        <groupId>com.crm</groupId>
+        <artifactId>crm-lite-project</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
-    <groupId>com.crm</groupId>
     <artifactId>auth-service</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>auth-service</name>
     <description>Auth service for CRM Lite</description>
 
     <properties>
-        <java.version>25</java.version>
         <jjwt.version>0.12.6</jjwt.version>
     </properties>
 

@@ -1,0 +1,10 @@
+# Build outputs — never needed in the image, keeps build context small
+**/target
+
+# IDE / VCS metadata
+.git
+.idea
+**/*.iml
+
+# Local env files
+**/*.log

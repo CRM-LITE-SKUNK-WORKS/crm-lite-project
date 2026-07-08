@@ -8,6 +8,17 @@
 # because each service's pom.xml inherits from the root parent pom.xml.
 
 services:
+  config-server:
+    build:
+      context: ..
+      dockerfile: backend/config-server/Dockerfile
+    image: crm-lite/config-server:local
+    container_name: config-server
+    ports:
+      - "8888:8888"
+    networks:
+      - crm-net
+
   discovery-server:
     build:
       context: ..
@@ -16,6 +27,12 @@ services:
     container_name: discovery-server
     ports:
       - "8761:8761"
+    environment:
+      # Inside the container network config-server is reached by its service
+      # name, NOT localhost. This overrides the value in application.yml.
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    depends_on:
+      - config-server
     networks:
       - crm-net
 
@@ -28,10 +45,12 @@ services:
     ports:
       - "8080:8080"
     environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
       # Inside the container network the gateway must reach Eureka by its
-      # service name, NOT localhost. This overrides the value in application.yml.
+      # service name, NOT localhost. This overrides the value from config-server.
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
     depends_on:
+      - config-server
       - discovery-server
     networks:
       - crm-net

@@ -1,11 +1,6 @@
-server:
-  port: 8081
-
 spring:
-  datasource:
-    url:
-    username:
-    password:
-  flyway:
-    enabled:
-    locations:
+  application:
+    name: auth-service
+  config:
+    # "optional:" so this service still starts on local defaults if config-server is unreachable.
+    import: "optional:configserver:http://localhost:8888"

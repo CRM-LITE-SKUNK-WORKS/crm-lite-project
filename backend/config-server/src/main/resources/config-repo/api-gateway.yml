@@ -1,0 +1,44 @@
+server:
+  port: 8080
+
+spring:
+  # 3b) Global HTTP client timeouts.
+  # WebMVC gateway uses Spring Boot's HTTP client settings (spring.http.client.*),
+  # NOT the WebFlux-only spring.cloud.gateway.httpclient.* properties.
+  http:
+    client:
+    
+      connect-timeout: 2s
+      read-timeout: 5s
+
+  # 2b) Route definitions. Correct prefix for the WebMVC gateway is
+  # spring.cloud.gateway.server.webmvc.routes (NOT the WebFlux spring.cloud.gateway.routes).
+  cloud:
+    gateway:
+      server:
+        webmvc:
+          routes:
+            - id: auth-service
+              uri: lb://auth-service
+              predicates:
+                - Path=/api/auth/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+  # 3a) Register with a routable IP and a unique id so this works in containers
+  # and when more than one instance runs.
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${random.value}
+
+# 2c) Actuator exposure.
+# NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway
+# does not provide it. In WebMVC, routes are registered as RouterFunction beans,
+# so they show up under /actuator/mappings instead.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,mappings

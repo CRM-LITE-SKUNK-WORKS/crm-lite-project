@@ -1,0 +1,20 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        native:
+          # Bundled into this service's own jar (classpath), not an external/git repo.
+          search-locations: classpath:/config-repo/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

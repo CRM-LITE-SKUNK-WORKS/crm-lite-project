@@ -1,0 +1,16 @@
+server:
+  port: 8081
+
+spring:
+  datasource:
+    url:
+    username:
+    password:
+  flyway:
+    enabled:
+    locations:
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka

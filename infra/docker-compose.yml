@@ -6,6 +6,17 @@
 #
 # NOTE: build context is the repository ROOT (..), not the service folder,
 # because each service's pom.xml inherits from the root parent pom.xml.
+#
+# NOTE ON HEALTHCHECKS: depends_on alone only waits for a container to START,
+# not for the Spring Boot app inside it to finish booting and open its port.
+# Since spring.config.import's config-server fetch is a one-shot attempt (no
+# fail-fast/retry configured), a dependent service starting even a few seconds
+# before config-server is actually listening will silently fall back to
+# hard-coded defaults (e.g. localhost:8761 for Eureka) for its entire process
+# lifetime. The healthchecks below + `condition: service_healthy` make
+# dependents actually wait until the upstream service is ready to answer.
+# The runtime images (eclipse-temurin:*-jre, non-alpine) don't have curl/wget,
+# so JVM service healthchecks use bash's /dev/tcp to check the port is open.
 
 services:
   config-server:
@@ -16,6 +27,12 @@ services:
     container_name: config-server
     ports:
       - "8888:8888"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8888' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     networks:
       - crm-net
 
@@ -31,8 +48,15 @@ services:
       # Inside the container network config-server is reached by its service
       # name, NOT localhost. This overrides the value in application.yml.
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8761' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
     depends_on:
-      - config-server
+      config-server:
+        condition: service_healthy
     networks:
       - crm-net
 
@@ -49,12 +73,135 @@ services:
       # Inside the container network the gateway must reach Eureka by its
       # service name, NOT localhost. This overrides the value from config-server.
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
     depends_on:
-      - config-server
-      - discovery-server
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    networks:
+      - crm-net
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_USER: crmlite
+      POSTGRES_PASSWORD: crmlite
+      POSTGRES_DB: crm_admin
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crmlite -d crm_admin"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - crm-net
+
+  lookup-service:
+    build:
+      context: ..
+      dockerfile: backend/lookup-service/Dockerfile
+    image: crm-lite/lookup-service:local
+    container_name: lookup-service
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lookup_db
+      SPRING_DATASOURCE_USERNAME: crmlite
+      SPRING_DATASOURCE_PASSWORD: crmlite
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - crm-net
+
+  mernis-stub:
+    build:
+      context: ..
+      dockerfile: backend/mernis-stub/Dockerfile
+    image: crm-lite/mernis-stub:local
+    container_name: mernis-stub
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8084' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    networks:
+      - crm-net
+
+  customer-service:
+    build:
+      context: ..
+      dockerfile: backend/customer-service/Dockerfile
+    image: crm-lite/customer-service:local
+    container_name: customer-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/customer_db
+      SPRING_DATASOURCE_USERNAME: crmlite
+      SPRING_DATASOURCE_PASSWORD: crmlite
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8082' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      # Writes need the shared catalog (ADR-002) and MERNIS (KR-10); reads do not,
+      # but waiting for them gives a fully usable stack on first `up`.
+      lookup-service:
+        condition: service_healthy
+      mernis-stub:
+        condition: service_healthy
     networks:
       - crm-net
 
 networks:
   crm-net:
     driver: bridge
+
+volumes:
+  postgres-data:

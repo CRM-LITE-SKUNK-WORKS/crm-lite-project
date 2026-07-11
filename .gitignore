@@ -4,9 +4,14 @@ target/
 
 # IDE
 .idea/
+.vscode/
 *.iml
 *.iws
 *.ipr
+
+# Local scratch artifacts (never commit)
+cp.txt
+cp-abs.txt
 
 # OS
 .DS_Store
@@ -17,3 +22,9 @@ Thumbs.db
 
 # Maven wrapper (kept minimal; wrapper jars are downloaded on demand)
 !.mvn/wrapper/maven-wrapper.properties
+
+# Claude
+.claude/settings.local.json
+
+# Environment variables
+.env

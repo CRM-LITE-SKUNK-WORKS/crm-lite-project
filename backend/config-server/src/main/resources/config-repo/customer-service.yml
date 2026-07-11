@@ -1,0 +1,37 @@
+server:
+  port: 8082
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/customer_db
+    username: crmlite
+    password: crmlite
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# Outbound integration boundaries. Base URLs use Eureka service names resolved by the
+# load-balanced RestClient; override with concrete http://host:port when running
+# without discovery.
+crm:
+  lookup:
+    base-url: http://lookup-service   # central GNL_ST/GNL_TP owner (ADR-002)
+    cache-ttl: 15m
+    cache-max-size: 256
+  mernis:
+    base-url: http://mernis-stub      # fake MERNIS/KPS (KR-10)
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -1,0 +1,96 @@
+package com.crm.customer.customer.rules;
+
+import com.crm.customer.common.exception.BusinessException;
+import com.crm.customer.common.exception.MessageKeys;
+import com.crm.customer.customer.entity.Customer;
+import com.crm.customer.customer.repository.CustomerRepository;
+import com.crm.customer.customer.repository.IndividualRepository;
+import java.time.LocalDate;
+import java.time.Period;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+@Component
+@RequiredArgsConstructor
+public class CustomerBusinessRules {
+
+    private static final int MIN_AGE = 18;
+
+    private final CustomerRepository customerRepository;
+    private final IndividualRepository individualRepository;
+
+    public void checkAtLeastOneSearchCriterionExists(String firstName, String lastName, String nationalityId,
+                                                     Long customerNumber, String gsmNumber) {
+        boolean anyProvided = StringUtils.hasText(firstName)
+                || StringUtils.hasText(lastName)
+                || StringUtils.hasText(nationalityId)
+                || customerNumber != null
+                || StringUtils.hasText(gsmNumber);
+        if (!anyProvided) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, MessageKeys.SEARCH_CRITERIA_REQUIRED,
+                    "At least one search criterion must be provided");
+        }
+    }
+
+    // TODO (intentional): accountNumber/orderNumber resolve to CUST_ACCT / CUST_ORD,
+    // which belong to the future account/order domains. Until those exist this returns
+    // an explicit 501 instead of silently wrong results. gsmNumber is now local
+    // (CNTC_MEDIUM is owned by customer-service) and searchable.
+    public void checkNoUnsupportedCrossServiceSearchCriterion(String accountNumber, String orderNumber) {
+        if (StringUtils.hasText(accountNumber) || StringUtils.hasText(orderNumber)) {
+            throw new BusinessException(HttpStatus.NOT_IMPLEMENTED, MessageKeys.FEATURE_NOT_IMPLEMENTED,
+                    "Search by accountNumber/orderNumber is not implemented yet");
+        }
+    }
+
+    /** Resolves the public business identifier to an ACTIVE customer or 404s. */
+    public Customer checkCustomerExistsAndActive(Long customerNumber) {
+        Customer customer = customerRepository.findByCustomerNumber(customerNumber)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, MessageKeys.CUST_NOT_FOUND,
+                        "Customer not found: " + customerNumber));
+        if (!customer.isActive()) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, MessageKeys.CUST_NOT_FOUND,
+                    "Customer not found: " + customerNumber);
+        }
+        return customer;
+    }
+
+    // ADR-003: global, permanent uniqueness — checks ALL ind rows including
+    // soft-deleted/passive ones. The DB UNIQUE constraint is the racing-insert backstop.
+    public void checkNationalityIdIsUniqueForCreate(String nationalityId) {
+        if (individualRepository.existsByNationalityId(nationalityId)) {
+            throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.CUST_DUP_NATID,
+                    "A customer already exists with this Nationality ID");
+        }
+    }
+
+    public void checkNationalityIdIsUniqueForUpdate(String nationalityId, Long currentIndividualId) {
+        if (individualRepository.existsByNationalityIdAndIdNot(nationalityId, currentIndividualId)) {
+            throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.CUST_DUP_NATID,
+                    "A customer already exists with this Nationality ID");
+        }
+    }
+
+    public void checkBirthDateIsNotFuture(LocalDate birthDate) {
+        if (birthDate.isAfter(LocalDate.now())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, MessageKeys.VAL_BIRTHDATE,
+                    "Birth date cannot be in the future");
+        }
+    }
+
+    public void checkCustomerIsAtLeast18(LocalDate birthDate) {
+        if (Period.between(birthDate, LocalDate.now()).getYears() < MIN_AGE) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, MessageKeys.VAL_AGE_MIN,
+                    "Customer must be at least " + MIN_AGE + " years old");
+        }
+    }
+
+    // TODO (intentional): AC-CUST-05-03 requires blocking deletion while the customer
+    // has active products. Products live in the future product/account domains; this
+    // check is a documented no-op until they exist. It must NOT be removed silently.
+    public void checkCustomerHasNoActiveProducts(Long customerNumber) {
+        // no-op
+    }
+}

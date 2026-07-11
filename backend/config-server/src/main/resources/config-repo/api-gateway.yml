@@ -22,6 +22,20 @@ spring:
               uri: lb://auth-service
               predicates:
                 - Path=/api/auth/**
+            - id: customer-service
+              uri: lb://customer-service
+              predicates:
+                - Path=/api/customers/**
+            # City/district reference data is owned by customer-service (local tables).
+            - id: customer-service-cities
+              uri: lb://customer-service
+              predicates:
+                - Path=/api/cities/**
+            # Shared GNL_ST/GNL_TP catalogs (ADR-002) — exposed for frontend dropdowns.
+            - id: lookup-service
+              uri: lb://lookup-service
+              predicates:
+                - Path=/api/lookups/**
 
 eureka:
   client:

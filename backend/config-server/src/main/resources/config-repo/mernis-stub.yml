@@ -1,0 +1,20 @@
+server:
+  port: 8084
+
+# Deterministic local testing: any syntactically valid 11-digit id verifies unless
+# listed here. 99999999999 is the documented "always rejected" fixture.
+mernis:
+  stub:
+    denied-ids:
+      - "99999999999"
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

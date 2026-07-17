@@ -195,7 +195,7 @@ class CustomerServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("MERNIS rejection -> 400 MSG-NATID-VERIFY-FAILED and ZERO rows persisted (KR-10)")
+    @DisplayName("MERNIS rejection -> 400 MSG-CUST-NATID-VERIFICATION-FAILED and ZERO rows persisted (KR-10)")
     void mernisRejectionLeavesNoPartialData() {
         Mockito.when(mernisClient.verify(Mockito.eq("40000000002"), Mockito.anyString(), Mockito.anyString(), Mockito.any()))
                 .thenReturn(false);
@@ -204,14 +204,15 @@ class CustomerServiceIntegrationTest {
 
         ResponseEntity<Map> response = post("/api/customers", createBody("Deniz", "Kaya", "40000000002"));
 
+        // AC-CUST-03-06 (v8 Final analyst catalog key).
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-NATID-VERIFY-FAILED");
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-CUST-NATID-VERIFICATION-FAILED");
         assertThat(partyRepository.count()).isEqualTo(partiesBefore);
         assertThat(individualRepository.count()).isEqualTo(individualsBefore);
     }
 
     @Test
-    @DisplayName("MERNIS unavailable -> 503 fail-closed, ZERO rows persisted (KR-10)")
+    @DisplayName("MERNIS unavailable -> 503 MSG-MERNIS-UNAVAILABLE fail-closed, ZERO rows persisted (KR-10)")
     void mernisUnavailableFailsClosed() {
         Mockito.when(mernisClient.verify(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any()))
                 .thenThrow(new com.crm.customer.mernis.MernisUnavailableException("down", new RuntimeException()));
@@ -219,8 +220,9 @@ class CustomerServiceIntegrationTest {
 
         ResponseEntity<Map> response = post("/api/customers", createBody("Emre", "Şahin", "40000000003"));
 
+        // AC-CUST-03-06 (v8 Final analyst catalog key, MERNIS-specific).
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-MERNIS-UNAVAILABLE");
         assertThat(partyRepository.count()).isEqualTo(partiesBefore);
     }
 
@@ -334,11 +336,75 @@ class CustomerServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("search without criteria -> 400 MSG-SEARCH-CRITERIA-REQUIRED")
-    void searchWithoutCriteriaRejected() {
+    @DisplayName("ADR-005: GET /api/customers with no criteria browses ALL active customers, A-Z")
+    @SuppressWarnings("unchecked")
+    void browseWithoutCriteriaListsAllActiveCustomers() {
         ResponseEntity<Map> response = get("/api/customers");
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SEARCH-CRITERIA-REQUIRED");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
+        List<Long> numbers = content.stream()
+                .map(row -> ((Number) row.get("customerNumber")).longValue()).toList();
+
+        // All active seed customers present; soft-deleted 1003 excluded (AC-CUST-01-08).
+        assertThat(numbers).contains(1001L, 1002L).doesNotContain(1003L);
+        assertThat(((Number) response.getBody().get("totalElements")).longValue())
+                .isEqualTo(numbers.size()); // full active list is browsable, still paginated
+
+        // A-Z ordering (AC-CUST-01-00 / KR-04): firstName ASC, then lastName ASC.
+        List<String> sortKeys = content.stream()
+                .map(row -> row.get("firstName") + " " + row.get("lastName"))
+                .toList();
+        assertThat(sortKeys).isSorted();
+    }
+
+    @Test
+    @DisplayName("ADR-005: every list row carries the FULL CustomerDetailResponse contract")
+    @SuppressWarnings("unchecked")
+    void listRowsExposeFullDetailContract() {
+        ResponseEntity<Map> response = get("/api/customers?customerId=1001");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
+        assertThat(content).hasSize(1);
+        Map<String, Object> row = content.get(0);
+
+        // Exact contract equivalence with GET /api/customers/{customerNumber}.
+        assertThat(row.keySet()).containsExactlyInAnyOrder(
+                "customerNumber", "firstName", "middleName", "lastName", "fatherName",
+                "motherName", "birthDate", "gender", "nationalityId", "role", "status");
+        assertThat(row.get("customerNumber")).isEqualTo(1001);
+        assertThat(row.get("firstName")).isEqualTo("Ali");
+        assertThat(row.get("gender")).isEqualTo("Male");
+        assertThat(row.get("nationalityId")).isEqualTo("12345678901");
+        assertThat(row.get("role")).isEqualTo("Customer");
+        assertThat(row.get("status")).isEqualTo("ACTV");
+        assertThat(row.get("birthDate")).isEqualTo("1990-05-14");
+
+        // Same shape as the singular detail endpoint (which is unchanged).
+        ResponseEntity<Map> detail = get("/api/customers/1001");
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(((Map<String, Object>) detail.getBody()).keySet()).isEqualTo(row.keySet());
+    }
+
+    @Test
+    @DisplayName("ADR-005: browse stays server-side paginated (default size 20, size param respected)")
+    @SuppressWarnings("unchecked")
+    void browseIsPaginated() {
+        ResponseEntity<Map> firstPage = get("/api/customers?page=0&size=1");
+
+        assertThat(firstPage.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> content = (List<Map<String, Object>>) firstPage.getBody().get("content");
+        assertThat(content).hasSize(1);
+        long totalElements = ((Number) firstPage.getBody().get("totalElements")).longValue();
+        long totalPages = ((Number) firstPage.getBody().get("totalPages")).longValue();
+        assertThat(totalElements).isGreaterThanOrEqualTo(2); // at least seed 1001 + 1002
+        assertThat(totalPages).isEqualTo(totalElements);     // size=1 -> one row per page
+
+        // Default page size is 20 (ADR-005; the UI adds its own KR-04 Per Page values).
+        ResponseEntity<Map> defaults = get("/api/customers");
+        assertThat(((Number) defaults.getBody().get("size")).intValue()).isEqualTo(20);
+        assertThat(((Number) defaults.getBody().get("number")).intValue()).isEqualTo(0);
     }
 
     @Test
@@ -359,7 +425,9 @@ class CustomerServiceIntegrationTest {
         ResponseEntity<Map> response = get("/api/customers?" + query);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
-        return content.stream().map(row -> ((Number) row.get("customerId")).longValue()).toList();
+        // ADR-005: list rows use the detail contract — the business id field is
+        // customerNumber (the old CustomerSearchResponse.customerId field is gone).
+        return content.stream().map(row -> ((Number) row.get("customerNumber")).longValue()).toList();
     }
 
     // ------------------------------------------------------- delete + addresses

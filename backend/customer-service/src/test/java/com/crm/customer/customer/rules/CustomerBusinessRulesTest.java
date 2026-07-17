@@ -30,27 +30,9 @@ class CustomerBusinessRulesTest {
         rules = new CustomerBusinessRules(customerRepository, individualRepository);
     }
 
-    @Test
-    void atLeastOneSearchCriterion_throwsWhenNoneProvided() {
-        assertThatThrownBy(() -> rules.checkAtLeastOneSearchCriterionExists(null, "  ", null, null, null))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(ex -> {
-                    BusinessException be = (BusinessException) ex;
-                    assertThat(be.getStatus()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    assertThat(be.getMessageKey()).isEqualTo(MessageKeys.SEARCH_CRITERIA_REQUIRED);
-                });
-    }
-
-    @Test
-    void atLeastOneSearchCriterion_passesWithCustomerNumberOnly() {
-        rules.checkAtLeastOneSearchCriterionExists(null, null, null, 1001L, null);
-    }
-
-    @Test
-    void atLeastOneSearchCriterion_passesWithGsmOnly() {
-        // gsmNumber is now a locally searchable criterion (CNTC_MEDIUM is owned here).
-        rules.checkAtLeastOneSearchCriterionExists(null, null, null, null, "0532");
-    }
+    // The former atLeastOneSearchCriterion tests were removed with the rule itself:
+    // FR/AC v8 (2026-07-16) makes the no-criteria request the valid browse-all mode
+    // (AC-CUST-01-00, ADR-005) — covered end-to-end in CustomerServiceIntegrationTest.
 
     @Test
     void crossServiceCriteria_accountNumberStill501() {

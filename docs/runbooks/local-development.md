@@ -50,16 +50,39 @@ docker compose -f infra/docker-compose.yml up --build
 
 Healthchecks + `depends_on: service_healthy` enforce the boot order automatically.
 
-## Smoke test
+## Smoke test (startup sequence verification)
 
-Run section A/B of `docs/api/customer-service.md`'s curl sequence. Quick version:
+Run section A/B of `docs/api/customer-service.md`'s curl sequence. Quick version
+(every request prints its HTTP status):
 
 ```bash
-curl http://localhost:8083/api/lookups/statuses/ACTV       # catalog up + seeded
-curl -X POST http://localhost:8084/api/mernis/verify -H "Content-Type: application/json" \
-  -d '{"nationalityId":"12345678901","firstName":"A","lastName":"B","birthDate":"1990-01-01"}'
-curl "http://localhost:8080/api/customers?firstName=Ali"   # gateway -> customer-service
+# infrastructure health, in start order
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8888/actuator/health   # config
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8761/actuator/health   # discovery
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8083/actuator/health   # lookup
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8084/actuator/health   # mernis-stub
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/actuator/health   # gateway
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8082/actuator/health   # customer
+
+# catalog up + seeded
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8083/api/lookups/statuses/ACTV
+
+# fake MERNIS answers
+curl -sS -X POST "http://localhost:8084/api/mernis/verify" \
+  -H "Content-Type: application/json; charset=utf-8" \
+  -w "\nHTTP Status: %{http_code}\n" \
+  --data-binary @- <<'JSON'
+{"nationalityId":"12345678901","firstName":"A","lastName":"B","birthDate":"1990-01-01"}
+JSON
+
+# gateway -> customer-service: browse mode (ADR-005) and a filter
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers"
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?firstName=Ali"
 ```
+
+Full endpoint-by-endpoint catalogs: `docs/api/customer-service.md`,
+`docs/api/shared-lookup-service.md`, `docs/api/mernis-stub.md`. Importable Postman
+collection: `docs/postman/`.
 
 ## MERNIS stub behaviour (deterministic, no real personal data)
 
@@ -70,9 +93,9 @@ Use it to test the KR-10 rejection path locally.
 ## Tests
 
 ```bash
-mvn -pl backend/customer-service test    # 57 tests (19 need Docker/Testcontainers)
-mvn -pl backend/lookup-service   test    # 3 (Docker)
-mvn -pl backend/mernis-stub      test    # 3 (no Docker)
+mvn -pl backend/customer-service test    # 56 tests (21 need Docker/Testcontainers)
+mvn -pl backend/lookup-service   test    # Docker required
+mvn -pl backend/mernis-stub      test    # no Docker needed
 ```
 
 - Docker down ⇒ the Testcontainers classes fail with "Could not find a valid Docker

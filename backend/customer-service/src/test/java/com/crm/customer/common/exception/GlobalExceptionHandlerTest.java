@@ -115,22 +115,25 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void mernisUnavailable_mapsTo503FailClosed() {
+    void mernisUnavailable_mapsTo503WithMernisUnavailableKey() {
         MernisUnavailableException ex = new MernisUnavailableException("down", new RuntimeException());
 
-        ResponseEntity<ErrorResponse> response = handler.handleUpstreamUnavailable(ex, request);
+        ResponseEntity<ErrorResponse> response = handler.handleMernisUnavailable(ex, request);
 
+        // AC-CUST-03-06 (v8 Final): KPS/MERNIS outages use the analyst catalog key.
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertThat(response.getBody().getMessageKey()).isEqualTo(MessageKeys.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().getMessageKey()).isEqualTo(MessageKeys.MERNIS_UNAVAILABLE);
+        assertThat(response.getBody().getMessageKey()).isEqualTo("MSG-MERNIS-UNAVAILABLE");
     }
 
     @Test
-    void mernisRejected_mapsTo400WithVerifyFailedKey() {
+    void mernisRejected_mapsTo400WithVerificationFailedKey() {
         MernisRejectedException ex = new MernisRejectedException("Nationality ID could not be verified by MERNIS");
 
         ResponseEntity<ErrorResponse> response = handler.handleMernisRejected(ex, request);
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(response.getBody().getMessageKey()).isEqualTo(MessageKeys.NATID_VERIFY_FAILED);
+        assertThat(response.getBody().getMessageKey()).isEqualTo(MessageKeys.CUST_NATID_VERIFICATION_FAILED);
+        assertThat(response.getBody().getMessageKey()).isEqualTo("MSG-CUST-NATID-VERIFICATION-FAILED");
     }
 }

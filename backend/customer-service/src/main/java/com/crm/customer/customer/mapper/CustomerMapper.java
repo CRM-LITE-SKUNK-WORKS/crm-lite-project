@@ -2,7 +2,6 @@ package com.crm.customer.customer.mapper;
 
 import com.crm.customer.customer.dto.Gender;
 import com.crm.customer.customer.dto.response.CustomerDetailResponse;
-import com.crm.customer.customer.dto.response.CustomerSearchResponse;
 import com.crm.customer.customer.entity.Customer;
 import com.crm.customer.customer.entity.Individual;
 import com.crm.customer.customer.entity.Role;
@@ -13,22 +12,11 @@ import org.springframework.stereotype.Component;
 public class CustomerMapper {
 
     /**
-     * Used for rows freshly loaded from the DB (search/get), where the full
-     * customer -> partyRole -> party -> individual/role graph is populated by the query.
+     * Used for rows freshly loaded from the DB (list/filter/get), where the full
+     * customer -> partyRole -> party -> individual/role graph is populated by the
+     * query (the list specification fetch-joins it, ADR-005). List rows and the
+     * singular detail endpoint share this one contract by design.
      */
-    public CustomerSearchResponse toSearchResponse(Customer customer) {
-        Individual individual = customer.getPartyRole().getParty().getIndividual();
-        Role role = customer.getPartyRole().getRole();
-        return new CustomerSearchResponse(
-                customer.getCustomerNumber(),
-                individual.getFirstName(),
-                individual.getMiddleName(),
-                individual.getLastName(),
-                role.getRoleName(),
-                individual.getNationalityId()
-        );
-    }
-
     public CustomerDetailResponse toDetailResponse(Customer customer) {
         Individual individual = customer.getPartyRole().getParty().getIndividual();
         Role role = customer.getPartyRole().getRole();

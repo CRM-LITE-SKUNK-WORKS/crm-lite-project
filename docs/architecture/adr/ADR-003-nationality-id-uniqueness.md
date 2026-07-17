@@ -7,10 +7,15 @@ schema decision recorded in PROJECTBRAIN §5.14.
 ## Context
 Three sources describe Nationality ID uniqueness with different strength:
 
-- **FR/AC v8 Final** (`CRM_Lite_FR_AC_v8_Final.docx`): AC-CUST-03-11 — "girilen
+- **FR/AC v8 Final** (`CRM_Lite_FR_AC_v8_Final.docx`): the duplicate rule — "girilen
   Nationality ID ile eşleşen bir müşteri varsa … MSG-CUST-DUP-NATID" (**no
-  "active" qualifier**); AC-CUST-04-04 — unique excluding the record itself.
-- **Use-case document** (`CRM_Lite_Kullanim_Senaryolari_Final.docx`, FR-CUST-03 step 4.4)
+  "active" qualifier**) — was AC-CUST-03-11 when this ADR was written; the
+  **16.07.2026 revision renumbered it to AC-CUST-03-12** (AC-CUST-03-11 is now the
+  VR-NATID format rule). The wording still has no active qualifier, so this ADR's
+  decision is **confirmed**, not weakened, by the revision. AC-CUST-04-04 — unique
+  excluding the record itself — unchanged.
+- **Use-case document** (`CRM_Lite_Kullanim_Senaryolari_Final.docx`, FR-CUST-03
+  alternative step 4.5 in the current revision — previously step 4.4)
   and the **draw.io diagram** (FR-CUST-03 page, decision node "NAT ID başka **aktif**
   müşteride var mı?") still carry the older **active-only** wording.
 - **Analyst decision (2026-07-10, this refactor)**: Nationality ID is **globally and
@@ -29,12 +34,14 @@ the active-only reading. The new analyst decision supersedes that.
    translated by `GlobalExceptionHandler` (`DataIntegrityViolationException`) to
    **HTTP 409 + `MSG-CUST-DUP-NATID`** — duplicate constraints never surface as HTTP 500.
 
-## Documented discrepancy in stale sources
-The use-case document step 4.4 ("eşleşen **aktif** bir müşteri") and the draw.io
-FR-CUST-03 decision node ("başka **aktif** müşteride") predate this decision and are
-**not canonical**. The FR/AC v8 wording plus this ADR govern. The binary/XML source
-documents are intentionally left unedited; this ADR and the traceability matrix record
-the supersession.
+## Open conflict / superseded wording (still present as of the 16.07.2026 revision)
+The use-case document alternative step 4.5 ("eşleşen **aktif** bir müşteri") and the
+draw.io FR-CUST-03 decision node ("başka **aktif** müşteride") predate this decision
+and are **not canonical** — the 16.07.2026 source revision did NOT clean them up, so
+the conflict remains open on the analyst side. The FR/AC v8 wording (AC-CUST-03-12,
+no active qualifier) plus this ADR govern. The binary/XML source documents are
+intentionally left unedited; this ADR, `docs/requirements/document-delta.md` and the
+traceability matrix record the supersession.
 
 ## Consequences
 - Soft-deleting a customer does not free the Nationality ID for reuse.

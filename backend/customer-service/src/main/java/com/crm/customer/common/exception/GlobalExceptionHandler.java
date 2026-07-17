@@ -173,10 +173,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(body);
     }
 
-    // ADR-002 / KR-10 fail-closed rule: a required upstream (shared catalog or MERNIS)
-    // could not be reached — the write is refused, nothing was persisted.
-    @ExceptionHandler({LookupCatalogUnavailableException.class, MernisUnavailableException.class})
-    public ResponseEntity<ErrorResponse> handleUpstreamUnavailable(RuntimeException ex, HttpServletRequest request) {
+    // ADR-002 fail-closed rule: the shared catalog could not be reached — the write is
+    // refused, nothing was persisted.
+    @ExceptionHandler(LookupCatalogUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleUpstreamUnavailable(LookupCatalogUnavailableException ex,
+                                                                   HttpServletRequest request) {
         log.error("Upstream dependency unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
                 ex.getMessage(), ex);
         ErrorResponse body = ErrorResponse.builder()
@@ -190,14 +191,34 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
 
-    // KR-10: MERNIS answered and rejected the identity — the customer is not created.
+    // KR-10 / AC-CUST-03-06 fail-closed rule: MERNIS/KPS could not be reached — the
+    // customer is not created. Uses the analyst catalog key MSG-MERNIS-UNAVAILABLE
+    // (v8 Final), not the generic MSG-SERVICE-UNAVAILABLE.
+    @ExceptionHandler(MernisUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleMernisUnavailable(MernisUnavailableException ex,
+                                                                 HttpServletRequest request) {
+        log.error("MERNIS unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
+                ex.getMessage(), ex);
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+                .messageKey(MessageKeys.MERNIS_UNAVAILABLE)
+                .message("The identity verification service is currently unavailable; the operation was not performed")
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    }
+
+    // KR-10 / AC-CUST-03-06: MERNIS answered and rejected the identity — the customer
+    // is not created (analyst catalog key MSG-CUST-NATID-VERIFICATION-FAILED, v8 Final).
     @ExceptionHandler(MernisRejectedException.class)
     public ResponseEntity<ErrorResponse> handleMernisRejected(MernisRejectedException ex, HttpServletRequest request) {
         ErrorResponse body = ErrorResponse.builder()
                 .timestamp(Instant.now())
                 .status(HttpStatus.BAD_REQUEST.value())
                 .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
-                .messageKey(MessageKeys.NATID_VERIFY_FAILED)
+                .messageKey(MessageKeys.CUST_NATID_VERIFICATION_FAILED)
                 .message(ex.getMessage())
                 .path(request.getRequestURI())
                 .build();

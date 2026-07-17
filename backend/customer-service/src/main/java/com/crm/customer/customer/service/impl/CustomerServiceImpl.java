@@ -15,7 +15,6 @@ import com.crm.customer.customer.dto.request.CustomerCreateRequest;
 import com.crm.customer.customer.dto.request.CustomerUpdateRequest;
 import com.crm.customer.customer.dto.request.DemographicRequest;
 import com.crm.customer.customer.dto.response.CustomerDetailResponse;
-import com.crm.customer.customer.dto.response.CustomerSearchResponse;
 import com.crm.customer.customer.entity.Customer;
 import com.crm.customer.customer.entity.Individual;
 import com.crm.customer.customer.entity.Party;
@@ -64,16 +63,20 @@ public class CustomerServiceImpl implements CustomerService {
     private final LookupCatalogService lookupCatalogService;
     private final MernisClient mernisClient;
 
+    /**
+     * ADR-005: no criteria = paginated browse of all active customers
+     * (AC-CUST-01-00); the former at-least-one-criterion rule was removed by the
+     * analyst decision in FR/AC v8 (2026-07-16).
+     */
     @Override
-    public Page<CustomerSearchResponse> search(String firstName, String lastName, String nationalityId,
+    public Page<CustomerDetailResponse> search(String firstName, String lastName, String nationalityId,
                                                Long customerNumber, String gsmNumber,
                                                String accountNumber, String orderNumber, Pageable pageable) {
         businessRules.checkNoUnsupportedCrossServiceSearchCriterion(accountNumber, orderNumber);
-        businessRules.checkAtLeastOneSearchCriterionExists(firstName, lastName, nationalityId, customerNumber, gsmNumber);
 
         Specification<Customer> spec =
                 CustomerSpecifications.search(firstName, lastName, nationalityId, customerNumber, gsmNumber);
-        return customerRepository.findAll(spec, pageable).map(customerMapper::toSearchResponse);
+        return customerRepository.findAll(spec, pageable).map(customerMapper::toDetailResponse);
     }
 
     @Override

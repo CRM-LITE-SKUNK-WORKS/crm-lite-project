@@ -21,18 +21,9 @@ public class CustomerBusinessRules {
     private final CustomerRepository customerRepository;
     private final IndividualRepository individualRepository;
 
-    public void checkAtLeastOneSearchCriterionExists(String firstName, String lastName, String nationalityId,
-                                                     Long customerNumber, String gsmNumber) {
-        boolean anyProvided = StringUtils.hasText(firstName)
-                || StringUtils.hasText(lastName)
-                || StringUtils.hasText(nationalityId)
-                || customerNumber != null
-                || StringUtils.hasText(gsmNumber);
-        if (!anyProvided) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, MessageKeys.SEARCH_CRITERIA_REQUIRED,
-                    "At least one search criterion must be provided");
-        }
-    }
+    // NOTE: the former checkAtLeastOneSearchCriterionExists rule was REMOVED by the
+    // FR/AC v8 analyst decision of 2026-07-16 (AC-CUST-01-00 + ADR-005): a request
+    // with no criteria is now the valid "browse all active customers" mode.
 
     // TODO (intentional): accountNumber/orderNumber resolve to CUST_ACCT / CUST_ORD,
     // which belong to the future account/order domains. Until those exist this returns

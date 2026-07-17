@@ -1,0 +1,2071 @@
+{
+  "info": {
+    "name": "CRM Lite",
+    "description": "CRM Lite backend API collection. Import together with CRM-Lite.local.postman_environment.json and read docs/postman/README.md for startup order, execution order and how dynamic variables are populated. Business requests go through the gateway ({{gatewayBaseUrl}}); direct service URLs are internal/debug only.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Health",
+      "item": [
+        {
+          "name": "Gateway health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/actuator/health",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Config server health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{configBaseUrl}}/actuator/health",
+              "host": [
+                "{{configBaseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Internal/debug: direct config-server URL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Discovery (Eureka) health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{discoveryBaseUrl}}/actuator/health",
+              "host": [
+                "{{discoveryBaseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Internal/debug: direct discovery-server URL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer service health (direct)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{customerBaseUrl}}/actuator/health",
+              "host": [
+                "{{customerBaseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Internal/debug: direct customer-service URL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Lookup service health (direct)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{lookupBaseUrl}}/actuator/health",
+              "host": [
+                "{{lookupBaseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Internal/debug: direct lookup-service URL."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MERNIS stub health (direct)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mernisBaseUrl}}/actuator/health",
+              "host": [
+                "{{mernisBaseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Internal/debug: direct mernis-stub URL (mernis-stub has no gateway route)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run top-to-bottom after starting the stack (see docs/postman/README.md for the startup order)."
+    },
+    {
+      "name": "01 - Lookup Catalog",
+      "item": [
+        {
+          "name": "All statuses",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/statuses",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "statuses"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Statuses filtered by domain (GENERAL)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/statuses?domain=GENERAL",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "statuses"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "GENERAL"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Status by code (ACTV)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/statuses/ACTV",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "statuses",
+                "ACTV"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Contract id 1 = ACTV\", function () {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.id).to.eql(1);",
+                  "    pm.expect(b.shortCode).to.eql(\"ACTV\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "All types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/types",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "types"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Types filtered by domain (GENDER)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/types?domain=GENDER",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "types"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "GENDER"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Type by code (INDV)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/types/INDV",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "types",
+                "INDV"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Shared GNL_ST/GNL_TP catalogs owned by lookup-service (ADR-002), via the gateway."
+    },
+    {
+      "name": "02 - Cities and Districts",
+      "item": [
+        {
+          "name": "List cities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/cities",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cities"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Districts by city",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/cities/{{cityId}}/districts",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "cities",
+                "{{cityId}}",
+                "districts"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Customers - List and Search",
+      "item": [
+        {
+          "name": "Browse: GET /api/customers with NO query parameters (ADR-005)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "description": "AC-CUST-01-00: no criteria = all ACTIVE customers, A-Z, server-side paginated."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Browse mode returns a page of full detail rows\", function () {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.content).to.be.an(\"array\").that.is.not.empty;",
+                  "    const row = b.content[0];",
+                  "    [\"customerNumber\",\"firstName\",\"lastName\",\"birthDate\",\"gender\",\"nationalityId\",\"role\",\"status\"]",
+                  "        .forEach(k => pm.expect(row).to.have.property(k));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Pagination: page 0, size 1",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?page=0&size=1",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "1"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Exactly one row on the page\", function () {",
+                  "    pm.expect(pm.response.json().content.length).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by firstName (word-start, First+Middle)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?firstName=Ali",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "firstName",
+                  "value": "Ali"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by firstName via middle name (Nur)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?firstName=Nur",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "firstName",
+                  "value": "Nur"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by lastName (word-start)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?lastName=De",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "lastName",
+                  "value": "De"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by nationalityId (exact)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?nationalityId=12345678901",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "nationalityId",
+                  "value": "12345678901"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by customerId (business number, exact)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?customerId={{customerNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "customerId",
+                  "value": "{{customerNumber}}"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Filter by gsmNumber (prefix)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?gsmNumber=0532",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "gsmNumber",
+                  "value": "0532"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "OR across groups: firstName + gsmNumber",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?firstName=Ali&gsmNumber=0533",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "firstName",
+                  "value": "Ali"
+                },
+                {
+                  "key": "gsmNumber",
+                  "value": "0533"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "ADR-005 list/filter contract. Every row = full CustomerDetailResponse."
+    },
+    {
+      "name": "04 - Customers - Detail and Lifecycle",
+      "item": [
+        {
+          "name": "Customer detail (seed 1001)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Detail contract fields present\", function () {",
+                  "    const b = pm.response.json();",
+                  "    [\"customerNumber\",\"firstName\",\"middleName\",\"lastName\",\"fatherName\",\"motherName\",",
+                  "     \"birthDate\",\"gender\",\"nationalityId\",\"role\",\"status\"]",
+                  "        .forEach(k => pm.expect(b).to.have.property(k));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Atomic customer create (stores createdCustomerNumber)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "description": "Set a FREE 11-digit nationalityId in the environment first (not 99999999999, not a seed value). Turkish characters in the body are intentional — they must round-trip.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"demographic\": {\n    \"firstName\": \"Gözde\",\n    \"middleName\": null,\n    \"lastName\": \"Çağlar\",\n    \"fatherName\": \"Şükrü\",\n    \"motherName\": \"Ümmü\",\n    \"birthDate\": \"1992-03-15\",\n    \"gender\": \"Female\",\n    \"nationalityId\": \"{{nationalityId}}\"\n  },\n  \"addresses\": [\n    {\n      \"cityId\": \"{{cityId}}\",\n      \"districtId\": \"{{districtId}}\",\n      \"street\": \"Örnek Sokak\",\n      \"houseFlatNumber\": \"10/2\",\n      \"addressDescription\": \"Ev adresi\",\n      \"primary\": true\n    }\n  ],\n  \"contactMedium\": {\n    \"email\": \"gozde.caglar@example.com\",\n    \"homePhone\": \"02161112233\",\n    \"mobilePhone\": \"05321119988\",\n    \"fax\": null\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"Created active customer with business number\", function () {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.customerNumber).to.be.a(\"number\");",
+                  "    pm.expect(b.status).to.eql(\"ACTV\");",
+                  "    pm.expect(b.role).to.eql(\"Customer\");",
+                  "    pm.environment.set(\"createdCustomerNumber\", b.customerNumber);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Demographic update (created customer)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{createdCustomerNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{createdCustomerNumber}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Gözde\",\n  \"middleName\": \"Nur\",\n  \"lastName\": \"Çağlar\",\n  \"fatherName\": \"Şükrü\",\n  \"motherName\": \"Ümmü\",\n  \"birthDate\": \"1992-03-15\",\n  \"gender\": \"Female\",\n  \"nationalityId\": \"{{nationalityId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Middle name updated\", function () {",
+                  "    pm.expect(pm.response.json().middleName).to.eql(\"Nur\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer soft delete (created customer) — DESTRUCTIVE",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{createdCustomerNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{createdCustomerNumber}}"
+              ]
+            },
+            "description": "Passivates the whole aggregate. Run last in this folder; afterwards the created customer is gone and its nationalityId stays reserved forever (ADR-003)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail after soft delete -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{createdCustomerNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{createdCustomerNumber}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-CUST-NOT-FOUND\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-CUST-NOT-FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run in order: detail -> create -> update -> delete -> verify-404."
+    },
+    {
+      "name": "05 - Addresses",
+      "item": [
+        {
+          "name": "List addresses (seed 1001)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Stores first addressId\", function () {",
+                  "    const rows = pm.response.json();",
+                  "    pm.expect(rows).to.be.an(\"array\").that.is.not.empty;",
+                  "    pm.environment.set(\"addressId\", rows[0].addressId);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create address (stores createdAddressId)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses"
+              ]
+            },
+            "description": "City 2 = Ankara, district 3 = Cankaya (must belong to the selected city).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cityId\": 2,\n  \"districtId\": 3,\n  \"street\": \"Tunalı Hilmi Cad.\",\n  \"houseFlatNumber\": \"28/2\",\n  \"addressDescription\": \"İş adresi\",\n  \"primary\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.test(\"Stores createdAddressId\", function () {",
+                  "    pm.environment.set(\"createdAddressId\", pm.response.json().addressId);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "UPDATE ADDRESS with PUT (created address)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses/{{createdAddressId}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses",
+                "{{createdAddressId}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cityId\": 2,\n  \"districtId\": 3,\n  \"street\": \"Tunalı Hilmi Cad. Güncel\",\n  \"houseFlatNumber\": \"28/3\",\n  \"addressDescription\": \"İş adresi güncellendi\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set primary (created address)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses/{{createdAddressId}}/primary",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses",
+                "{{createdAddressId}}",
+                "primary"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"Now primary\", function () {",
+                  "    pm.expect(pm.response.json().primary).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Primary-address delete guard -> 409",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses/{{createdAddressId}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses",
+                "{{createdAddressId}}"
+              ]
+            },
+            "description": "createdAddressId is primary after the previous request, so deleting it must be blocked (AC-ADDR-04-02)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-ADDR-PRIMARY-DELETE\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ADDR-PRIMARY-DELETE\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set primary back to the original address",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses/{{addressId}}/primary",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses",
+                "{{addressId}}",
+                "primary"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete created address — DESTRUCTIVE",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses/{{createdAddressId}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses",
+                "{{createdAddressId}}"
+              ]
+            },
+            "description": "Deletable now: it is neither primary nor the last address. The UI shows MSG-ADDR-DELETE-CONFIRM before calling this (frontend interaction)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", function () {",
+                  "    pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Run in order. The delete-confirmation modal (MSG-ADDR-DELETE-CONFIRM) is frontend-only; the API executes the delete when called."
+    },
+    {
+      "name": "06 - Contact Medium",
+      "item": [
+        {
+          "name": "Get contact medium (seed 1001)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/contact-medium",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "contact-medium"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update contact medium",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/contact-medium",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "contact-medium"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ali.yeni@example.com\",\n  \"homePhone\": \"02161112233\",\n  \"mobilePhone\": \"05327778899\",\n  \"fax\": \"02161112234\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid contact data (VR-MOBILE) -> 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/contact-medium",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "contact-medium"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"ali.yeni@example.com\",\n  \"mobilePhone\": \"02121112233\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-VALIDATION-ERROR\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VALIDATION-ERROR\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 - MERNIS Stub",
+      "item": [
+        {
+          "name": "Verify accepted",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{mernisBaseUrl}}/api/mernis/verify",
+              "host": [
+                "{{mernisBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mernis",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nationalityId\": \"12345678901\",\n  \"firstName\": \"Ali\",\n  \"lastName\": \"Yildiz\",\n  \"birthDate\": \"1990-05-14\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"verified true\", function () {",
+                  "    pm.expect(pm.response.json().verified).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify deny-listed id rejected",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{mernisBaseUrl}}/api/mernis/verify",
+              "host": [
+                "{{mernisBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mernis",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nationalityId\": \"99999999999\",\n  \"firstName\": \"Red\",\n  \"lastName\": \"Deneme\",\n  \"birthDate\": \"1991-01-01\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test(\"verified false\", function () {",
+                  "    pm.expect(pm.response.json().verified).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid body -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{mernisBaseUrl}}/api/mernis/verify",
+              "host": [
+                "{{mernisBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "mernis",
+                "verify"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nationalityId\": \"12345678901\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "DIRECT service URLs (internal/debug): mernis-stub is a fake KPS simulation with no gateway route. No real personal data."
+    },
+    {
+      "name": "08 - Negative and Failure Scenarios",
+      "item": [
+        {
+          "name": "Duplicate nationality ID -> 409",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "description": "12345678901 belongs to seed customer 1001.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"demographic\": {\n    \"firstName\": \"Tekrar\",\n    \"lastName\": \"Deneme\",\n    \"birthDate\": \"1990-01-01\",\n    \"gender\": \"Male\",\n    \"nationalityId\": \"12345678901\"\n  },\n  \"addresses\": [\n    {\n      \"cityId\": 1,\n      \"districtId\": 1,\n      \"street\": \"Sok.\",\n      \"houseFlatNumber\": \"1\",\n      \"addressDescription\": \"Ev\",\n      \"primary\": true\n    }\n  ],\n  \"contactMedium\": {\n    \"email\": \"tekrar@example.com\",\n    \"mobilePhone\": \"05320001122\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-CUST-DUP-NATID\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-CUST-DUP-NATID\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Soft-deleted nationality ID still reserved -> 409 (ADR-003)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "description": "34567890123 belongs to SOFT-DELETED seed customer 1003 — permanent global uniqueness.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"demographic\": {\n    \"firstName\": \"Yeni\",\n    \"lastName\": \"Kisi\",\n    \"birthDate\": \"1990-01-01\",\n    \"gender\": \"Male\",\n    \"nationalityId\": \"34567890123\"\n  },\n  \"addresses\": [\n    {\n      \"cityId\": 1,\n      \"districtId\": 1,\n      \"street\": \"Sok.\",\n      \"houseFlatNumber\": \"1\",\n      \"addressDescription\": \"Ev\",\n      \"primary\": true\n    }\n  ],\n  \"contactMedium\": {\n    \"email\": \"yeni@example.com\",\n    \"mobilePhone\": \"05320003344\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-CUST-DUP-NATID\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-CUST-DUP-NATID\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "MERNIS rejection through customer create -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "description": "99999999999 is deny-listed in mernis-stub (KR-10 / AC-CUST-03-06).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"demographic\": {\n    \"firstName\": \"Red\",\n    \"lastName\": \"Edilen\",\n    \"birthDate\": \"1991-01-01\",\n    \"gender\": \"Female\",\n    \"nationalityId\": \"99999999999\"\n  },\n  \"addresses\": [\n    {\n      \"cityId\": 1,\n      \"districtId\": 1,\n      \"street\": \"Sok.\",\n      \"houseFlatNumber\": \"2\",\n      \"addressDescription\": \"Ev\",\n      \"primary\": true\n    }\n  ],\n  \"contactMedium\": {\n    \"email\": \"red@example.com\",\n    \"mobilePhone\": \"05320005566\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-CUST-NATID-VERIFICATION-FAILED\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-CUST-NATID-VERIFICATION-FAILED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Under-18 customer -> 400 MSG-VAL-AGE-MIN",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"demographic\": {\n    \"firstName\": \"Genc\",\n    \"lastName\": \"Kisi\",\n    \"birthDate\": \"2015-01-01\",\n    \"gender\": \"Male\",\n    \"nationalityId\": \"10000000097\"\n  },\n  \"addresses\": [\n    {\n      \"cityId\": 1,\n      \"districtId\": 1,\n      \"street\": \"Sok.\",\n      \"houseFlatNumber\": \"3\",\n      \"addressDescription\": \"Ev\",\n      \"primary\": true\n    }\n  ],\n  \"contactMedium\": {\n    \"email\": \"genc@example.com\",\n    \"mobilePhone\": \"05320007788\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-VAL-AGE-MIN\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VAL-AGE-MIN\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid email + mobile -> 400 field-level validation",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"demographic\": {\n    \"firstName\": \"Bozuk\",\n    \"lastName\": \"Veri\",\n    \"birthDate\": \"1990-01-01\",\n    \"gender\": \"Male\",\n    \"nationalityId\": \"10000000096\"\n  },\n  \"addresses\": [\n    {\n      \"cityId\": 1,\n      \"districtId\": 1,\n      \"street\": \"Sok.\",\n      \"houseFlatNumber\": \"4\",\n      \"addressDescription\": \"Ev\",\n      \"primary\": true\n    }\n  ],\n  \"contactMedium\": {\n    \"email\": \"not-an-email\",\n    \"mobilePhone\": \"02121112233\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"Field-level validation errors present\", function () {",
+                  "    pm.expect(pm.response.json().validationErrors).to.be.an(\"object\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Invalid city/district relation -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/{{customerNumber}}/addresses",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "{{customerNumber}}",
+                "addresses"
+              ]
+            },
+            "description": "District 3 (Cankaya) belongs to Ankara (city 2), not Istanbul (city 1).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"cityId\": 1,\n  \"districtId\": 3,\n  \"street\": \"Ters\",\n  \"houseFlatNumber\": \"9\",\n  \"addressDescription\": \"Hatali\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Non-numeric nationalityId filter -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?nationalityId=abc",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "nationalityId",
+                  "value": "abc"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-VALIDATION-ERROR\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VALIDATION-ERROR\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "accountNumber filter -> 501 future domain",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?accountNumber=0101112900",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "accountNumber",
+                  "value": "0101112900"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 501\", function () {",
+                  "    pm.response.to.have.status(501);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-FEATURE-NOT-IMPLEMENTED\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-FEATURE-NOT-IMPLEMENTED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "orderNumber filter -> 501 future domain",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers?orderNumber=5001",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers"
+              ],
+              "query": [
+                {
+                  "key": "orderNumber",
+                  "value": "5001"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 501\", function () {",
+                  "    pm.response.to.have.status(501);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-FEATURE-NOT-IMPLEMENTED\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-FEATURE-NOT-IMPLEMENTED\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Removed /search alias stays gone",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/customers/search?firstName=Ali",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customers",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "firstName",
+                  "value": "Ali"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"No /search alias: 400 or 404, never 200\", function () {",
+                  "    pm.expect([400, 404]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown lookup code -> 404 MSG-LOOKUP-NOT-FOUND",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/lookups/statuses/NOPE",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "lookups",
+                "statuses",
+                "NOPE"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test(\"messageKey is MSG-LOOKUP-NOT-FOUND\", function () {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-LOOKUP-NOT-FOUND\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Documented failure behaviour. lookup-service/mernis-stub OUTAGE tests (503 MSG-SERVICE-UNAVAILABLE / MSG-MERNIS-UNAVAILABLE) require stopping those services — see docs/api/mernis-stub.md §7."
+    }
+  ]
+}

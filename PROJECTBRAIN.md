@@ -4,10 +4,14 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-11 (customer aggregate tamamlandı: workbook şeması + adres/iletişim
-> modülleri + atomik create; merkezi GNL_ST/GNL_TP kataloğu için **lookup-service** ve KR-10 için
-> **mernis-stub** eklendi; nationalityId KALICI global tekillik [ADR-003]; `/api/customers/search`
-> alias'ı KALDIRILDI; Testcontainers test altyapısı — bkz. ADR-001..004)
+> **Son güncelleme:** 2026-07-16 (FR/AC v8 Final'in 16.07.2026 revizyonu ile mutabakat —
+> bkz. `docs/requirements/document-delta.md`: **AC-CUST-01-00** login sonrası tüm müşteri listesi;
+> `GET /api/customers` artık kritersiz **browse modu** + `Page<CustomerDetailResponse>` dönüyor
+> [ADR-005]; zorunlu-kriter kuralı ve `MSG-SEARCH-CRITERIA-REQUIRED` KALDIRILDI; MERNIS mesaj
+> anahtarları analist kataloğuyla hizalandı: `MSG-CUST-NATID-VERIFICATION-FAILED` +
+> `MSG-MERNIS-UNAVAILABLE`; varsayılan dil İngilizce; Postman koleksiyonu `docs/postman/`;
+> Git akışı `CONTRIBUTING.md` + `docs/runbooks/git-workflow.md`. Önceki durum: customer
+> agregatı + lookup-service + mernis-stub [ADR-001..004].)
 > **Bu dosyayı güncel tut:** Her anlamlı değişiklikten sonra ilgili bölümü ve "Sırada ne var" listesini güncelle.
 
 ---
@@ -58,7 +62,21 @@ workbook şemasıyla implemente ediyor; paylaşılan GNL_ST/GNL_TP katalogların
 | `auth-service` | 8081 | Kimlik doğrulama | ⛔ İskelet — yön: Keycloak (ADR-004) |
 | `customer-service` | 8082 | Müşteri agregatı: FR-CUST + FR-ADDR + FR-CNTC (`customer_db`) | ✅ Çalışıyor — Postgres + lookup-service + mernis-stub (yazma işlemleri için) |
 | `lookup-service` | 8083 | **Paylaşılan GNL_ST/GNL_TP kataloglarının TEK sahibi** (`lookup_db`, ADR-002) | ✅ Çalışıyor — Postgres gerekli |
-| `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik | ✅ Çalışıyor |
+| `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL | ✅ Çalışıyor |
+
+**Planlanan servisler (henüz YOK — analist/mimari onayı bekliyor; ayrıntı:
+`docs/architecture/service-boundaries.md` yol haritası):**
+
+| Planlanan | Muhtemel sahiplik | Durum |
+|---|---|---|
+| auth/security milestone | Kimlik doğrulama mimarisi + implementasyonu (yön: Keycloak, ADR-004). Mevcut auth-service iskeletinin korunup korunmayacağı bu milestone'un tasarım kararı — "her şey iskelete yazılacak" varsayma | ⏭️ **SIRADAKİ büyük adım** |
+| localization-service | FR-LANG merkezi etiket/mesaj kataloğu (varsayılan dil artık **İngilizce**, 16.07.2026). Backend zaten dil-bağımsız `messageKey` dönüyor | 🗓️ Planlı, başlanmadı |
+| account-service | ACCT_TP + CUST_ACCT (fatura hesapları) | 🗓️ Planlı, sınır analist-final değil |
+| product-service | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* — product+catalog kapsamı birleşebilir | 🗓️ Planlı, sınır analist-final değil |
+| order-service | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + satış orkestrasyonu (FR-SALE) | 🗓️ Planlı, sınır analist-final değil |
+
+**address-service / contact-service ASLA ayrı deployable OLMAYACAK** — ADR-001 gereği
+customer-service'in iç modülleri.
 
 ---
 
@@ -205,22 +223,32 @@ crm-lite-project-dev/
 - **İş kimliği:** `cust.customer_number` (sequence, 1001'den başlar) dışa açılan Customer ID'dir;
   içsel `cust.id` API'ye asla sızmaz. Arama parametresi `customerId` ve `{customerNumber}` path'leri
   hep iş numarasıdır.
-- **Endpoint'ler:** arama TEK kanonik endpoint `GET /api/customers` — **`/api/customers/search`
-  alias'ı KALDIRILDI** (yayınlanmış tüketici yok). + detay/create/update/delete, `/addresses` CRUD +
-  `PATCH .../primary`, `/contact-medium` GET/PUT, `GET /api/cities(/{id}/districts)`.
-  Tam liste: docs/api/customer-service.md.
-- **Arama (KR-01, final semantik):** `firstName` = First+Middle birleşiminde **kelime-başı** eşleşme
-  ("Kemal" → "Ali Kemal"i bulur; "li" → "Ali"yi BULMAZ); `lastName` = Last Name'de kelime-başı; ikisi
-  doluysa AND. `gsmNumber` = mobile_phone **prefix** (CNTC_MEDIUM artık yerel → 501 YOK);
-  `nationalityId`/`customerId` birebir. Dolu kriter grupları OR'lanır; yalnız aktif müşteriler;
-  sonuçlar müşteri bazlı distinct (tüm join'ler to-one); 20/sayfa, firstName→lastName sıralı.
-  `accountNumber`/`orderNumber` → hâlâ 501 (account/order domain'leri yok).
+- **Endpoint'ler:** liste+filtre TEK kanonik endpoint `GET /api/customers` (ADR-005) —
+  **`/api/customers/search` alias'ı KALDIRILDI** (yayınlanmış tüketici yok). + detay/create/update/
+  delete, `/addresses` CRUD + `PATCH .../primary`, `/contact-medium` GET/PUT,
+  `GET /api/cities(/{id}/districts)`. Tam liste: docs/api/customer-service.md.
+- **Liste + filtre (ADR-005, 16.07.2026 revizyonu — AC-CUST-01-00):** kritersiz istek artık
+  **browse modu**: TÜM aktif müşteriler, sunucu taraflı sayfalı (varsayılan page=0, size=20),
+  firstName→lastName→customerNumber A-Z. Zorunlu-kriter kuralı
+  (`checkAtLeastOneSearchCriterionExists` + `MSG-SEARCH-CRITERIA-REQUIRED`) KALDIRILDI.
+  Her satır **tam `CustomerDetailResponse` kontratı** taşır (tekil detay endpoint'iyle birebir aynı
+  alanlar; eski `CustomerSearchResponse` ve `customerId` yanıt alanı SİLİNDİ — sorgu parametresi
+  `customerId` adını koruyor). N+1 koruması: satır sorgusu to-one detay grafiğini fetch-join'ler,
+  count sorgusu düz join kullanır.
+- **Filtre semantiği (KR-01, değişmedi):** `firstName` = First+Middle birleşiminde **kelime-başı**
+  eşleşme ("Kemal" → "Ali Kemal"i bulur; "li" → "Ali"yi BULMAZ); `lastName` = Last Name'de
+  kelime-başı; ikisi doluysa AND. `gsmNumber` = mobile_phone **prefix**; `nationalityId`/`customerId`
+  birebir. Dolu kriter grupları OR'lanır; yalnız aktif müşteriler; sonuçlar müşteri bazlı distinct
+  (tüm join'ler to-one). `accountNumber`/`orderNumber` → hâlâ 501 (account/order domain'leri yok).
+  KR-04 notu: UI varsayılanı 15 (15/30/50 Per Page) — API varsayılanı 20; açık kayıtlı fark, ADR-005.
 - **Atomik create (AC-CUST-03-21 + KR-10):** tek istek `{demographic, addresses[], contactMedium}` →
   tek `@Transactional` içinde: bean validation (VR-NAME/NATID/EMAIL/PHONE/MOBILE) → iş kuralları
   (yaş/doğum tarihi/NATID tekilliği/primary normalizasyonu/city-district) → **merkezi katalog çözümü**
-  (ACTV/INDV/MALE-FEMALE, lookup-service üzerinden; ulaşılamazsa 503 fail-closed) → **MERNIS doğrulaması**
-  (reddedilirse 400 `MSG-NATID-VERIFY-FAILED`, ulaşılamazsa 503; müşteri OLUŞMAZ) → PARTY→IND→PARTY_ROLE→
-  CUST→ADDR→CNTC_MEDIUM persist. Herhangi bir hata = hiçbir satır kalmaz (entegrasyon testli).
+  (ACTV/INDV/MALE-FEMALE, lookup-service üzerinden; ulaşılamazsa 503 `MSG-SERVICE-UNAVAILABLE`
+  fail-closed) → **MERNIS doğrulaması** (reddedilirse 400 `MSG-CUST-NATID-VERIFICATION-FAILED`,
+  ulaşılamazsa 503 `MSG-MERNIS-UNAVAILABLE` — 16.07.2026 analist katalog anahtarları; müşteri
+  OLUŞMAZ) → PARTY→IND→PARTY_ROLE→CUST→ADDR→CNTC_MEDIUM persist. Herhangi bir hata = hiçbir satır
+  kalmaz (entegrasyon testli).
 - **nationalityId tekilliği (ADR-003 — §5.14'ü GEÇERSİZ KILAR):** analist kararıyla **kalıcı ve global**:
   `ind.nationality_id` DB UNIQUE (soft-deleted satırlar DAHİL). Pasif müşteri NATID'sini serbest bırakmaz.
   Create tüm satırlara bakar; update yalnız kendi kaydını hariç tutar. Yarış durumunda DB kısıtı
@@ -232,18 +260,25 @@ crm-lite-project-dev/
   code kolonu yok, iç arama `findByRoleName`.
 - **Türkçe karakter desteği:** VR-NAME regex'i (1-50, trim-önce) korunuyor; curl'de gövdeyi
   `--data-binary @-` heredoc ile gönder (argv'de native curl bozar — §5.15).
-- **Mesaj anahtarları:** FR kataloğundakiler + dokümante edilmiş ekler: `MSG-NATID-VERIFY-FAILED`,
-  `MSG-SERVICE-UNAVAILABLE`, `MSG-ADDR-LAST-DELETE`, `MSG-ADDR-PRIMARY-DELETE` (+ önceki
-  `MSG-VALIDATION-ERROR`/`MSG-INTERNAL-ERROR`/`MSG-SEARCH-CRITERIA-REQUIRED`/`MSG-FEATURE-NOT-IMPLEMENTED`).
+- **Mesaj anahtarları (16.07.2026 kataloğuyla hizalı):** analist kataloğundan
+  `MSG-CUST-NATID-VERIFICATION-FAILED` (MERNIS reddi, 400) ve `MSG-MERNIS-UNAVAILABLE` (KPS
+  erişilemez, 503) — eski proje-özel `MSG-NATID-VERIFY-FAILED` KALDIRILDI, MERNIS kesintileri artık
+  genel `MSG-SERVICE-UNAVAILABLE`'ı kullanmıyor. Dokümante edilmiş proje ekleri:
+  `MSG-SERVICE-UNAVAILABLE` (yalnız katalog kesintisi, ADR-002), `MSG-ADDR-LAST-DELETE`,
+  `MSG-ADDR-PRIMARY-DELETE`, `MSG-VALIDATION-ERROR`, `MSG-INTERNAL-ERROR`,
+  `MSG-FEATURE-NOT-IMPLEMENTED`. `MSG-SEARCH-CRITERIA-REQUIRED` KALDIRILDI (ADR-005).
 - **Gateway route'ları:** `/api/customers/**` ve `/api/cities/**` → `lb://customer-service`;
   `/api/lookups/**` → `lb://lookup-service`.
-- **Testler (63 test, hepsi geçiyor):** birim (`CustomerBusinessRulesTest`, `AddressBusinessRulesTest`,
-  `LookupCatalogServiceTest`, `GlobalExceptionHandlerTest`) + **PostgreSQL Testcontainers** entegrasyon
-  (`CustomerServiceIntegrationTest`: atomik rollback senaryoları, ADR-003 rezervasyonu, kelime-başı arama
-  matrisi, GSM prefix, adres invariant'ları, soft-delete metadata, customer_db'de gnl tablosu olmadığının
-  kanıtı). Lookup/MERNIS istemcileri interface seviyesinde mock'lanır — gerçek `LookupCatalogService`
-  doğrulama/cache mantığı testte de çalışır. Not: Testcontainers 1.21.3 + Docker 29 uyumu için surefire
-  `-Dapi.version=1.44` pin'li (pom yorumunda gerekçe).
+- **Testler (56 test, hepsi geçiyor — 2026-07-16 çalıştırması):** birim (`CustomerBusinessRulesTest`,
+  `AddressBusinessRulesTest`, `LookupCatalogServiceTest`, `GlobalExceptionHandlerTest`) + **PostgreSQL
+  Testcontainers** entegrasyon (`CustomerServiceIntegrationTest`, 21 test: ADR-005 browse modu —
+  kritersiz listede tüm aktifler + soft-deleted hariç + A-Z sıra + tam detay alanları + sayfalama;
+  atomik rollback senaryoları, ADR-003 rezervasyonu, kelime-başı arama matrisi, GSM prefix, adres
+  invariant'ları, soft-delete metadata, customer_db'de gnl tablosu olmadığının kanıtı, `/search`
+  alias'ının yokluğu). Eski zorunlu-kriter testleri kuralla birlikte SİLİNDİ. Lookup/MERNIS istemcileri
+  interface seviyesinde mock'lanır — gerçek `LookupCatalogService` doğrulama/cache mantığı testte de
+  çalışır. Not: Testcontainers 1.21.3 + Docker/Podman 29 uyumu için surefire `-Dapi.version=1.44`
+  pin'li (pom yorumunda gerekçe).
 
 ### 4.5 lookup-service ✅ (YENİ — paylaşılan katalog sahibi, ADR-002)
 - Port 8083, DB `lookup_db`. **GNL_ST ve GNL_TP tablolarının tüm sistemdeki TEK sahibi.**
@@ -567,32 +602,38 @@ ardından customer-service'i yeniden başlatın (Flyway V1/V2'yi temiz şemaya u
 
 ---
 
-## 8. Doğrulama (Smoke Test)
+## 8. Doğrulama (Smoke Test — kompakt)
 
-Tüm stack ayaktayken (sıra: §7.1):
-- `GET http://localhost:8888/customer-service/default` → config içeriği döner (config-server çalışıyor).
-- `GET http://localhost:8761` → Eureka dashboard: `API-GATEWAY`, `LOOKUP-SERVICE`, `MERNIS-STUB`,
-  `CUSTOMER-SERVICE` kayıtlı.
-- `GET http://localhost:8080/api/lookups/statuses/ACTV` → `{"id":1,"shortCode":"ACTV",...}` —
-  merkezi katalog gateway üzerinden çalışıyor (ADR-002).
-- `GET http://localhost:8080/api/auth/login` → **503** temiz JSON — auth-service yokken beklenen
-  (`GatewayExceptionHandler`, §4.2).
-- `GET http://localhost:8080/api/customers?firstName=Ali` → seed'deki 1001 (Ali Yildiz) döner;
-  `role":"Customer"`. (`/api/customers/search` KALDIRILDI — artık alias yok.)
-- `GET http://localhost:8080/api/customers?firstName=Nur` → 1002 (Zeynep **Nur** Demir — kelime-başı
-  eşleşme middle name üzerinden, KR-01).
-- `GET http://localhost:8080/api/customers?customerId=1003` → boş (soft-deleted seed müşterisi görünmez).
-- Tam curl dizisi: docs/api/customer-service.md.
+Tüm stack ayaktayken (sıra: §7.1). Her istek durum kodunu basar
+(`-w "\nHTTP Status: %{http_code}\n"`):
+
+```bash
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8888/customer-service/default   # config içeriği
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8761/actuator/health            # Eureka (dashboard: 8761)
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/api/lookups/statuses/ACTV  # merkezi katalog, gateway üzerinden (ADR-002)
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/api/auth/login             # 503 beklenen (auth-service yok, §4.2)
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers"            # ADR-005 browse: TÜM aktif müşteriler, A-Z
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?firstName=Nur"     # 1002 (kelime-başı, middle name, KR-01)
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?customerId=1003"   # boş (soft-deleted görünmez)
+```
+
+Satırlar artık tam detay kontratı taşır (`customerNumber`, ... , `role`, `status` — ADR-005);
+`/api/customers/search` alias'ı YOK. **Tam curl katalogları:** docs/api/customer-service.md,
+docs/api/shared-lookup-service.md, docs/api/mernis-stub.md; başlangıç sırası + smoke:
+docs/runbooks/local-development.md; **Postman koleksiyonu:** docs/postman/.
 
 ---
 
 ## 9. Sırada Ne Var (Roadmap / Öncelik)
 
-### 9.1 Bir sonraki büyük adım — müşteri AGREGATI TAMAMLANDI ✅ (2026-07-11)
-`customer-service` final workbook şemasıyla FR-CUST + FR-ADDR + FR-CNTC'nin tamamını implemente ediyor
-(§4.4); paylaşılan kataloglar `lookup-service`'te (§4.5), KR-10 için `mernis-stub` (§4.6) ayakta.
-**Adres/iletişim için ayrı servis YOK ve PLANLANMIYOR** (ADR-001). Kalan büyük adımlar: auth
-(Keycloak yönü, ADR-004), account/product/order domain'leri ve frontend.
+### 9.1 Bir sonraki büyük adım — KİMLİK DOĞRULAMA / GÜVENLİK mimarisi ve implementasyonu
+Müşteri agregatı TAMAMLANDI ✅ (2026-07-11) ve ADR-005 liste kontratı UYGULANDI ✅ (2026-07-16).
+**Sıradaki milestone: authentication/security** — mimari tasarım + implementasyon (yön: Keycloak,
+ADR-004). Bu, "mevcut auth-service iskeletini doldur" demek DEĞİL: iskeletin korunması, ince bir
+facade'a dönüşmesi veya kaldırılması bu milestone'un tasarım kararıdır (bkz.
+docs/architecture/service-boundaries.md yol haritası). Sonrası: account/product/order domain'leri,
+FR-LANG lokalizasyon (varsayılan dil İngilizce) ve frontend.
+**Adres/iletişim için ayrı servis YOK ve PLANLANMIYOR** (ADR-001).
 
 ### 9.2 auth-service'i tamamlama (blokör işler)
 - [ ] PostgreSQL zaten compose'da mevcut (`customer-service` için eklendi) — auth-service aynı Postgres
@@ -641,6 +682,36 @@ Tüm stack ayaktayken (sıra: §7.1):
 
 ---
 
+## 9A. Git Çalışma Akışı (özet + linkler)
+
+Kurallar kısa: `main` = yalnız stabil demo/release; `dev` = entegre, review'lı geliştirme tabanı;
+iş her zaman güncel `origin/dev`'den açılan kısa ömürlü `feature/*`, `fix/*`, `docs/*`,
+`refactor/*`, `test/*`, `chore/*` dallarında yapılır. Akış: temiz working tree → `git fetch
+--prune` + `git pull --ff-only` ile dev'i tazele → dal aç → tek amaçlı değişiklik →
+build/test/diff kontrolü → **yalnız amaçlanan dosyaları** stage'le → Conventional Commit → push →
+**base=dev** PR → en az bir review → konuşmaları çöz → **Squash and merge** → dev'i tazele, dalı
+sil. dev/main'e doğrudan commit, kör `git add .`, paylaşılan dala force-push YASAK. Release:
+dev → PR → main (+ opsiyonel tag); `release/*` dalı şimdilik yok. WIP commit'ler lokal olarak
+serbest (PR squash'lanıyor).
+
+- **Kısa kurallar:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Komut komut tam akış** (conflict/stash/kurtarma senaryoları dahil):
+  [docs/runbooks/git-workflow.md](docs/runbooks/git-workflow.md)
+
+## 9B. Açık Analist/Doküman Çelişkileri (sessizce çözülmedi — kayıt altında)
+
+Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
+
+1. **NATID "aktif" ifadesi:** use-case dokümanı (FR-CUST-03 alternatif adım 4.5) hâlâ "eşleşen
+   **aktif** bir müşteri" diyor; FR AC-CUST-03-12 (nitelik yok) + ADR-003 (kalıcı global tekillik)
+   geçerli. 16.07.2026 revizyonu bu çelişkiyi temizlemedi — analist tarafında açık.
+2. **draw.io FR-CUST-01 "içinde-geçen" notu:** KR-01 kelime-başı eşleşmeyle çelişiyor; KR-01 geçerli.
+3. **KR-04 varsayılan sayfa boyutu:** analist UI varsayılanı 15 (15/30/50); API varsayılanı 20
+   (ADR-005 ekip kararı). Frontend `size` parametresini açıkça gönderecek; analistler API
+   varsayılanının da 15 olmasını isterse tek satırlık değişiklik.
+4. **Use-case FR-CUST-03'te iki adet "Adım 4.5"** — kaynak dokümanda editoryal hata; analiste
+   bildirilecek.
+
 ## 10. Bilinen Teknik Borç / Notlar
 
 - **auth-service tamamen iskelet** — çalıştırmayı deneme, Postgres+kod olmadan çökecektir (beklenen).
@@ -677,8 +748,9 @@ Tüm stack ayaktayken (sıra: §7.1):
 
 - Bu dosyayı ve `§5` (kararlar) + `§6` (WebMVC tuzağı) bölümlerini **kod önermeden önce** oku.
 - **Bağlayıcı mimari kararlar `docs/architecture/adr/`'de** (ADR-001 agregat sınırı, ADR-002 merkezi
-  GNL katalogları, ADR-003 kalıcı NATID tekilliği, ADR-004 Keycloak yönü) — bunlarla çelişen eski
-  metinler (bu dosyanın tarihsel bölümleri, use-case dokümanı, draw.io) geçersizdir.
+  GNL katalogları, ADR-003 kalıcı NATID tekilliği, ADR-004 Keycloak yönü, ADR-005 müşteri
+  liste+filtre kontratı) — bunlarla çelişen eski metinler (bu dosyanın tarihsel bölümleri,
+  use-case dokümanı, draw.io) geçersizdir. Açık çelişki kaydı: §9B + docs/requirements/document-delta.md.
 - Final gereksinimler `docs/source/requirements`'ta; `Final` adlı dosyalar eskileri ezer (CLAUDE.md).
 - Gateway ile ilgili herhangi bir şey yaparken WebFlux örneği kopyalama — §6 tablosuna uy.
 - Docker/Compose ile ilgili değişiklikte **root build context** kuralını (§5.2) koru.

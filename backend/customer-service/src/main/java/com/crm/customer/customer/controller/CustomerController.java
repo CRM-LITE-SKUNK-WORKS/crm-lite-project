@@ -3,7 +3,6 @@ package com.crm.customer.customer.controller;
 import com.crm.customer.customer.dto.request.CustomerCreateRequest;
 import com.crm.customer.customer.dto.request.CustomerUpdateRequest;
 import com.crm.customer.customer.dto.response.CustomerDetailResponse;
-import com.crm.customer.customer.dto.response.CustomerSearchResponse;
 import com.crm.customer.customer.service.CustomerService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
@@ -26,10 +25,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Canonical customer API. GET /api/customers is the single search endpoint (the old
- * /api/customers/search alias was removed — no released consumers). All public
- * identifiers ({customerNumber} path variables and the customerId query parameter)
- * are the business customer number, never the internal database id.
+ * Canonical customer API. GET /api/customers is the single list AND filter endpoint
+ * (ADR-005): with no query parameters it browses all active customers (AC-CUST-01-00),
+ * with parameters it filters (KR-01); the old /api/customers/search alias was removed —
+ * no released consumers. All public identifiers ({customerNumber} path variables and
+ * the customerId query parameter) are the business customer number, never the internal
+ * database id.
  */
 @RestController
 @RequestMapping("/api/customers")
@@ -45,7 +46,7 @@ public class CustomerController {
     private final CustomerService customerService;
 
     @GetMapping
-    public ResponseEntity<Page<CustomerSearchResponse>> search(
+    public ResponseEntity<Page<CustomerDetailResponse>> search(
             @RequestParam(required = false) String firstName,
             @RequestParam(required = false) String lastName,
             @RequestParam(required = false) @Pattern(regexp = NUMERIC_REGEX, message = NUMERIC_ONLY_MESSAGE) String nationalityId,
@@ -56,14 +57,14 @@ public class CustomerController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        // KR-04: firstName ASC, then lastName ASC; customerNumber as a stable tiebreak
-        // so server-side pages never shuffle equal names.
+        // KR-04 / AC-CUST-01-00: firstName ASC, then lastName ASC (A-Z); customerNumber
+        // as a stable tiebreak so server-side pages never shuffle equal names.
         Pageable pageable = PageRequest.of(page, size,
                 Sort.by(Sort.Order.asc("partyRole.party.individual.firstName"),
                         Sort.Order.asc("partyRole.party.individual.lastName"),
                         Sort.Order.asc("customerNumber")));
 
-        Page<CustomerSearchResponse> result = customerService.search(
+        Page<CustomerDetailResponse> result = customerService.search(
                 firstName, lastName, nationalityId, customerId, gsmNumber, accountNumber, orderNumber, pageable);
         return ResponseEntity.ok(result);
     }

@@ -52,13 +52,21 @@ spring:
               - profile
         provider:
           keycloak:
-            # Endpoints are configured explicitly (no OIDC discovery at startup) so
-            # the gateway does not hard-depend on Keycloak being up before it, and
-            # so browser-facing vs server-to-server URLs can differ (ADR-006 §issuer):
-            #   - authorization endpoint -> browser-facing base
-            #   - token/JWKS/userinfo    -> internal base
-            #   - issuer-uri             -> canonical value used for ID-token validation
-            issuer-uri: ${crm.security.keycloak.base-url}/realms/${crm.security.keycloak.realm}
+            # Endpoints are configured explicitly, and issuer-uri is deliberately NOT
+            # set, so Spring Boot performs NO OIDC discovery at startup. This matters
+            # for two reasons (ADR-006 §issuer):
+            #   1. The gateway must not hard-depend on Keycloak being reachable before
+            #      it can start.
+            #   2. Browser-facing and server-to-server URLs differ. Keycloak pins the
+            #      issuer to the browser-facing http://localhost:8180 (KC_HOSTNAME), which
+            #      is unreachable from inside the compose network. Setting issuer-uri would
+            #      force Spring Boot to fetch .well-known/openid-configuration from that
+            #      browser-facing host at startup and the container would fail to boot.
+            # Endpoint split:
+            #   - authorization endpoint -> browser-facing base (localhost:8180)
+            #   - token/JWKS/userinfo    -> internal base (keycloak:8180 in compose)
+            # The ID token's signature is still verified via jwk-set-uri; the access-token
+            # issuer that domain services enforce (ADR-009) is unaffected by this file.
             authorization-uri: ${crm.security.keycloak.base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/auth
             token-uri: ${crm.security.keycloak.internal-base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/token
             jwk-set-uri: ${crm.security.keycloak.internal-base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/certs

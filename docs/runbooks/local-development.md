@@ -142,6 +142,9 @@ mvn -pl backend/mernis-stub      test       # no Docker needed
   shaded docker-java otherwise probes Docker 29+ engines with the too-old API v1.32.
 - The gateway E2E suite binds port **8080** (the committed realm's redirect URI) —
   don't run it while a local gateway instance is up.
+- Full Docker/Testcontainers troubleshooting (Rancher Desktop engine selection,
+  `~/.testcontainers.properties`, env var overrides, diagnostic script, exact
+  troubleshooting order): see [`docs/runbooks/testcontainers.md`](testcontainers.md).
 
 ## Ports
 

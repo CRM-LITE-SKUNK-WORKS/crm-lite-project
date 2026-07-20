@@ -18,7 +18,8 @@ before your first branch.
    `git pull --ff-only origin dev`.
 2. `git switch -c <type>/<short-description>` — one purpose per branch.
 3. Make the change; run format/build/tests (`mvn clean verify`; integration tests
-   need Docker) and review `git diff`.
+   need Docker — see [docs/runbooks/testcontainers.md](docs/runbooks/testcontainers.md)
+   if Testcontainers can't find a Docker environment) and review `git diff`.
 4. Stage **only intended files** (never a blind `git add .`), review
    `git diff --cached`, commit with a
    [Conventional Commit](https://www.conventionalcommits.org/) message.

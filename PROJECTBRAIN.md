@@ -788,7 +788,9 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
   "yapıldığı" HİÇBİR yerde iddia edilmiyor.
 - **Testcontainers kurulu** — entegrasyon testleri Docker gerektirir; Docker kapalıysa yalnız o test
   sınıfları düşer (birim testleri etkilenmez). Surefire `-Dapi.version=1.44` pin'i: Testcontainers 1.21.3'ün
-  gömülü docker-java'sı Docker 29 motoruna eski API versiyonuyla ping atıyor (bkz. pom yorumları).
+  gömülü docker-java'sı Docker 29 motoruna eski API versiyonuyla ping atıyor (bkz. pom yorumları). Docker/
+  Testcontainers keşif sorunları için ayrıntılı runbook: `docs/runbooks/testcontainers.md` ve
+  `scripts/testcontainers-doctor.sh` (salt-okunur teşhis betiği).
 - **Lombok `annotationProcessorPaths` düzeltmesi** artık customer-service + lookup-service + mernis-stub
   pom'larında (JDK 25 tuzağı, bkz. §5.9); kök `<pluginManagement>`'a taşımak hâlâ mantıklı bir iyileştirme.
 

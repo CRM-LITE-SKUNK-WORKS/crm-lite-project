@@ -1,6 +1,6 @@
 package com.crm.customer.contact.service.impl;
 
-import com.crm.customer.common.AuditActor;
+import com.crm.customer.common.CurrentActorProvider;
 import com.crm.customer.common.exception.BusinessException;
 import com.crm.customer.common.exception.MessageKeys;
 import com.crm.customer.contact.dto.ContactMediumRequest;
@@ -22,6 +22,8 @@ public class ContactMediumServiceImpl implements ContactMediumService {
 
     private final ContactMediumRepository contactMediumRepository;
     private final CustomerBusinessRules customerBusinessRules;
+    // Audit attribution (ADR-004): Keycloak sub of the authenticated request.
+    private final CurrentActorProvider currentActor;
 
     @Override
     public ContactMediumResponse get(Long customerNumber) {
@@ -37,7 +39,7 @@ public class ContactMediumServiceImpl implements ContactMediumService {
         contact.setHomePhone(request.getHomePhone());
         contact.setMobilePhone(request.getMobilePhone());
         contact.setFax(request.getFax());
-        contact.markUpdated(AuditActor.SYSTEM);
+        contact.markUpdated(currentActor.get());
         return ContactMediumResponse.from(contact);
     }
 

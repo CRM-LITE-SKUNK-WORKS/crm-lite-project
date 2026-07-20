@@ -6,8 +6,39 @@ MERNIS stub, negative scenarios). Collection schema: **Postman v2.1**.
 
 | File | Purpose |
 |---|---|
-| `CRM-Lite.postman_collection.json` | The collection (folders 00–08) |
-| `CRM-Lite.local.postman_environment.json` | Local environment: base URLs + dynamic variables. **Contains no secrets** |
+| `CRM-Lite.postman_collection.json` | The collection (folders 00–09) |
+| `CRM-Lite.local.postman_environment.json` | Local environment: base URLs + dynamic variables. **Contains no secrets and no tokens** |
+
+## Authentication (READ FIRST — ADR-006..008)
+
+Since the auth milestone, **every business request through the gateway requires a
+logged-in session**; anonymous calls return **401 `MSG-AUTH-UNAUTHORIZED`** and
+unsafe methods additionally require the CSRF header. The gateway is a
+cookie-session BFF — it does **not** accept `Authorization: Bearer`, and **Direct
+Access Grant / ROPC / password grant is disabled by design**: never obtain a
+token with a username+password call, not even "just for testing".
+
+Login flow for Postman use (Authorization Code + PKCE, via a real browser):
+
+1. Start the stack incl. Keycloak (`docs/runbooks/local-development.md`).
+2. In a browser open `http://localhost:8080/api/session/me` → Keycloak login →
+   sign in as `ayilmaz` / `crm-dev` (local-only dev fixture) → JSON session summary.
+3. DevTools → Application/Storage → Cookies → `http://localhost:8080`: copy
+   **`JSESSIONID`** and **`XSRF-TOKEN`**.
+4. Postman → **Cookies** (under the Send button) → domain `localhost` → add both
+   cookies (port 8080).
+5. Set the **`xsrfToken`** environment variable to the `XSRF-TOKEN` value —
+   write requests (folders 04/05/06 create/update/delete, 09 logout) send it as
+   `X-XSRF-TOKEN`.
+
+Folder **09 - Authentication** contains the session probe, the PKCE entry-point
+assertion and the CSRF-protected logout. The full browser contract is in
+`docs/api/authentication.md`. Sessions idle out after 30 minutes (KR-9) — if
+requests start failing with 401, repeat the login.
+
+**Never store** real passwords, access tokens, refresh tokens or client secrets
+in the collection/environment. The `xsrfToken` variable is not a secret (it is a
+CSRF correlation value readable by the browser by design).
 
 ## How to import
 
@@ -17,7 +48,7 @@ MERNIS stub, negative scenarios). Collection schema: **Postman v2.1**.
 
 ## Startup order (services must be up first)
 
-1. PostgreSQL (`docker compose -f infra/docker-compose.yml up -d postgres`)
+1. PostgreSQL + Keycloak (`podman compose -f infra/docker-compose.yml up -d postgres keycloak`)
 2. config-server (8888) → 3. discovery-server (8761) → 4. lookup-service (8083)
 → 5. mernis-stub (8084) → 6. api-gateway (8080) → 7. customer-service (8082)
 
@@ -39,10 +70,14 @@ Folders are numbered in the intended order. Within these folders order matters:
   delete created address.
 - Other folders are order-independent.
 
-Business requests go through `{{gatewayBaseUrl}}` (port 8080). Direct service URLs
+Business requests go through `{{gatewayBaseUrl}}` (port 8080) and need the
+session cookies (see **Authentication** above). Direct service URLs
 (`configBaseUrl`, `discoveryBaseUrl`, `customerBaseUrl`, `lookupBaseUrl`,
 `mernisBaseUrl`) appear only in requests explicitly labelled internal/debug —
-mernis-stub in particular has **no gateway route** by design.
+mernis-stub in particular has **no gateway route** by design. Since the auth
+milestone the direct customer/lookup URLs answer **401 without a valid Keycloak
+JWT** (zero trust, ADR-009) — expect that when running them without a token; in
+the compose profile those ports aren't even published to the host.
 
 ## How dynamic variables are populated
 
@@ -98,4 +133,5 @@ require stopping a service first (see `docs/api/mernis-stub.md` §7):
 - stop **lookup-service** → create returns 503 `MSG-SERVICE-UNAVAILABLE`
 - stop **mernis-stub** → create returns 503 `MSG-MERNIS-UNAVAILABLE`
 
-No credentials or future Keycloak secrets belong in this collection or environment.
+No credentials, tokens or Keycloak secrets belong in this collection or
+environment (`crm-bff` is a public client — there is no client secret at all).

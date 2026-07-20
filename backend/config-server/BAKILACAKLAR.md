@@ -1,10 +1,11 @@
 # config-server — Sonra Bakılacaklar
 
 ## 1. config-server hiçbir kimlik doğrulaması olmadan açık
-`http://localhost:8888/auth-service/default` adresine ulaşan herkes o servisin tüm config'ini
-düz metin JSON olarak görebiliyor. Şu an datasource alanları boş olduğu için zararsız, ama
-`config-repo/auth-service.yml`'e gerçek bir Postgres şifresi ve ileride JWT secret'ı yazıldığı an,
-bu endpoint bir sır sızıntı kapısına dönüşür. Config-server'a en azından basic auth eklenmesi gerekecek.
+`http://localhost:8888/customer-service/default` adresine ulaşan herkes o servisin tüm config'ini
+düz metin JSON olarak görebiliyor. Şu an içerik yerel dev değerleri (crmlite/crmlite) olduğu için
+düşük riskli, ama gerçek bir sır yazıldığı an bu endpoint bir sızıntı kapısına dönüşür. Auth
+milestone'u bu yüzden config-repo'ya HİÇBİR sır koymadı (crm-bff public client, Keycloak ayarları
+env-var — ADR-006); yine de config-server'a en azından basic auth eklenmesi gerekecek.
 
 ## 2. `optional:` öneki + merkezi config = sessiz yanlış yapılandırma riski
 Üç serviste de `spring.config.import: "optional:configserver:..."` var. Config-server ayakta
@@ -15,7 +16,6 @@ Spring Boot varsayılan portuna (8080) düşüp çakışabilir. `docker-compose.
 olmadığı için, Compose ile otomatik başlatmada bu risk daha yüksek (depends_on sadece container
 başlatma sırasını garanti ediyor, config-server'ın gerçekten hazır olmasını değil).
 
-## 3. Gateway loglarındaki "Using generated security password" gürültüsü
-Zararsız ama kafa karıştırıcı: `spring-boot-starter-security` classpath'te olduğu için Spring Boot
-otomatik bir `UserDetailsService` üretiyor, ama `SecurityConfig`'teki `permitAll()` zaten bu
-authentication mekanizmasını devre dışı bıraktığı için üretilen şifre hiç kullanılmıyor.
+## 3. ~~Gateway loglarındaki "Using generated security password" gürültüsü~~ (tarihsel)
+Eski permitAll dönemine ait bir notdu; gateway artık gerçek bir BFF security chain'i çalıştırıyor
+(ADR-007) ve kendi `SecurityFilterChain`'i olduğu için Boot'un ürettiği rastgele şifre devrede değil.

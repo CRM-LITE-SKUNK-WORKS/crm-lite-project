@@ -2,6 +2,7 @@ package com.crm.lookup;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.crm.lookup.testsecurity.TestSecurity;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
@@ -9,6 +10,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -21,10 +24,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 /**
  * Verifies the central catalog owner end-to-end: Flyway creates and seeds gnl_st /
  * gnl_tp with the CONTRACT ids (ADR-002), and the read API serves them.
+ * Security (ADR-009): the real crm-security-starter chain is active; only JWT
+ * decoding is stubbed (TestSecurity), so requests carry the crm-user bearer token.
  * Requires Docker. Rerun with: mvn -pl backend/lookup-service test
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(TestSecurity.TestJwtDecoderConfiguration.class)
 class LookupServiceIntegrationTest {
 
     @Container
@@ -46,8 +52,33 @@ class LookupServiceIntegrationTest {
     void setUp() {
         http = RestClient.builder()
                 .baseUrl("http://localhost:" + port)
+                // Authenticated as the KR-8 operator on every request by default.
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestSecurity.OPERATOR_TOKEN)
                 .defaultStatusHandler(status -> true, (req, res) -> { })
                 .build();
+    }
+
+    @Test
+    @DisplayName("zero trust (ADR-009): no token -> 401, no crm-user role -> 403, health public")
+    void directAccessRequiresRole() {
+        RestClient anonymous = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+        assertThat(anonymous.get().uri("/api/lookups/statuses/ACTV").retrieve().toEntity(Map.class)
+                .getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(anonymous.get().uri("/actuator/health").retrieve().toEntity(Map.class)
+                .getStatusCode()).isEqualTo(HttpStatus.OK);
+
+        RestClient noRole = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestSecurity.NO_ROLE_TOKEN)
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+        ResponseEntity<Map> forbidden = noRole.get().uri("/api/lookups/statuses/ACTV")
+                .retrieve().toEntity(Map.class);
+        assertThat(forbidden.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(forbidden.getBody().get("messageKey")).isEqualTo("MSG-AUTH-FORBIDDEN");
     }
 
     @Test

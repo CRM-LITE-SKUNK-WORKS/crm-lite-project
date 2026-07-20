@@ -39,6 +39,8 @@ Documents inspected (extracted content, not just filenames):
 | 2 | Name matching: draw.io FR-CUST-01 note still says "içinde-geçen" (contains, case-insensitive) | draw.io FR-CUST-01 page | KR-01 (word-start) governs; diagram note superseded |
 | 3 | KR-04 default page size 15 (UI) vs API default 20 (ADR-005 team decision) | FR v8 KR-04 vs ADR-005 | **Open item**: frontend must send `size=15|30|50` explicitly; flip the API default to 15 if analysts require it — one-line change, tracked in ADR-005 |
 | 4 | Use-case FR-CUST-03 has two steps numbered "Adım 4.5" (MERNIS unavailable + duplicate NATID) | Use-case doc | Editorial defect in the source document; no behavioural ambiguity — flagged for the analysts |
+| 5 | **Workbook `USERS (Sistem Kullanicisi)` table (`username`, `password_hash`, argon2id seed placeholders) vs Keycloak as sole credential store** | Entity workbook; FR AC-AUTH-01-03 "USERS tablosunda" | **Not implemented, by decision (2026-07-17 auth milestone):** no application password table may exist; Keycloak owns credentials/enabled-state. Seed usernames mirrored as Keycloak dev users (`ayilmaz`/`edemir` enabled, `mkaya` disabled). Recorded in **ADR-011** — awaiting analyst sign-off, workbook not edited |
+| 6 | **FR-AUTH-01 UI acceptance criteria assume an in-app login form** (button state, masking, 64-char cap, MSG-AUTH-INVALID-CRED, LBL-LANGUAGE on login) | FR v8 §2.1 + §2.8 | Credentials are entered on the **Keycloak login page** (ADR-006; ROPC/Direct Grant prohibited). The generic-error behaviour of AC-AUTH-01-03/04/05 is satisfied natively; the remaining UI/i18n details bind a future Keycloak **project theme** (standard Keycloak EN/TR i18n active today). Flagged for analyst acknowledgement |
 
 ## Verified as unchanged
 

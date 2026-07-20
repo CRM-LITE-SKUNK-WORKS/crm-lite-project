@@ -1,0 +1,14 @@
+# Test-classpath override of the main application.yml: no config-server import
+# (routes/oauth2 come from @DynamicPropertySource) and verbose security logging so
+# OAuth2 login failures are diagnosable from surefire output.
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    config:
+      enabled: false
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+    org.springframework.security.oauth2: TRACE

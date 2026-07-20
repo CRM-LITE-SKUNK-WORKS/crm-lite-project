@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "CRM Lite",
-    "description": "CRM Lite backend API collection. Import together with CRM-Lite.local.postman_environment.json and read docs/postman/README.md for startup order, execution order and how dynamic variables are populated. Business requests go through the gateway ({{gatewayBaseUrl}}); direct service URLs are internal/debug only.",
+    "description": "CRM Lite backend API collection. Import together with CRM-Lite.local.postman_environment.json and read docs/postman/README.md for startup order, execution order and how dynamic variables are populated. AUTHENTICATION (ADR-006..008): every business request through the gateway needs a logged-in BFF session (Authorization Code + PKCE via the browser — see folder 09 and the README §Authentication). Direct Grant/ROPC is disabled by design; never store passwords or tokens in this collection.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -2066,6 +2066,136 @@
         }
       ],
       "description": "Documented failure behaviour. lookup-service/mernis-stub OUTAGE tests (503 MSG-SERVICE-UNAVAILABLE / MSG-MERNIS-UNAVAILABLE) require stopping those services — see docs/api/mernis-stub.md §7."
+    },
+    {
+      "name": "09 - Authentication (session probe and logout)",
+      "description": "The gateway is a cookie-session BFF (ADR-007): it does NOT accept Authorization: Bearer. Log in once via the BROWSER (http://localhost:8080/api/session/me -> Keycloak login ayilmaz/crm-dev), then copy the JSESSIONID and XSRF-TOKEN cookie values from browser devtools into Postman: Cookies (below the Send button) -> Add domain localhost -> add both cookies for port 8080. Postman then sends them automatically; set the xsrfToken environment variable to the XSRF-TOKEN value for unsafe requests (folders 04/05/06 write operations). Full contract: docs/api/authentication.md.",
+      "item": [
+        {
+          "name": "Session probe - GET /api/session/me (401 anonymous, 200 with session)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 without session / 200 with session', function () {",
+                  "    pm.expect([200, 401]).to.include(pm.response.code);",
+                  "});",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('session body has username/roles and NO token material', function () {",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body).to.have.property('username');",
+                  "        pm.expect(body.roles).to.include('crm-user');",
+                  "        pm.expect(pm.response.text()).to.not.include('eyJ');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/session/me",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "session",
+                "me"
+              ]
+            },
+            "description": "Angular session probe (docs/api/authentication.md). 401 (MSG-AUTH-UNAUTHORIZED) means: log in via the browser and import the cookies as described in the folder note. Also (re)issues XSRF-TOKEN."
+          }
+        },
+        {
+          "name": "Start login (browser flow) - GET /oauth2/authorization/keycloak",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('302 redirect to Keycloak with PKCE', function () {",
+                  "    pm.expect(pm.response.code).to.equal(302);",
+                  "    const loc = pm.response.headers.get('Location') || '';",
+                  "    pm.expect(loc).to.include('/realms/crm-lite/protocol/openid-connect/auth');",
+                  "    pm.expect(loc).to.include('code_challenge_method=S256');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/oauth2/authorization/keycloak",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "oauth2",
+                "authorization",
+                "keycloak"
+              ]
+            },
+            "description": "Demonstrates the Authorization Code + PKCE entry point (assert-only; the interactive login must happen in a real browser because Keycloak serves an HTML form). NEVER use direct/password grant instead."
+          }
+        },
+        {
+          "name": "Logout - POST /logout (CSRF-protected)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 without CSRF/session, 302 to Keycloak end_session with both', function () {",
+                  "    pm.expect([302, 403]).to.include(pm.response.code);",
+                  "    if (pm.response.code === 302) {",
+                  "        pm.expect(pm.response.headers.get('Location')).to.include('/protocol/openid-connect/logout');",
+                  "    }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "protocolProfileBehavior": {
+            "followRedirects": false
+          },
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/logout",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "logout"
+              ]
+            },
+            "description": "RP-initiated logout (ADR-007/008): kills the gateway session AND redirects through Keycloak end_session. Requires the session cookies plus xsrfToken set from the XSRF-TOKEN cookie."
+          }
+        }
+      ]
     }
   ]
 }

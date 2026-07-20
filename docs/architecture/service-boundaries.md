@@ -1,24 +1,27 @@
 # Service Boundaries
 
-Last updated: 2026-07-16.
+Last updated: 2026-07-18 (authentication/security milestone — ADR-006..011).
 
 ```
-                          ┌──────────────────────┐
-        client ─────────► │  api-gateway :8080   │ (Spring Cloud Gateway WebMVC, permitAll — temporary)
-                          └──┬────────┬──────┬───┘
-              /api/customers/**  /api/cities/**  /api/lookups/**
+   browser ──► api-gateway :8080 ◄──────── login redirect ────► Keycloak :8180
+   (session   (Spring Cloud Gateway WebMVC = BFF: oauth2Login    realm crm-lite
+    cookie)    + PKCE, CSRF, TokenRelay — ADR-007/008)           (keycloak_db, ADR-006)
+                          └──┬────────┬──────┬───
+              /api/customers/**  /api/cities/**  /api/lookups/**   (Authorization: Bearer)
                           ▼                      ▼
         ┌──────────────────────────┐   ┌──────────────────────┐
         │ customer-service :8082   │──►│ lookup-service :8083 │  GNL_ST / GNL_TP owner
-        │ customer_db              │   │ lookup_db (ADR-002)  │
-        │  customer / address /    │   └──────────────────────┘
-        │  contact / lookup /      │──►┌──────────────────────┐
-        │  mernis / common         │   │ mernis-stub :8084    │  fake KPS (KR-10, no DB, NOT on the gateway)
-        └──────────────────────────┘   └──────────────────────┘
-
+        │ customer_db              │   │ lookup_db (ADR-002)  │  (JWT resource server,
+        │  customer / address /    │   └──────────────────────┘   user token propagated
+        │  contact / lookup /      │──►┌──────────────────────┐   — ADR-009/010)
+        │  mernis / common         │   │ mernis-stub :8084    │  fake KPS (KR-10, no DB,
+        │  (JWT resource server)   │   │ (NO CRM token,       │   NOT on the gateway)
+        └──────────────────────────┘   │  ADR-010)            │
+                                       └──────────────────────┘
         config-server :8888 (native/classpath config-repo) — everyone's config source
         discovery-server :8761 (Eureka) — service registry
-        auth-service :8081 — empty skeleton (ADR-004 direction: Keycloak)
+        crm-security-starter — shared resource-server security module (library, not a runtime; ADR-009)
+        auth-service — REMOVED (ADR-007; the gateway is the BFF, Keycloak the authority)
 ```
 
 ## Boundaries and rules
@@ -43,11 +46,20 @@ Last updated: 2026-07-16.
 4. **Customer list contract (ADR-005):** `GET /api/customers` is the single
    browse-and-filter endpoint returning `Page<CustomerDetailResponse>`; no `/search`
    alias, no separate list endpoint.
-5. **Future domains** (see roadmap below): own services + own databases per the seed
+5. **Authentication (ADR-006..011):** Keycloak (`:8180`, realm `crm-lite`) is the
+   sole identity/token authority; the gateway is the only browser edge (session +
+   CSRF cookies live nowhere else); customer-service and lookup-service are
+   zero-trust JWT resource servers (signature/issuer/audience/`crm-user` role)
+   via the shared `crm-security-starter`; the user token is propagated to
+   lookup-service, never to mernis-stub; audit `*_by` columns carry the Keycloak
+   `sub`. There is no application USERS/password table (ADR-011) and no
+   auth-service (removed, ADR-007).
+6. **Future domains** (see roadmap below): own services + own databases per the seed
    workbook. Until they exist, cross-domain behaviour is an explicit 501 or a
    documented no-op TODO — never silently faked.
-6. **Ports:** 8888 config, 8761 eureka, 8080 gateway, 8081 auth, 8082 customer,
-   8083 lookup, 8084 mernis-stub.
+7. **Ports:** 8888 config, 8761 eureka, 8080 gateway (BFF), 8180 keycloak,
+   8082 customer, 8083 lookup, 8084 mernis-stub (8082/8083/8084 host-visible only
+   in the IDE-run topology; compose keeps them internal).
 
 ## Service roadmap and current status (honest, evidence-based)
 
@@ -55,13 +67,15 @@ Last updated: 2026-07-16.
 |---|---|---|
 | config-server | ✅ Implemented | native/classpath config-repo (`src/main/resources/config-repo/*.yml`); rebuild+restart needed per config change (accepted trade-off) |
 | discovery-server | ✅ Implemented | Eureka server, port 8761 |
-| api-gateway | ✅ Implemented (routing) | WebMVC routes for customers/cities/lookups + auth placeholder; **security is temporary permitAll until the Keycloak milestone** |
+| api-gateway | ✅ Implemented (routing + **BFF security**) | WebMVC routes for customers/cities/lookups with `TokenRelay` + cookie stripping; Authorization Code + PKCE login, session/CSRF ownership, `/api/session/me`, RP-initiated logout (ADR-007/008). permitAll is GONE |
+| keycloak (infra) | ✅ Implemented | Pinned 26.3.4, realm `crm-lite` committed as import, client `crm-bff` (public + PKCE), role `crm-user`, KR-9 session settings, dev users ayilmaz/edemir (+ disabled mkaya) — ADR-006/011 |
+| crm-security-starter | ✅ Implemented | Shared resource-server defaults: JWT sig/iss/aud validation, realm-role mapping, 401/403 contract, `AuditorAware` (JWT sub), bearer propagation (ADR-009). A library module, not a deployable |
 | lookup-service | ✅ Implemented | central GNL_ST/GNL_TP owner (ADR-002), Flyway-seeded contract IDs, Testcontainers IT |
 | customer-service | ✅ Implemented | full customer/address/contact aggregate (ADR-001), ADR-005 list contract; unit + Testcontainers integration suite (see build results in PROJECTBRAIN §8) |
 | mernis-stub | ✅ Implemented | fake KPS/MERNIS (KR-10), deterministic, no DB, not gateway-exposed |
 | address-service | 🚫 Must NOT exist | internal customer-service module under ADR-001 |
 | contact-service | 🚫 Must NOT exist | internal customer-service module under ADR-001 |
-| auth / security milestone | ⏭️ **Next planned work** | Direction: Keycloak (ADR-004). The milestone is the authentication/security **architecture and implementation** — not necessarily filling in the existing auth-service skeleton; whether that skeleton survives, becomes a thin facade, or is replaced is part of the milestone's design work. Do NOT describe auth-service as completed |
+| auth / security milestone | ✅ **Implemented (2026-07-17)** | Keycloak sole authority + gateway BFF + zero-trust resource servers + JWT-sub audit (ADR-006..011). The auth-service skeleton was REMOVED (ADR-007) — it must not come back; a future profile store, if ever needed, is a new sub-keyed service per ADR-011 |
 | localization-service | 🗓️ Planned | Required by FR-LANG if the architecture keeps a central label/message catalog; **default language is now English** (16.07.2026). Backend already returns language-neutral `messageKey`s. Not started |
 | account-service | 🗓️ Planned (probable owner) | ACCT_TP + CUST_ACCT (billing accounts, auto Customer Account); boundary not analyst-final |
 | product-service | 🗓️ Planned (probable owner) | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* (product/catalog/campaign/product-instance); final boundary may combine product+catalog scope for this project — not analyst-final |

@@ -6,7 +6,7 @@ import com.crm.customer.address.entity.City;
 import com.crm.customer.address.entity.District;
 import com.crm.customer.address.repository.AddressRepository;
 import com.crm.customer.address.rules.AddressBusinessRules;
-import com.crm.customer.common.AuditActor;
+import com.crm.customer.common.CurrentActorProvider;
 import com.crm.customer.common.exception.BusinessException;
 import com.crm.customer.common.exception.MessageKeys;
 import com.crm.customer.contact.entity.ContactMedium;
@@ -62,6 +62,8 @@ public class CustomerServiceImpl implements CustomerService {
     private final CustomerMapper customerMapper;
     private final LookupCatalogService lookupCatalogService;
     private final MernisClient mernisClient;
+    // Audit attribution (ADR-004): Keycloak sub of the authenticated request.
+    private final CurrentActorProvider currentActor;
 
     /**
      * ADR-005: no criteria = paginated browse of all active customers
@@ -120,14 +122,14 @@ public class CustomerServiceImpl implements CustomerService {
         Party party = new Party();
         party.setPartyTypeId(partyTypeId);
         party.setStatusId(activeStatusId);
-        party.markCreated(AuditActor.SYSTEM);
+        party.markCreated(currentActor.get());
         party = partyRepository.save(party);
 
         Individual individual = new Individual();
         individual.setParty(party);
         applyDemographics(individual, demographic, resolveGenderIdForPersist(genderId));
         individual.setStatusId(activeStatusId);
-        individual.markCreated(AuditActor.SYSTEM);
+        individual.markCreated(currentActor.get());
         individual = individualRepository.save(individual);
 
         Role customerRole = roleRepository.findByRoleNameAndDeletedDateIsNull(CUSTOMER_ROLE_NAME)
@@ -138,14 +140,14 @@ public class CustomerServiceImpl implements CustomerService {
         partyRole.setParty(party);
         partyRole.setRole(customerRole);
         partyRole.setStatusId(activeStatusId);
-        partyRole.markCreated(AuditActor.SYSTEM);
+        partyRole.markCreated(currentActor.get());
         partyRole = partyRoleRepository.save(partyRole);
 
         Customer customer = new Customer();
         customer.setCustomerNumber(customerRepository.nextCustomerNumber());
         customer.setPartyRole(partyRole);
         customer.setStatusId(activeStatusId);
-        customer.markCreated(AuditActor.SYSTEM);
+        customer.markCreated(currentActor.get());
         customer = customerRepository.save(customer);
 
         for (AddressRequest addressRequest : addresses) {
@@ -157,7 +159,7 @@ public class CustomerServiceImpl implements CustomerService {
         contact.setParty(party);
         applyContact(contact, request.getContactMedium());
         contact.setStatusId(activeStatusId);
-        contact.markCreated(AuditActor.SYSTEM);
+        contact.markCreated(currentActor.get());
         contactMediumRepository.save(contact);
 
         return customerMapper.toDetailResponse(customer, individual, customerRole);
@@ -179,8 +181,8 @@ public class CustomerServiceImpl implements CustomerService {
                 request.getGender().lookupCode(), LookupContract.TYPE_DOMAIN_GENDER);
 
         applyDemographics(individual, request, genderId);
-        individual.markUpdated(AuditActor.SYSTEM);
-        customer.markUpdated(AuditActor.SYSTEM);
+        individual.markUpdated(currentActor.get());
+        customer.markUpdated(currentActor.get());
 
         return customerMapper.toDetailResponse(customer, individual, partyRole.getRole());
     }
@@ -204,16 +206,16 @@ public class CustomerServiceImpl implements CustomerService {
         Party party = partyRole.getParty();
         Individual individual = party.getIndividual();
 
-        customer.passivate(passiveStatusId, AuditActor.SYSTEM);
-        partyRole.passivate(passiveStatusId, AuditActor.SYSTEM);
-        party.passivate(passiveStatusId, AuditActor.SYSTEM);
-        individual.passivate(passiveStatusId, AuditActor.SYSTEM);
+        customer.passivate(passiveStatusId, currentActor.get());
+        partyRole.passivate(passiveStatusId, currentActor.get());
+        party.passivate(passiveStatusId, currentActor.get());
+        individual.passivate(passiveStatusId, currentActor.get());
 
         for (Address address : addressRepository.findByPartyIdAndDeletedDateIsNullOrderById(party.getId())) {
-            address.passivate(passiveStatusId, AuditActor.SYSTEM);
+            address.passivate(passiveStatusId, currentActor.get());
         }
         contactMediumRepository.findByPartyIdAndDeletedDateIsNull(party.getId())
-                .ifPresent(contact -> contact.passivate(passiveStatusId, AuditActor.SYSTEM));
+                .ifPresent(contact -> contact.passivate(passiveStatusId, currentActor.get()));
     }
 
     /** AC-ADDR-02-04 + create-wizard rule: exactly one primary after normalization. */
@@ -243,7 +245,7 @@ public class CustomerServiceImpl implements CustomerService {
         address.setAddressDescription(request.getAddressDescription());
         address.setPrimary(request.isPrimaryRequested());
         address.setStatusId(activeStatusId);
-        address.markCreated(AuditActor.SYSTEM);
+        address.markCreated(currentActor.get());
         return address;
     }
 

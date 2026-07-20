@@ -12,6 +12,7 @@ import com.crm.customer.lookup.LookupCatalogUnavailableException;
 import com.crm.customer.lookup.LookupStatusResponse;
 import com.crm.customer.lookup.LookupTypeResponse;
 import com.crm.customer.mernis.MernisClient;
+import com.crm.customer.testsecurity.TestSecurity;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -28,6 +29,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -42,11 +44,17 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * and the MERNIS client (KR-10) — are mocked at their interface, never bypassed:
  * the real LookupCatalogService validation/caching logic still runs.
  *
+ * Security (ADR-009): the REAL resource-server filter chain from
+ * crm-security-starter is active; only JWT decoding is stubbed (TestSecurity), so
+ * every request needs a bearer token with the crm-user role and audit columns
+ * carry the token's sub claim.
+ *
  * Requires a running Docker daemon. Rerun with:
  *   mvn -pl backend/customer-service test
  */
 @Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(TestSecurity.TestJwtDecoderConfiguration.class)
 class CustomerServiceIntegrationTest {
 
     @Container
@@ -87,6 +95,8 @@ class CustomerServiceIntegrationTest {
     void setUp() {
         http = RestClient.builder()
                 .baseUrl("http://localhost:" + port)
+                // Authenticated as the KR-8 operator on every request by default.
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestSecurity.OPERATOR_TOKEN)
                 .defaultStatusHandler(status -> true, (req, res) -> { /* assert on status manually */ })
                 .build();
         stubHealthyCatalog();
@@ -135,6 +145,60 @@ class CustomerServiceIntegrationTest {
 
     private ResponseEntity<Map> get(String path) {
         return http.get().uri(path).retrieve().toEntity(Map.class);
+    }
+
+    // ---------------------------------------------------------------- security (ADR-009)
+
+    @Test
+    @DisplayName("direct service access without a token -> 401 MSG-AUTH-UNAUTHORIZED (zero trust)")
+    void requestWithoutTokenIsRejected() {
+        RestClient anonymous = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+
+        ResponseEntity<Map> response = anonymous.get().uri("/api/customers").retrieve().toEntity(Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-AUTH-UNAUTHORIZED");
+    }
+
+    @Test
+    @DisplayName("valid token WITHOUT the crm-user role -> 403 MSG-AUTH-FORBIDDEN (explicit role, not authenticated())")
+    void tokenWithoutRoleIsForbidden() {
+        RestClient noRole = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestSecurity.NO_ROLE_TOKEN)
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+
+        ResponseEntity<Map> response = noRole.get().uri("/api/customers").retrieve().toEntity(Map.class);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-AUTH-FORBIDDEN");
+    }
+
+    @Test
+    @DisplayName("garbage bearer token -> 401; actuator health stays public for anonymous callers")
+    void malformedTokenRejectedHealthPublic() {
+        RestClient badToken = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer not-a-real-token")
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+
+        assertThat(badToken.get().uri("/api/customers").retrieve().toEntity(Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        // Health is the single permit-path, aimed at ANONYMOUS orchestration probes
+        // (compose healthchecks). A present-but-invalid bearer token still fails
+        // authentication first — that is correct resource-server behaviour.
+        RestClient anonymous = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+        assertThat(anonymous.get().uri("/actuator/health").retrieve().toEntity(Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
     }
 
     // ---------------------------------------------------------------- schema
@@ -191,7 +255,36 @@ class CustomerServiceIntegrationTest {
         Long partyId = customer.getPartyRole().getParty().getId();
         assertThat(addressRepository.findByPartyIdAndDeletedDateIsNullOrderById(partyId)).hasSize(1);
         assertThat(contactMediumRepository.findByPartyIdAndDeletedDateIsNull(partyId)).isPresent();
-        assertThat(customer.getCreatedBy()).isEqualTo("system");
+        // ADR-004: created_by carries the Keycloak sub of the authenticated operator.
+        assertThat(customer.getCreatedBy()).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+    }
+
+    @Test
+    @DisplayName("audit attribution: created/updated/deleted_by carry the token's sub, seeds stay 'system' (ADR-004)")
+    void auditColumnsCarryKeycloakSubject() {
+        // Seeded rows (Flyway) are attributed to the technical 'system' actor.
+        var seeded = customerRepository.findByCustomerNumber(1001L).orElseThrow();
+        assertThat(seeded.getCreatedBy()).isEqualTo("system");
+
+        // Create + update + delete through the API as the authenticated operator.
+        ResponseEntity<Map> created = post("/api/customers", createBody("Audit", "Izi", "40000000020"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+        var customer = customerRepository.findByCustomerNumber(number).orElseThrow();
+        assertThat(customer.getCreatedBy()).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+
+        ResponseEntity<Map> updated = putJson("/api/customers/" + number, """
+                {"firstName": "Audit", "lastName": "Izleri", "birthDate": "1992-03-15",
+                 "gender": "Male", "nationalityId": "40000000020"}
+                """);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        customer = customerRepository.findByCustomerNumber(number).orElseThrow();
+        assertThat(customer.getUpdatedBy()).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+
+        ResponseEntity<Map> deleted = http.method(HttpMethod.DELETE)
+                .uri("/api/customers/" + number).retrieve().toEntity(Map.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        customer = customerRepository.findByCustomerNumber(number).orElseThrow();
+        assertThat(customer.getDeletedBy()).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
     }
 
     @Test
@@ -446,7 +539,8 @@ class CustomerServiceIntegrationTest {
         var customer = customerRepository.findByCustomerNumber(number).orElseThrow();
         assertThat(customer.getStatusId()).isEqualTo(2L);
         assertThat(customer.getDeletedDate()).isNotNull();
-        assertThat(customer.getDeletedBy()).isEqualTo("system");
+        // ADR-004: deleted_by carries the Keycloak sub of the authenticated operator.
+        assertThat(customer.getDeletedBy()).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
         assertThat(customer.getUpdatedDate()).isNotNull();
 
         Long partyId = customer.getPartyRole().getParty().getId();

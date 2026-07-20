@@ -4,7 +4,15 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-16 (FR/AC v8 Final'in 16.07.2026 revizyonu ile mutabakat —
+> **Son güncelleme:** 2026-07-18 (**AUTH/SECURITY milestone'u uygulandı — ADR-006..011:**
+> Keycloak 26.3.4 tek kimlik/token otoritesi (realm `crm-lite`, import `infra/keycloak/`);
+> api-gateway artık **BFF** (Authorization Code + PKCE `oauth2Login`, HttpOnly session +
+> XSRF çerezleri, TokenRelay, RP-initiated logout) — permitAll KALKTI; customer-service +
+> lookup-service **zero-trust JWT resource server** (`backend/crm-security-starter` ortak
+> modülü: imza/iss/aud/`crm-user` rol doğrulama, 401/403 kontratı); audit `*_by` kolonları
+> artık Keycloak `sub`; kullanıcı token'ı lookup-service'e taşınır, mernis-stub'a ASLA
+> taşınmaz; **auth-service iskeleti SİLİNDİ**; USERS/password tablosu YOK (ADR-011,
+> analist onayı bekliyor). Önceki durum: 2026-07-16 FR/AC v8 Final revizyonu ile mutabakat —
 > bkz. `docs/requirements/document-delta.md`: **AC-CUST-01-00** login sonrası tüm müşteri listesi;
 > `GET /api/customers` artık kritersiz **browse modu** + `Page<CustomerDetailResponse>` dönüyor
 > [ADR-005]; zorunlu-kriter kuralı ve `MSG-SEARCH-CRITERIA-REQUIRED` KALDIRILDI; MERNIS mesaj
@@ -22,8 +30,9 @@ CRM Lite — Spring Boot tabanlı bir **mikroservis monorepo**'su. Altyapı çek
 (config server + service discovery + API gateway) kurulu ve çalışır durumda. `customer-service`
 **müşteri agregatının tamamını** (demografik + adres + iletişim, ADR-001) final Entity/Seed
 workbook şemasıyla implemente ediyor; paylaşılan GNL_ST/GNL_TP kataloglarının sahibi
-**`lookup-service`** (ADR-002) ve KR-10 kimlik doğrulaması için **`mernis-stub`** ayakta;
-`auth-service` henüz iskelet halinde (yön: Keycloak, ADR-004).
+**`lookup-service`** (ADR-002) ve KR-10 kimlik doğrulaması için **`mernis-stub`** ayakta.
+**Kimlik doğrulama UYGULANDI (ADR-006..011):** Keycloak tek otorite, api-gateway BFF,
+domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ (ADR-007).
 
 - **Dil / Runtime:** Java 25
 - **Framework:** Spring Boot `4.1.0`, Spring Cloud `2025.1.2`
@@ -37,39 +46,43 @@ workbook şemasıyla implemente ediyor; paylaşılan GNL_ST/GNL_TP katalogların
 ## 2. Mimari
 
 ```
-                    ┌─────────────────────┐
-   İstemci ───────► │   api-gateway :8080 │  (Spring Cloud Gateway - WebMVC)
-                    └──────────┬──────────┘
-                               │ lb:// (Eureka'dan servis bulur)
-                               ▼
-                    ┌─────────────────────┐        ┌──────────────────────┐
-                    │  auth-service :8081 │        │ discovery-server:8761│
-                    │  (JPA + JWT, İSKELET│◄──────►│  (Eureka Server)     │
-                    │   Postgres gerekli) │  kayıt └──────────────────────┘
-                    └─────────────────────┘
+                 login redirect (Auth Code + PKCE)
+   Tarayıcı ◄───────────────────────────────────► Keycloak :8180 (realm crm-lite)
+      │ HttpOnly SESSION + XSRF çerezi                 ▲ token/JWKS (server-side)
+      ▼                                                │
+   ┌──────────────────────────────────────────────────┴┐
+   │ api-gateway :8080 — BFF (Spring Cloud Gateway     │
+   │ WebMVC: oauth2Login, CSRF, TokenRelay, /logout,   │
+   │ /api/session/me — ADR-007/008)                    │
+   └──────────┬────────────────────────────────────────┘
+              │ lb:// (Eureka) + Authorization: Bearer <Keycloak JWT>
+              ▼
+   customer-service :8082 ── lookup-service :8083   (ikisi de zero-trust JWT
+              │                                      resource server — ADR-009,
+              └──► mernis-stub :8084 (token YOK,     crm-security-starter)
+                   dış sistem simülasyonu, ADR-010)
 
-   Üç servis de açılışta ─────► ┌───────────────────────┐
-   spring.config.import ile     │ config-server :8888   │
-   kendi config'ini çeker       │ (native/classpath repo)│
-                                 └───────────────────────┘
+   discovery-server :8761 (Eureka) · config-server :8888 (native/classpath repo)
 ```
 
 | Servis | Port | Rol | Durum |
 |---|---|---|---|
 | `config-server` | 8888 | Merkezi config (Spring Cloud Config Server, native/classpath) | ✅ Çalışıyor |
 | `discovery-server` | 8761 | Eureka service registry | ✅ Çalışıyor |
-| `api-gateway` | 8080 | API gateway (WebMVC), routing + security | ✅ Çalışıyor |
-| `auth-service` | 8081 | Kimlik doğrulama | ⛔ İskelet — yön: Keycloak (ADR-004) |
-| `customer-service` | 8082 | Müşteri agregatı: FR-CUST + FR-ADDR + FR-CNTC (`customer_db`) | ✅ Çalışıyor — Postgres + lookup-service + mernis-stub (yazma işlemleri için) |
-| `lookup-service` | 8083 | **Paylaşılan GNL_ST/GNL_TP kataloglarının TEK sahibi** (`lookup_db`, ADR-002) | ✅ Çalışıyor — Postgres gerekli |
-| `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL | ✅ Çalışıyor |
+| `api-gateway` | 8080 | **BFF** (WebMVC): routing + Auth Code/PKCE login + session/CSRF + TokenRelay (ADR-007/008) | ✅ Çalışıyor — Keycloak login gerekli |
+| **keycloak** (infra) | 8180 | **Tek kimlik/token otoritesi** — realm `crm-lite`, client `crm-bff` (public+PKCE), rol `crm-user` (ADR-006) | ✅ Compose'da — `quay.io/keycloak/keycloak:26.3.4`, `keycloak_db` |
+| `crm-security-starter` | — | Ortak resource-server güvenlik modülü (kütüphane, deployable DEĞİL — ADR-009) | ✅ Kod + 16 birim testi |
+| `customer-service` | 8082 | Müşteri agregatı: FR-CUST + FR-ADDR + FR-CNTC (`customer_db`) — **JWT resource server** | ✅ Çalışıyor — Postgres + lookup-service + mernis-stub (yazma işlemleri için) |
+| `lookup-service` | 8083 | **Paylaşılan GNL_ST/GNL_TP kataloglarının TEK sahibi** (`lookup_db`, ADR-002) — **JWT resource server** | ✅ Çalışıyor — Postgres gerekli |
+| `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL, **CRM token'ı görmez (ADR-010)** | ✅ Çalışıyor |
+| ~~`auth-service`~~ | ~~8081~~ | ~~Kimlik doğrulama~~ | 🗑️ **SİLİNDİ (2026-07-17, ADR-007)** — BFF gateway'de, kimlik Keycloak'ta; iskelet geri getirilmeyecek |
 
 **Planlanan servisler (henüz YOK — analist/mimari onayı bekliyor; ayrıntı:
 `docs/architecture/service-boundaries.md` yol haritası):**
 
 | Planlanan | Muhtemel sahiplik | Durum |
 |---|---|---|
-| auth/security milestone | Kimlik doğrulama mimarisi + implementasyonu (yön: Keycloak, ADR-004). Mevcut auth-service iskeletinin korunup korunmayacağı bu milestone'un tasarım kararı — "her şey iskelete yazılacak" varsayma | ⏭️ **SIRADAKİ büyük adım** |
+| ~~auth/security milestone~~ | Keycloak tek otorite + gateway BFF + zero-trust resource server + JWT-sub audit (ADR-006..011). auth-service iskeleti SİLİNDİ | ✅ **UYGULANDI (2026-07-17)** |
 | localization-service | FR-LANG merkezi etiket/mesaj kataloğu (varsayılan dil artık **İngilizce**, 16.07.2026). Backend zaten dil-bağımsız `messageKey` dönüyor | 🗓️ Planlı, başlanmadı |
 | account-service | ACCT_TP + CUST_ACCT (fatura hesapları) | 🗓️ Planlı, sınır analist-final değil |
 | product-service | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* — product+catalog kapsamı birleşebilir | 🗓️ Planlı, sınır analist-final değil |
@@ -97,8 +110,10 @@ crm-lite-project-dev/
 │   │           ├── application.yml            # profile=native, search-locations=classpath:/config-repo/
 │   │           └── config-repo/                # her servisin config'i burada, servis adına göre dosyalanmış
 │   │               ├── discovery-server.yml
-│   │               ├── api-gateway.yml
-│   │               └── auth-service.yml
+│   │               ├── api-gateway.yml         # BFF: oauth2 client + route'lar + TokenRelay (ADR-007)
+│   │               ├── customer-service.yml    # crm.security.issuer dahil (ADR-009)
+│   │               ├── lookup-service.yml
+│   │               └── mernis-stub.yml
 │   ├── discovery-server/
 │   │   ├── pom.xml                # parent = com.crm:crm-lite-project
 │   │   ├── Dockerfile             # root context, maven base image
@@ -113,19 +128,14 @@ crm-lite-project-dev/
 │   │       │   ├── ApiGatewayApplication.java
 │   │       │   └── config/SecurityConfig.java   # permitAll (geçici)
 │   │       └── resources/application.yml
-│   ├── auth-service/
-│   │   ├── pom.xml
-│   │   ├── Dockerfile
-│   │   └── src/main/
-│   │       ├── java/com/crm/auth/
-│   │       │   ├── AuthServiceApplication.java
-│   │       │   ├── common/    (controller/dto/entity/repository/service — HEPSİ BOŞ İSKELET)
-│   │       │   ├── login/     (controller/dto/entity/repository/service — HEPSİ BOŞ İSKELET)
-│   │       │   ├── security/  (controller/dto/entity/repository/service — HEPSİ BOŞ İSKELET)
-│   │       │   └── session/   (controller/dto/entity/repository/service — HEPSİ BOŞ İSKELET)
-│   │       └── resources/
-│   │           ├── application.yml                 # datasource BOŞ (doldurulmalı)
-│   │           └── db/migration/.gitkeep           # Flyway migration YOK
+│   ├── crm-security-starter/          # ADR-009: ortak resource-server güvenlik autoconfig'i
+│   │   ├── pom.xml                    # kütüphane — spring-boot-maven-plugin repackage YOK
+│   │   └── src/main/java/com/crm/security/starter/
+│   │       ├── CrmResourceServerAutoConfiguration.java  (varsayılan chain; her bean @ConditionalOnMissingBean)
+│   │       ├── KeycloakRealmRoleConverter.java  AudienceValidator.java
+│   │       ├── RestAuthenticationEntryPoint/RestAccessDeniedHandler (401/403 JSON kontratı)
+│   │       ├── JwtAuditorAware.java   (sub → audit; fallback "system")
+│   │       └── BearerTokenPropagationInterceptor.java   (opt-in, ADR-010)
 │   └── customer-service/
 │       ├── pom.xml                # parent = com.crm:crm-lite-project + annotationProcessorPaths(lombok) fix
 │       ├── Dockerfile             # root context, maven base image
@@ -145,8 +155,9 @@ crm-lite-project-dev/
 │               ├── application.yml
 │               └── db/migration/ (V1__create_customer_tables.sql, V2__seed_customer_data.sql)
 └── infra/
-    ├── docker-compose.yml         # config-server + discovery-server + api-gateway + postgres + customer-service
-    └── postgres/init/01-create-databases.sql   # CREATE DATABASE customer_db
+    ├── docker-compose.yml         # config + discovery + gateway + KEYCLOAK + postgres + lookup + mernis + customer
+    ├── keycloak/realm/crm-lite-realm.json   # ADR-006: realm import (client crm-bff, rol crm-user, dev kullanıcıları)
+    └── postgres/init/01-create-databases.sql   # CREATE DATABASE customer_db + lookup_db + keycloak_db
 ```
 
 ---
@@ -157,7 +168,8 @@ crm-lite-project-dev/
 - `@EnableConfigServer`, port 8888.
 - Profil `native`, kaynak `classpath:/config-repo/` — yani config dosyaları **git-backed bir dış repo değil**,
   bu servisin kendi `src/main/resources/config-repo/` klasöründe duruyor ve jar'a gömülüyor.
-- Her istemci servis kendi adına göre bir dosya çeker (`discovery-server.yml`, `api-gateway.yml`, `auth-service.yml`).
+- Her istemci servis kendi adına göre bir dosya çeker (`discovery-server.yml`, `api-gateway.yml`,
+  `customer-service.yml`, `lookup-service.yml`, `mernis-stub.yml`).
   `application.yml` adlı bir dosya varsa (şu an yok) tüm servislere ortak uygulanır.
 - **Trade-off:** classpath kaynaklı olduğu için bir config değişikliği config-server'ın rebuild/restart
   edilmesini gerektirir; git-backed'deki gibi canlı `/actuator/refresh` akışı yok. Dev aşaması için kabul edilen ödün.
@@ -175,18 +187,22 @@ crm-lite-project-dev/
 ### 4.2 api-gateway ✅
 - `spring-cloud-starter-gateway-server-webmvc` → **WebMVC (servlet) stack** (WebFlux DEĞİL). Bu ayrım kritik (bkz. §6).
 - Eureka client olarak kayıt oluyor.
-- **Security:** `config/SecurityConfig.java` → servlet `SecurityFilterChain`, şu an `anyRequest().permitAll()` + `csrf().disable()`. Geçici; JWT gelince sıkılaştırılacak.
-- **Route:** `spring.cloud.gateway.server.webmvc.routes` altında `/api/auth/**` → `lb://auth-service`.
+- **Security (2026-07-17'den beri):** `config/SecurityConfig.java` → BFF chain: `oauth2Login`
+  (Auth Code + PKCE) + CSRF (XSRF-TOKEN/SPA handler) + rol bazlı route koruması + JSON 401/403 +
+  RP-initiated logout. Eski permitAll/csrf-disable scaffolding'i KALKTI (bkz. §4.3, ADR-007/008).
+- **Route:** `spring.cloud.gateway.server.webmvc.routes` altında customers/cities/lookups →
+  ilgili servisler; her route'ta `TokenRelay=` + `RemoveRequestHeader=Cookie` filtreleri.
+  (Eski `/api/auth/**` → `lb://auth-service` route'u auth-service ile birlikte silindi.)
 - **Timeout:** `spring.http.client.connect-timeout: 2s`, `read-timeout: 5s` (WebMVC'nin doğru property'leri).
 - **Eureka instance:** `prefer-ip-address: true`, `instance-id: ${spring.application.name}:${random.value}`.
 - **Actuator:** `health, info, mappings` açık.
 - **Not:** Route/timeout/eureka/actuator ayarlarının tamamı artık yerel `application.yml`'de değil,
   `config-server`'ın `config-repo/api-gateway.yml` dosyasında. Yerel dosyada sadece `spring.application.name`
   ve `spring.config.import` kaldı.
-- **Doğrulanmış davranış:**
-  - `GET /actuator/health` → `{"status":"UP"}` (401 yok, security düzgün).
-  - `GET /actuator/mappings` → route `predicate: /api/auth/**` + `ProxyExchangeHandlerFunction` görünüyor (route yüklü).
-  - `GET /api/auth/login` → **503** (route eşleşiyor, load-balancer auth-service'i arıyor ama ayakta değil — BEKLENEN doğru sonuç).
+- **Doğrulanmış davranış (auth sonrası):**
+  - `GET /actuator/health` → `{"status":"UP"}` (tek anonim actuator endpoint'i).
+  - Anonim `GET /api/customers` (Accept: application/json) → **401** `MSG-AUTH-UNAUTHORIZED`.
+  - Tarayıcıdan korumalı sayfa → Keycloak login redirect'i (E2E: `GatewayBffIntegrationTest`).
 - **`GatewayExceptionHandler` (yeni, `com.crm.gateway.exception`):** downstream servis Eureka'da hiç kayıtlı
   değilse, `LoadBalancerFilterFunctions` bir `HttpServerErrorException` fırlatıyor ve gerçek status'u
   (örn. 503, mesajı "Unable to find instance for X") kendi içinde taşıyor — ama hiçbir şey bunu geri okumadığı
@@ -198,15 +214,36 @@ crm-lite-project-dev/
   Response şekli: `{timestamp, status, error, messageKey, message, path}` — customer-service'in
   `ErrorResponse`'una benzer ama gateway'e özel ayrı bir `GatewayErrorResponse` record'u.
 
-### 4.3 auth-service ⛔
-- **Ayağa KALKMIYOR.** Başlatınca hata:
-  `Failed to configure a DataSource: 'url' attribute is not specified...` / `Failed to determine a suitable driver class`.
-- Sebep: `spring.datasource.url/username/password` **boş** — artık yerel `application.yml`'de değil,
-  `config-server`'ın `config-repo/auth-service.yml` dosyasında boş duruyor; ve `db/migration` altında **hiç Flyway migration yok**.
-- Java dosyalarının **tamamı boş iskelet** (paket + boş class). Hiç iş mantığı yazılmamış.
-- `pom.xml`: web, data-jpa, security, validation, actuator, flyway (+ postgresql), lombok, jjwt (api/impl/jackson), config-client bağımlılıkları hazır.
-- **Not:** Postgres kurulduğunda datasource/flyway değerleri doğrudan `config-repo/auth-service.yml`'e yazılmalı
-  (önce yerel dosyaya geçici değer koyup sonra config-server'a taşımak yerine — bkz. §5.8 gerekçesi).
+### 4.3 Kimlik doğrulama / güvenlik ✅ (2026-07-17 milestone — ADR-006..011; auth-service SİLİNDİ)
+- **Keycloak tek otorite (ADR-006):** `quay.io/keycloak/keycloak:26.3.4` (compose, port 8180,
+  `keycloak_db`), realm **`crm-lite`** repo'daki `infra/keycloak/realm/crm-lite-realm.json`'dan
+  otomatik import. Client **`crm-bff`**: PUBLIC + **PKCE S256**, Direct Grant/ROPC **KAPALI**;
+  audience mapper access token'a **`crm-api`** yazar; rol: **`crm-user`** (KR-8). Dev kullanıcıları:
+  `ayilmaz`/`edemir` (aktif) + `mkaya` (disabled — AC-AUTH-01-04 fikstürü), şifre `crm-dev`
+  (yalnız yerel). KR-9: access token 5dk, SSO idle 30dk, SSO max 24s. `KC_HOSTNAME` ile `iss`
+  her topolojide `http://localhost:8180/realms/crm-lite`'a sabitlenir; container'lar JWKS'i
+  `http://keycloak:8180` üzerinden çeker (env override) — issuer doğrulaması hep kanonik değer.
+- **api-gateway = BFF (ADR-007/008):** `oauth2Login` (Authorization Code + PKCE), token'lar
+  YALNIZ sunucu tarafında (session-bound OAuth2AuthorizedClientService); tarayıcı sadece
+  HttpOnly `JSESSIONID` + okunabilir `XSRF-TOKEN` görür. Route'larda `TokenRelay=` +
+  `RemoveRequestHeader=Cookie`; `/api/**` → 401/403 JSON (`MSG-AUTH-UNAUTHORIZED` /
+  `MSG-AUTH-FORBIDDEN` / `MSG-AUTH-CSRF-REJECTED`), sayfa gezinmesi → Keycloak'a redirect.
+  `GET /api/session/me` (Angular oturum probu), CSRF-korumalı `POST /logout` → RP-initiated
+  Keycloak logout. E2E: `GatewayBffIntegrationTest` (7 test, gerçek Keycloak Testcontainers,
+  commit'li realm import'la; token expiry/refresh dahil).
+- **Zero-trust resource server'lar (ADR-009):** customer-service + lookup-service,
+  `crm-security-starter` ile imza(JWKS)/issuer/audience(`crm-api`)/rol(`crm-user`) doğrular —
+  gateway'i geçmiş olmak yetmez; doğrudan servis çağrısı da token ister (testli). Çerez asla
+  parse edilmez; sadece `/actuator/health` anonim.
+- **Servisler-arası (ADR-010):** customer→lookup kullanıcı token'ı taşır (sub korunur,
+  `BearerTokenPropagationInterceptor`); customer→mernis **token TAŞIMAZ** (dış KPS simülasyonu).
+  Kanıt: `OutboundBearerPropagationTest`.
+- **Audit (ADR-004 kapanışı):** `created/updated/deleted_by` artık JWT `sub`
+  (`CurrentActorProvider`); Flyway seed satırları `system` kalır. Testli
+  (`auditColumnsCarryKeycloakSubject`).
+- **auth-service:** modül, config dosyası ve `/api/auth/**` route'u **tamamen silindi**
+  (ADR-007) — JJWT bağımlılıkları da onunla gitti. Workbook USERS/password tablosu
+  UYGULANMADI (ADR-011 — analist onayı bekleyen kayıtlı çelişki).
 
 ### 4.4 customer-service ✅ (müşteri AGREGATI — 2026-07-11 refactor'u)
 - Port 8082, DB `customer_db`. Kapsam: **FR-CUST-01..05 + FR-ADDR-01..05 + FR-CNTC-01..02** —
@@ -303,9 +340,8 @@ crm-lite-project-dev/
 - **⚠️ Proje çapında önemli düzeltme:** Bu servisi yazarken **Lombok'un hiç çalışmadığı** ortaya çıktı —
   JDK 25 + bu Maven Compiler Plugin sürümü, `annotationProcessorPaths` açıkça tanımlanmadıkça artık
   `-classpath`'teki processor'leri (Lombok dahil) otomatik keşfetmiyor. `customer-service/pom.xml`'e bu
-  yapılandırma eklenerek düzeltildi (bkz. §5.9). **`auth-service`'in pom'unda da Lombok bağımlılığı var ama
-  henüz hiç kullanılmıyor (tüm sınıflar boş) — o servise gerçek Lombok anotasyonlu kod yazıldığı an aynı
-  hatayla karşılaşılacak, aynı düzeltme oraya da taşınmalı.**
+  yapılandırma eklenerek düzeltildi (bkz. §5.9). (Buradaki eski "auth-service'e de taşınmalı" uyarısı
+  tarihseldir — auth-service 2026-07-17'de silindi; kural yeni Lombok kullanan HER modül için geçerli.)
 
 ---
 
@@ -336,10 +372,12 @@ Bu bölüm "neden böyle yapıldı" sorusunun cevabıdır. Değiştirmeden önce
 - **Çözüm:** İçinde Maven hazır gelen `maven:3.9-eclipse-temurin-25` base image; doğrudan `mvn` çağrılıyor,
   `.mvn/`+`mvnw` kopyalamaya gerek yok. Üç servis de artık aynı desende.
 
-### 5.4 Gateway security: dependency kalır, geçici permitAll
-- `spring-boot-starter-security` dependency yerinde; şimdilik her isteğe izin veren `SecurityFilterChain`.
-- Gerekçe: JWT doğrulama mekanizması (auth-service) henüz yok. permitAll ile 401 duvarı kalkıp routing test edilebiliyor.
-- İleride bu sınıfın içi JWT doğrulama filtresine dönüştürülecek (dependency zaten yerinde, geçiş kolay).
+### 5.4 ~~Gateway security: dependency kalır, geçici permitAll~~ — GEÇERSİZ (2026-07-17'de kapandı)
+> **⚠️ Bu bölüm tarihsel:** permitAll scaffolding'i auth milestone'unda kaldırıldı;
+> gateway artık BFF security chain'i çalıştırıyor (bkz. §4.3, ADR-007/008).
+- (Tarihsel kayıt) `spring-boot-starter-security` dependency yerindeydi; her isteğe izin veren
+  geçici `SecurityFilterChain` ile routing uçtan uca test edilebildi. Beklenen "JWT gelince
+  sıkılaştırılacak" adımı gerçekleşti.
 
 ### 5.5 Gateway route/timeout/instance ayarları
 - Route prefix'i **WebMVC**'ye özel: `spring.cloud.gateway.server.webmvc.routes` (bkz. §6).
@@ -420,9 +458,9 @@ Bu bölüm "neden böyle yapıldı" sorusunun cevabıdır. Değiştirmeden önce
   modülde — `flyway-core` sadece Flyway'in çekirdek motorunu getiriyor, Spring entegrasyonunu değil.
 - **Çözüm:** `customer-service/pom.xml`'e açıkça `org.springframework.boot:spring-boot-flyway` bağımlılığı
   eklendi (versiyon yok, Spring Boot parent BOM'undan miras alınıyor, 4.1.0).
-- **Etkilenen diğer servisler:** `auth-service`'in `pom.xml`'inde de `flyway-core`/`flyway-database-postgresql`
-  var ama `spring-boot-flyway` **yok** — auth-service'in Postgres/migration'ları kurulduğunda aynı sessiz
-  hatayla karşılaşılacak, aynı düzeltme oraya da taşınmalı (bkz. §9.2).
+- **Etkilenen diğer servisler (tarihsel not):** o dönem auth-service'in pom'u için de aynı uyarı
+  geçerliydi; auth-service 2026-07-17'de silindi. Kural kalıcı: Flyway kullanan her YENİ modül
+  `spring-boot-flyway`'i açıkça eklemeli.
 
 ### 5.12 `SELECT DISTINCT` + `ORDER BY` join kolonuna göre → Postgres hatası (arama endpoint'i)
 - **Sorun (gerçekte yaşandı):** `GET /api/customers/search?firstName=ali` **500** dönüyordu.
@@ -456,10 +494,9 @@ Bu bölüm "neden böyle yapıldı" sorusunun cevabıdır. Değiştirmeden önce
   davranışının aksine).
 - **Çözüm (seçilen):** `customer-service/pom.xml`'e `maven-compiler-plugin` için açık
   `annotationProcessorPaths` (Lombok, `${lombok.version}` — Spring Boot parent'tan miras alınıyor) eklendi.
-- **Etkilenen diğer servisler:** `auth-service`'in `pom.xml`'inde de Lombok bağımlılığı var ama tüm sınıfları
-  boş olduğu için bu hata hiç tetiklenmedi. **auth-service'e gerçek kod yazılırken bu düzeltme oraya da
-  taşınmalı** — aksi halde aynı "cannot find symbol" hatalarıyla karşılaşılır. `discovery-server` ve
-  `api-gateway` Lombok kullanmıyor, etkilenmiyor.
+- **Etkilenen diğer servisler (tarihsel not):** o dönem boş auth-service iskeleti için de aynı uyarı
+  yazılmıştı; auth-service 2026-07-17'de silindi. `discovery-server`, `api-gateway` ve
+  `crm-security-starter` Lombok kullanmıyor, etkilenmiyor.
 - **Neden root POM'a değil, sadece customer-service'e eklendi:** Görev kapsamı customer-service ile sınırlı
   tutuldu ("mevcut çalışan servisleri gereksiz yere değiştirme" ilkesi); ama bu aslında **proje çapında bir
   yapılandırma boşluğu** — kök `pom.xml`'in `<pluginManagement>`'ına taşınması, her yeni Lombok kullanan
@@ -546,21 +583,22 @@ içindir ve **birebir kopyalamak hatalıdır**. Doğrulanmış farklar:
 customer-service'in **yazma** işlemleri lookup-service (ADR-002) ve mernis-stub'a (KR-10) muhtaçtır;
 bu ikisi olmadan servis açılır ve okuma çalışır ama create/update/delete 503 döner (bilinçli fail-closed).
 
-1. **Postgres** (compose/Podman — ilk volume açılışında `customer_db` + `lookup_db` oluşur)
+1. **Postgres + Keycloak** (compose/Podman — ilk volume açılışında `customer_db` + `lookup_db`
+   + `keycloak_db` oluşur; Keycloak realm'i otomatik import eder → `http://localhost:8180/realms/crm-lite`)
 2. **config-server** → doğrula: `http://localhost:8888/customer-service/default`
 3. **discovery-server** → `http://localhost:8761`
-4. **lookup-service** → `http://localhost:8083/api/lookups/statuses/ACTV` (katalog seed'li mi?)
+4. **lookup-service** → `http://localhost:8083/actuator/health` (API artık JWT ister)
 5. **mernis-stub** → `http://localhost:8084/actuator/health`
-6. **api-gateway** → Eureka'da `API-GATEWAY`
+6. **api-gateway** → Eureka'da `API-GATEWAY`; tarayıcıda `http://localhost:8080/api/session/me`
+   → Keycloak login (`ayilmaz`/`crm-dev`) → oturum JSON'u
 7. **customer-service** → Flyway V1/V2 loglarda; `http://localhost:8082/actuator/health`
-8. auth-service → **şu an çalıştırılamaz** (iskelet).
 
 ### 7.1b Terminal / Maven (aynı sıra, ayrı terminallerde)
 ```bash
 mvn clean install -DskipTests   # tek seferlik build (testli: mvn clean install — Docker gerekir)
 
-docker compose -f infra/docker-compose.yml up -d postgres   # 0) Postgres
-# Podman: podman compose -f infra/docker-compose.yml up -d postgres
+docker compose -f infra/docker-compose.yml up -d postgres keycloak   # 0) Postgres + Keycloak (ADR-006)
+# Podman: podman compose -f infra/docker-compose.yml up -d postgres keycloak
 
 mvn -pl backend/config-server    spring-boot:run   # Terminal 1
 mvn -pl backend/discovery-server spring-boot:run   # Terminal 2
@@ -581,11 +619,14 @@ docker compose -f infra/docker-compose.yml up --build
 podman compose -f infra/docker-compose.yml up --build
 # veya: podman-compose -f infra/docker-compose.yml up --build
 ```
-İlk build birkaç dakika sürer (image + bağımlılık indirir + Postgres init script'i `customer_db` ve
-`lookup_db`'yi oluşturur). Durdurma: aynı komut `down` ile. **Postgres verisini de silmek için:** `down -v`.
-Not: compose artık `config-server`, `discovery-server`, `api-gateway`, `postgres`, `lookup-service`,
-`mernis-stub`, `customer-service` içerir (`auth-service` henüz yok); healthcheck +
-`depends_on: service_healthy` başlatma sırasını otomatik uygular.
+İlk build birkaç dakika sürer (image + bağımlılık indirir + Postgres init script'i `customer_db`,
+`lookup_db` ve `keycloak_db`'yi oluşturur). Durdurma: aynı komut `down` ile. **Postgres verisini de
+silmek için:** `down -v`. Not: compose `config-server`, `discovery-server`, `api-gateway`,
+**`keycloak`**, `postgres`, `lookup-service`, `mernis-stub`, `customer-service` içerir; healthcheck +
+`depends_on: service_healthy` başlatma sırasını otomatik uygular. **Compose profilinde yalnız
+gateway (8080), keycloak (8180), config (8888), eureka (8761) ve postgres (5432) host'a açılır** —
+8082/8083/8084 yalnız `crm-net` içindedir (ADR-009/010). Eski volume'larda `keycloak_db` yoksa
+runbook'taki tek satırlık `CREATE DATABASE` çözümüne bakın.
 
 **⚠️ Flyway/schema değişikliği sonrası (örn. 2026-07-11 workbook baseline'ı — V1/V2 YENİDEN yazıldı,
 henüz paylaşılmamış WIP commit'te olduğu için baseline replace serbest — bkz. ADR-002/003):**
@@ -610,44 +651,41 @@ Tüm stack ayaktayken (sıra: §7.1). Her istek durum kodunu basar
 ```bash
 curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8888/customer-service/default   # config içeriği
 curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8761/actuator/health            # Eureka (dashboard: 8761)
-curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/api/lookups/statuses/ACTV  # merkezi katalog, gateway üzerinden (ADR-002)
-curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/api/auth/login             # 503 beklenen (auth-service yok, §4.2)
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers"            # ADR-005 browse: TÜM aktif müşteriler, A-Z
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?firstName=Nur"     # 1002 (kelime-başı, middle name, KR-01)
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?customerId=1003"   # boş (soft-deleted görünmez)
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8180/realms/crm-lite            # Keycloak realm'i ayakta (ADR-006)
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/actuator/health            # gateway (tek anonim actuator)
+# Security ON: anonim iş API'si 401 döner (MSG-AUTH-UNAUTHORIZED)
+curl -sS -w "\nHTTP Status: %{http_code}\n" -H "Accept: application/json" "http://localhost:8080/api/customers"
 ```
 
-Satırlar artık tam detay kontratı taşır (`customerNumber`, ... , `role`, `status` — ADR-005);
-`/api/customers/search` alias'ı YOK. **Tam curl katalogları:** docs/api/customer-service.md,
-docs/api/shared-lookup-service.md, docs/api/mernis-stub.md; başlangıç sırası + smoke:
-docs/runbooks/local-development.md; **Postman koleksiyonu:** docs/postman/.
+**Oturumlu doğrulama tarayıcıyla yapılır:** `http://localhost:8080/api/session/me` → Keycloak
+login (`ayilmaz`/`crm-dev`) → oturum JSON'u; ardından aynı tarayıcıda
+`http://localhost:8080/api/customers` ADR-005 browse listesini döner (tam detay kontratı,
+`/api/customers/search` alias'ı YOK). **Tam kataloglar:** docs/api/customer-service.md,
+docs/api/shared-lookup-service.md, docs/api/mernis-stub.md, **docs/api/authentication.md**
+(login/session/CSRF/logout kontratı); runbook: docs/runbooks/local-development.md;
+**Postman koleksiyonu:** docs/postman/.
 
 ---
 
 ## 9. Sırada Ne Var (Roadmap / Öncelik)
 
-### 9.1 Bir sonraki büyük adım — KİMLİK DOĞRULAMA / GÜVENLİK mimarisi ve implementasyonu
-Müşteri agregatı TAMAMLANDI ✅ (2026-07-11) ve ADR-005 liste kontratı UYGULANDI ✅ (2026-07-16).
-**Sıradaki milestone: authentication/security** — mimari tasarım + implementasyon (yön: Keycloak,
-ADR-004). Bu, "mevcut auth-service iskeletini doldur" demek DEĞİL: iskeletin korunması, ince bir
-facade'a dönüşmesi veya kaldırılması bu milestone'un tasarım kararıdır (bkz.
-docs/architecture/service-boundaries.md yol haritası). Sonrası: account/product/order domain'leri,
-FR-LANG lokalizasyon (varsayılan dil İngilizce) ve frontend.
+### 9.1 ~~KİMLİK DOĞRULAMA / GÜVENLİK~~ ✅ UYGULANDI (2026-07-17) — sıradaki adaylar
+Müşteri agregatı ✅ (2026-07-11), ADR-005 liste kontratı ✅ (2026-07-16), **auth/security
+milestone'u ✅ (2026-07-17, ADR-006..011 — detay §4.3)**. Milestone'un tasarım kararı netleşti:
+auth-service iskeleti KALDIRILDI; BFF gateway'de, kimlik Keycloak'ta. **Sıradaki adaylar:**
+account/product/order domain'leri, FR-LANG lokalizasyon (varsayılan dil İngilizce), frontend
+(Angular — docs/api/authentication.md kontratına karşı) ve Keycloak login sayfası proje teması.
 **Adres/iletişim için ayrı servis YOK ve PLANLANMIYOR** (ADR-001).
 
-### 9.2 auth-service'i tamamlama (blokör işler)
-- [ ] PostgreSQL zaten compose'da mevcut (`customer-service` için eklendi) — auth-service aynı Postgres
-  container'ında `auth_db` adında ikinci bir database olarak eklenebilir (`infra/postgres/init/`'e yeni satır).
-- [ ] `config-repo/auth-service.yml`'deki datasource'u doldur (url/username/password).
-- [ ] Flyway migration(lar)ı yaz (`src/main/resources/db/migration/V1__init.sql` ...). Şu an klasör boş.
-- [ ] Boş iskelet sınıfları implement et (login/security/session/common: entity, repository, service, controller, dto).
-- [ ] JWT üretimi/doğrulaması (jjwt bağımlılıkları hazır).
-- [ ] auth-service'i `infra/docker-compose.yml`'e ekle (root-context Dockerfile'ı zaten hazır).
-- [ ] **Lombok anotasyonu kullanacaksa** `pom.xml`'e customer-service'teki `annotationProcessorPaths`
-  düzeltmesini kopyala (bkz. §5.9) — aksi halde "cannot find symbol" hatalarıyla karşılaşılır.
-- [ ] **`pom.xml`'e `org.springframework.boot:spring-boot-flyway` bağımlılığını ekle** (bkz. §5.11) —
-  `flyway-core`/`flyway-database-postgresql` zaten pom'da ama bu tek başına yetmiyor; olmadan migration'lar
-  sessizce hiç çalışmaz, Hibernate boş şemaya karşı "missing table" hatasıyla çöker.
+### 9.2 Auth milestone'undan kalan işler (implementasyon bitti, bunlar takip)
+- [ ] **ADR-011 analist onayı** — workbook USERS tablosunun Keycloak lehine terk edilmesi.
+- [ ] **Keycloak proje teması** — AC-AUTH-01 UI detayları (buton disable, maskeleme, 64 karakter,
+  LBL-LANGUAGE) + TR/EN görsel bütünlük; şu an standart Keycloak sayfası + yerleşik i18n.
+- [ ] **Gerçek ortam sertleştirmesi:** `crm-bff`'i confidential client + vault'lu secret'a çevir
+  (ADR-006 §5), `crm.security.cookie-secure=true`, Spring Session/Redis ile session scale-out
+  (ADR-007), gateway'e resilience4j (eski §9.5 maddesi).
+- [ ] (Opsiyonel) Postman/CI araçları için gateway'e hibrit Bearer kabulü — şu an gateway yalnız
+  oturum kabul ediyor; araçlar tarayıcı oturum çerezini kullanıyor (docs/postman/README.md).
 
 ### 9.3 customer-service — kalan bilinçli TODO'lar
 - [x] ~~Adres/iletişim~~ — **TAMAMLANDI, aynı serviste** (ADR-001; ayrı address/contact-service YOK).
@@ -667,16 +705,17 @@ FR-LANG lokalizasyon (varsayılan dil İngilizce) ve frontend.
   öncesi ya Jasypt/Spring Cloud Config encrypt-decrypt endpoint'i ya da git-backed + harici secret yönetimine geçiş değerlendirilmeli.
 - [ ] `/actuator/refresh` / Spring Cloud Bus ile canlı config reload (şu an yok — değişiklik = rebuild+restart).
 
-### 9.5 Gateway sıkılaştırma (auth-service hazır olunca)
-- [ ] `SecurityConfig`'i permitAll'dan JWT doğrulamaya çevir.
-- [ ] CORS ekle (frontend geldiğinde, gerçek origin ile).
+### 9.5 Gateway sıkılaştırma
+- [x] ~~`SecurityConfig`'i permitAll'dan doğrulamaya çevir~~ — **TAMAMLANDI** (BFF chain, §4.3/ADR-007).
+- [ ] CORS: önerilen kurulum Angular dev-proxy (same-origin, CORS'suz — ADR-008 §4); doğrudan
+  cross-origin istenirse açık allowlist eklenecek (asla wildcard+credentials).
 - [ ] (İsteğe bağlı) resilience4j circuit breaker — WebMVC blocking model için downstream koruması.
 
 ### 9.6 Container/altyapı borçları
 - [x] ~~Compose healthcheck'leri~~ — **eklendi** (bkz. §5.10): config-server/discovery-server/postgres için
   healthcheck + bağımlı servislerde `depends_on: condition: service_healthy`.
 - [ ] Eureka self-preservation'ı dev için kapatmak (`eureka.server.enable-self-preservation: false`) — opsiyonel.
-- [ ] discovery-server, gateway ve customer-service için graceful shutdown, gerekiyorsa auth için de.
+- [ ] discovery-server, gateway ve customer-service için graceful shutdown.
 - [ ] **Lombok `annotationProcessorPaths` düzeltmesi kök `pom.xml`'in `<pluginManagement>`'ına taşınmalı**
   (bkz. §5.9) — şu an sadece customer-service'te, her yeni Lombok kullanan serviste tekrar eklenmesi gerekiyor.
 
@@ -711,15 +750,26 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
    varsayılanının da 15 olmasını isterse tek satırlık değişiklik.
 4. **Use-case FR-CUST-03'te iki adet "Adım 4.5"** — kaynak dokümanda editoryal hata; analiste
    bildirilecek.
+5. **Workbook USERS tablosu (username/password_hash) vs Keycloak (ADR-011):** uygulama tarafında
+   USERS/parola tablosu YOK; kimlik bilgisi sahibi Keycloak. Seed kullanıcı adları Keycloak dev
+   kullanıcısı olarak yaşıyor (`mkaya` disabled). Analist onayı bekleniyor.
+6. **FR-AUTH-01 "uygulama içi login formu" varsayımı:** kimlik bilgisi girişi Keycloak login
+   sayfasında (ADR-006; ROPC yasak). AC-AUTH-01 UI detayları gelecekteki Keycloak proje temasına
+   bağlanır (bkz. §9.2).
 
 ## 10. Bilinen Teknik Borç / Notlar
 
-- **auth-service tamamen iskelet** — çalıştırmayı deneme, Postgres+kod olmadan çökecektir (beklenen).
-- **Gateway security şu an açık (permitAll)** — hiçbir kimlik doğrulama yapmıyor; production'a gitmeden JWT'ye çevrilmeli.
+- ~~auth-service iskelet~~ / ~~Gateway permitAll~~ — **2026-07-17'de kapandı:** auth-service
+  SİLİNDİ (ADR-007), gateway BFF security chain'i çalıştırıyor (§4.3). Bu iki eski not tarihseldir.
+- **Dev kimlik bilgileri yalnız yerel:** Keycloak bootstrap admin `admin/admin` + dev kullanıcı
+  şifresi `crm-dev` — deterministik yerel fikstürlerdir, hiçbir gerçek ortamda kullanılamaz.
+  `crm-bff` public client olduğu için repoda HİÇBİR client secret yok (ADR-006 §5); gerçek ortam =
+  confidential client + vault (bkz. §9.2).
 - **Makinede `mvn` artık PATH'te** (önceki not güncel değildi) — `docker` ise hâlâ PATH'te değil, Podman/Rancher kullanılıyor.
 - **config-server native/classpath, sır yönetimi yok** — `config-repo` dosyaları düz metin olarak jar'a gömülüyor;
-  gerçek bir DB şifresi/JWT secret girildiğinde bu düz metin git'e de gidecek demektir (bkz. §9.4).
-- **Compose 7 servis** — auth-service henüz eklenmedi (iskelet).
+  gerçek bir sır girilecekse önce §9.4 sertleştirmesi gerekir (auth milestone'u bu yüzden config-repo'ya
+  secret KOYMADI; Keycloak ayarları env-var tabanlı).
+- **Compose 8 servis** — keycloak dahil; 8082/8083/8084 host'a yayınlanmaz (yalnız `crm-net`).
 - **PAYLAŞILAN KATALOG KURALLARI (ADR-002 — bağlayıcı):**
   - GNL_ST ve GNL_TP **merkezi, cross-service kataloglardır**; tek sahibi `lookup-service` (`lookup_db`).
   - customer-service'te (ve gelecekteki hiçbir serviste) **yerel GNL_ST/GNL_TP tablosu veya seed'i YOKTUR**;
@@ -748,9 +798,14 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
 
 - Bu dosyayı ve `§5` (kararlar) + `§6` (WebMVC tuzağı) bölümlerini **kod önermeden önce** oku.
 - **Bağlayıcı mimari kararlar `docs/architecture/adr/`'de** (ADR-001 agregat sınırı, ADR-002 merkezi
-  GNL katalogları, ADR-003 kalıcı NATID tekilliği, ADR-004 Keycloak yönü, ADR-005 müşteri
-  liste+filtre kontratı) — bunlarla çelişen eski metinler (bu dosyanın tarihsel bölümleri,
+  GNL katalogları, ADR-003 kalıcı NATID tekilliği, ADR-004 Keycloak yönü [kısmen ADR-006/007 ile
+  süperseded], ADR-005 müşteri liste+filtre kontratı, **ADR-006 Keycloak tek otorite + PKCE,
+  ADR-007 gateway BFF + auth-service silme, ADR-008 çerez/CSRF politikası, ADR-009 zero-trust
+  resource server + crm-user rolü, ADR-010 servisler-arası token stratejisi, ADR-011 USERS vs
+  Keycloak kimliği**) — bunlarla çelişen eski metinler (bu dosyanın tarihsel bölümleri,
   use-case dokümanı, draw.io) geçersizdir. Açık çelişki kaydı: §9B + docs/requirements/document-delta.md.
+- Güvenlikle ilgili değişiklikte: ROPC/Direct Grant ASLA; token'lar tarayıcıya ASLA; çerez işleme
+  yalnız gateway'de; her yeni korumalı servis `crm-security-starter` + `crm.security.issuer` alır.
 - Final gereksinimler `docs/source/requirements`'ta; `Final` adlı dosyalar eskileri ezer (CLAUDE.md).
 - Gateway ile ilgili herhangi bir şey yaparken WebFlux örneği kopyalama — §6 tablosuna uy.
 - Docker/Compose ile ilgili değişiklikte **root build context** kuralını (§5.2) koru.

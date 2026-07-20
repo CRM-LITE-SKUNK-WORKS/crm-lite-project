@@ -2,6 +2,7 @@ package com.crm.customer.common.config;
 
 import com.crm.customer.lookup.LookupCatalogProperties;
 import com.crm.customer.mernis.MernisProperties;
+import com.crm.security.starter.BearerTokenPropagationInterceptor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.loadbalancer.LoadBalancerClient;
 import org.springframework.cloud.client.loadbalancer.LoadBalancerInterceptor;
@@ -26,8 +27,12 @@ import org.springframework.web.client.RestClient;
 public class HttpClientConfig {
 
     @Bean
-    public RestClient lookupRestClient(LoadBalancerClient loadBalancerClient, LookupCatalogProperties properties) {
+    public RestClient lookupRestClient(LoadBalancerClient loadBalancerClient, LookupCatalogProperties properties,
+                                       BearerTokenPropagationInterceptor bearerTokenPropagation) {
+        // ADR-010: lookup-service is an INTERNAL zero-trust resource server — the
+        // end-user's Keycloak token is propagated so the subject and audience reach it.
         return RestClient.builder()
+                .requestInterceptor(bearerTokenPropagation)
                 .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
                 .baseUrl(properties.baseUrl())
                 .build();
@@ -35,6 +40,9 @@ public class HttpClientConfig {
 
     @Bean
     public RestClient mernisRestClient(LoadBalancerClient loadBalancerClient, MernisProperties properties) {
+        // ADR-010: mernis-stub simulates an EXTERNAL KPS system. Deliberately NO
+        // bearer propagation — a real KPS would never accept a CRM-realm JWT; user
+        // attribution for verifications lives in CRM-side audit/log context instead.
         return RestClient.builder()
                 .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
                 .baseUrl(properties.baseUrl())

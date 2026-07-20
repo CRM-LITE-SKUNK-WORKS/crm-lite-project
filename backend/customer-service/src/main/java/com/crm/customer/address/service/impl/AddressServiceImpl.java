@@ -8,7 +8,7 @@ import com.crm.customer.address.entity.District;
 import com.crm.customer.address.repository.AddressRepository;
 import com.crm.customer.address.rules.AddressBusinessRules;
 import com.crm.customer.address.service.AddressService;
-import com.crm.customer.common.AuditActor;
+import com.crm.customer.common.CurrentActorProvider;
 import com.crm.customer.customer.entity.Customer;
 import com.crm.customer.customer.entity.Party;
 import com.crm.customer.customer.rules.CustomerBusinessRules;
@@ -28,6 +28,8 @@ public class AddressServiceImpl implements AddressService {
     private final AddressBusinessRules addressBusinessRules;
     private final CustomerBusinessRules customerBusinessRules;
     private final LookupCatalogService lookupCatalogService;
+    // Audit attribution (ADR-004): Keycloak sub of the authenticated request.
+    private final CurrentActorProvider currentActor;
 
     @Override
     public List<AddressResponse> list(Long customerNumber) {
@@ -62,7 +64,7 @@ public class AddressServiceImpl implements AddressService {
         address.setAddressDescription(request.getAddressDescription());
         address.setPrimary(primary);
         address.setStatusId(activeStatusId);
-        address.markCreated(AuditActor.SYSTEM);
+        address.markCreated(currentActor.get());
         return AddressResponse.from(addressRepository.save(address));
     }
 
@@ -80,7 +82,7 @@ public class AddressServiceImpl implements AddressService {
         address.setStreet(request.getStreet());
         address.setHouseFlatNo(request.getHouseFlatNumber());
         address.setAddressDescription(request.getAddressDescription());
-        address.markUpdated(AuditActor.SYSTEM);
+        address.markUpdated(currentActor.get());
         return AddressResponse.from(address);
     }
 
@@ -96,7 +98,7 @@ public class AddressServiceImpl implements AddressService {
 
         long passiveStatusId = lookupCatalogService.resolveStatusId("status",
                 LookupContract.STATUS_PASSIVE, LookupContract.STATUS_DOMAIN_GENERAL);
-        address.passivate(passiveStatusId, AuditActor.SYSTEM);
+        address.passivate(passiveStatusId, currentActor.get());
     }
 
     /** FR-ADDR-05: switching primary demotes the previous primary in the same transaction. */
@@ -108,7 +110,7 @@ public class AddressServiceImpl implements AddressService {
         if (!address.isPrimary()) {
             demoteCurrentPrimary(party.getId());
             address.setPrimary(true);
-            address.markUpdated(AuditActor.SYSTEM);
+            address.markUpdated(currentActor.get());
         }
         return AddressResponse.from(address);
     }
@@ -116,7 +118,7 @@ public class AddressServiceImpl implements AddressService {
     private void demoteCurrentPrimary(Long partyId) {
         addressRepository.findByPartyIdAndPrimaryTrueAndDeletedDateIsNull(partyId).ifPresent(current -> {
             current.setPrimary(false);
-            current.markUpdated(AuditActor.SYSTEM);
+            current.markUpdated(currentActor.get());
             // Flush the demotion before the new primary is written so the
             // ux_addr_active_primary partial unique index never sees two primaries.
             addressRepository.saveAndFlush(current);

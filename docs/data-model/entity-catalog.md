@@ -29,9 +29,13 @@ must never renumber them. Consumers store them as external references with **no 
 
 ## Other domains (future services — NOT in customer_db)
 
-USERS (auth-service) · ACCT_TP, CUST_ACCT (account) · PROD_* , CMPG* , PROD_CATAL* (product)
+ACCT_TP, CUST_ACCT (account) · PROD_* , CMPG* , PROD_CATAL* (product)
 · BSN_INTER, CUST_ORD, CUST_ORD_ITEM (order/sale). Their `status_id`/type references will
 also resolve to the central catalogs.
+
+**USERS is deliberately NOT a future service table:** credentials/enabled-state
+are owned by Keycloak; no application password table may exist (ADR-011 —
+recorded workbook supersession, analyst sign-off pending).
 
 ## Common column conventions
 

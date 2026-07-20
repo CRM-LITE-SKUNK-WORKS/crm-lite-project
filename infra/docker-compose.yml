@@ -73,6 +73,9 @@ services:
       # Inside the container network the gateway must reach Eureka by its
       # service name, NOT localhost. This overrides the value from config-server.
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      # Server-to-server Keycloak calls (token endpoint, JWKS) use the internal DNS
+      # name; the browser-facing base-url / issuer stays http://localhost:8180.
+      CRM_SECURITY_KEYCLOAK_INTERNALBASEURL: http://keycloak:8180
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8080' || exit 1"]
       interval: 5s
@@ -83,6 +86,8 @@ services:
       config-server:
         condition: service_healthy
       discovery-server:
+        condition: service_healthy
+      keycloak:
         condition: service_healthy
     networks:
       - crm-net
@@ -108,20 +113,64 @@ services:
     networks:
       - crm-net
 
+  keycloak:
+    # Pinned version (ADR-006). Sole identity/token authority for CRM Lite.
+    # KC_HOSTNAME is pinned to the browser-facing URL so the JWT `iss` claim is
+    # ALWAYS http://localhost:8180/realms/crm-lite, no matter whether the caller
+    # reached Keycloak via localhost (browser/IDE-run services) or via the
+    # compose-internal DNS name keycloak:8180 (containerised services). Services
+    # validate `iss` against that canonical value and may fetch JWKS from the
+    # internal URL (crm.security.* overrides) — no localhost/keycloak split 401s.
+    image: quay.io/keycloak/keycloak:26.3.4
+    container_name: keycloak
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak_db
+      KC_DB_USERNAME: crmlite
+      KC_DB_PASSWORD: crmlite
+      KC_HTTP_PORT: "8180"
+      KC_HOSTNAME: http://localhost:8180
+      KC_HEALTH_ENABLED: "true"
+      # Local-only bootstrap admin for the dev realm console. Disposable value,
+      # never used by the application itself.
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8180:8180"
+    volumes:
+      - ./keycloak/realm:/opt/keycloak/data/import:ro
+    healthcheck:
+      # Keycloak's image (like the temurin JRE images) has bash but no curl/wget.
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8180' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - crm-net
+
   lookup-service:
     build:
       context: ..
       dockerfile: backend/lookup-service/Dockerfile
     image: crm-lite/lookup-service:local
     container_name: lookup-service
-    ports:
-      - "8083:8083"
+    # No published host port (ADR-009): all client traffic enters through the
+    # gateway BFF; direct calls inside crm-net still require a valid Keycloak JWT.
     environment:
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lookup_db
       SPRING_DATASOURCE_USERNAME: crmlite
       SPRING_DATASOURCE_PASSWORD: crmlite
+      # JWKS via internal DNS; issuer validation stays on the canonical value.
+      CRM_SECURITY_JWKSETURI: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/certs
+    # JWKS is fetched lazily on the first request, so Keycloak is not a hard startup
+    # dependency; no depends_on needed beyond the existing ones.
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8083' || exit 1"]
       interval: 5s
@@ -144,8 +193,9 @@ services:
       dockerfile: backend/mernis-stub/Dockerfile
     image: crm-lite/mernis-stub:local
     container_name: mernis-stub
-    ports:
-      - "8084:8084"
+    # No published host port: simulates an EXTERNAL system (KR-10) reachable only
+    # by customer-service inside crm-net; it never joins the CRM Keycloak realm
+    # (ADR-010) and is not exposed to the host or the gateway.
     environment:
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
@@ -169,14 +219,16 @@ services:
       dockerfile: backend/customer-service/Dockerfile
     image: crm-lite/customer-service:local
     container_name: customer-service
-    ports:
-      - "8082:8082"
+    # No published host port (ADR-009): all client traffic enters through the
+    # gateway BFF; direct calls inside crm-net still require a valid Keycloak JWT.
     environment:
       SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
       EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/customer_db
       SPRING_DATASOURCE_USERNAME: crmlite
       SPRING_DATASOURCE_PASSWORD: crmlite
+      # JWKS via internal DNS; issuer validation stays on the canonical value.
+      CRM_SECURITY_JWKSETURI: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/certs
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8082' || exit 1"]
       interval: 5s

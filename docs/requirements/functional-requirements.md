@@ -18,6 +18,18 @@ intentionally deferred. IDs refer to the FR document.
 | FR-CNTC-01..02 | Contact medium | `GET/PUT /api/customers/{n}/contact-medium`; Email+Mobile required, VR-EMAIL/VR-PHONE/VR-MOBILE enforced |
 | KR-10 | Fake MERNIS | `backend/mernis-stub` (:8084); rejection ⇒ 400 `MSG-CUST-NATID-VERIFICATION-FAILED`, unavailability ⇒ 503 `MSG-MERNIS-UNAVAILABLE`; customer NOT created either way (fail closed) |
 
+## Implemented (authentication/security milestone, 2026-07-17 — ADR-006..011)
+
+| FR | Capability | Notes |
+|---|---|---|
+| FR-AUTH-01 | Login | OIDC **Authorization Code + PKCE** against Keycloak (realm `crm-lite`, client `crm-bff`); credentials are entered ONLY on the Keycloak login page. AC-AUTH-01-01 (success ⇒ app) via gateway BFF session; AC-AUTH-01-03/04/05 (unknown / passive / wrong password ⇒ same generic error) satisfied by Keycloak's login page; the remaining AC-AUTH-01 items are login-page UI criteria that bind the Keycloak theme (custom project theme = future work) |
+| FR-AUTH-02 | Logout | CSRF-protected `POST /logout` at the gateway: session invalidated + RP-initiated Keycloak logout; back-button / direct access afterwards ⇒ 401 ⇒ login (AC-AUTH-02-01/02) |
+| KR-8 | Single role | One realm role **`crm-user`**; every business endpoint requires it explicitly (gateway AND resource servers); RBAC beyond it stays out of scope |
+| KR-9 | Session policy | Access token 5 min, idle 30 min (gateway session + Keycloak SSO idle), absolute 24 h (SSO max) — all environment-configurable |
+
+Details: `docs/api/authentication.md`. The workbook USERS table is deliberately
+NOT implemented — Keycloak owns credentials (ADR-011, analyst sign-off pending).
+
 Validation formats implemented exactly per the FR catalog: VR-NAME (Turkish letters,
 1–50, trim-first), VR-NATID, VR-EMAIL, VR-PHONE, VR-MOBILE.
 
@@ -35,7 +47,10 @@ outages) the generic `MSG-SERVICE-UNAVAILABLE`.
 **Documented project additions** (not in the analyst catalog — framework/integration
 outcomes the catalog does not name): `MSG-FEATURE-NOT-IMPLEMENTED`,
 `MSG-VALIDATION-ERROR`, `MSG-INTERNAL-ERROR`, `MSG-SERVICE-UNAVAILABLE` (shared
-catalog outages, ADR-002), `MSG-ADDR-LAST-DELETE`, `MSG-ADDR-PRIMARY-DELETE`.
+catalog outages, ADR-002), `MSG-ADDR-LAST-DELETE`, `MSG-ADDR-PRIMARY-DELETE`,
+`MSG-AUTH-UNAUTHORIZED` (401), `MSG-AUTH-FORBIDDEN` (403),
+`MSG-AUTH-CSRF-REJECTED` (403, CSRF) — ADR-008/009. (`MSG-AUTH-INVALID-CRED`
+remains a Keycloak login-page concern, not an API key.)
 
 **Retired:** `MSG-SEARCH-CRITERIA-REQUIRED` — removed together with the mandatory
 search-criteria rule (ADR-005); no endpoint uses it anymore.
@@ -47,8 +62,6 @@ search-criteria rule (ADR-005); no endpoint uses it anymore.
 - Active-product check on customer delete (AC-CUST-05-03) → no-op until product/account domains exist.
 - Billing-account passivation on customer delete (part of AC-CUST-05-04) → cross-service future work.
 - Address in-use check (AC-ADDR-04-04, MSG-ADDR-IN-USE) → no-op until account/service-address records exist.
-- **AUTH** (FR-AUTH-01/02, KR-8 single role, KR-9 session timeout) → the next milestone
-  (authentication/security architecture; ADR-004 direction).
 - **ACCT** (FR-ACCT-01..04, ACCT_TP/CUST_ACCT ownership) → planned account-service.
 - **PROD** (FR-PROD-01..02) and **SALE** (FR-SALE-01..02, KR-06/KR-7 basket+order flow)
   → planned product/order services.

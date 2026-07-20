@@ -18,6 +18,13 @@ spring:
 # load-balanced RestClient; override with concrete http://host:port when running
 # without discovery.
 crm:
+  security:
+    # Canonical issuer (ADR-006): must equal the JWT `iss` claim exactly. Keycloak's
+    # KC_HOSTNAME pins tokens to this value in every topology. In the compose
+    # network, JWKS is fetched via the internal DNS name instead
+    # (CRM_SECURITY_JWKSETURI env override); issuer validation stays canonical.
+    issuer: http://localhost:8180/realms/crm-lite
+    # audience: crm-api and required-role: crm-user are the starter defaults.
   lookup:
     base-url: http://lookup-service   # central GNL_ST/GNL_TP owner (ADR-002)
     cache-ttl: 15m

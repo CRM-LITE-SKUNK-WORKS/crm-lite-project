@@ -1,10 +1,12 @@
-# Traceability Matrix — customer-service scope
+# Traceability Matrix — customer-service + authentication scope
 
-Last updated: 2026-07-16 (FR/AC v8 Final 16.07.2026 revision — see
-[document-delta.md](document-delta.md)).
+Last updated: 2026-07-18 (authentication/security milestone, ADR-006..011; base:
+FR/AC v8 Final 16.07.2026 revision — see [document-delta.md](document-delta.md)).
 FR/AC → implementation → automated test. Tests live in
 `backend/customer-service/src/test/java` unless noted.
 `IT` = `CustomerServiceIntegrationTest` (Testcontainers, real PostgreSQL + HTTP).
+`GW-IT` = `GatewayBffIntegrationTest` (api-gateway module; real Keycloak via
+Testcontainers, committed realm import).
 
 ## Implemented
 
@@ -35,6 +37,18 @@ FR/AC → implementation → automated test. Tests live in
 | ADR-002 catalog validation / wrong domain / unavailable | `LookupCatalogService` | `LookupCatalogServiceTest`, IT `catalogUnavailableFailsClosed`, `unknownCatalogCodeRejected` |
 | ADR-002 contract IDs seeded centrally | lookup-service Flyway V2 | `LookupServiceIntegrationTest` (lookup-service module) |
 | Duplicate DB constraint → 409, never 500 | `DataIntegrityViolationException` handler | `GlobalExceptionHandlerTest` |
+| **AC-AUTH-01-01 login → app (Auth Code + PKCE)** | Gateway BFF `oauth2Login`, Keycloak realm `crm-lite` (ADR-006/007) | GW-IT `loginEstablishesSession` (asserts the PKCE `code_challenge` too) |
+| AC-AUTH-01-03/05 unknown user / wrong password | Keycloak login page (generic error, no session) | GW-IT `invalidAndDisabledUsersGetNoSession` |
+| AC-AUTH-01-04 passive user indistinguishable | Keycloak disabled user (`mkaya` fixture, ADR-011) | GW-IT `invalidAndDisabledUsersGetNoSession` |
+| AC-AUTH-02-01/02 logout + back-button | CSRF-protected `POST /logout`, RP-initiated Keycloak logout, dead session ⇒ 401 | GW-IT `logoutEndsLocalAndKeycloakSession` |
+| KR-8 single `crm-user` role, explicit on every endpoint | gateway route rules + starter default chain (ADR-009) | GW-IT `tokenRelayPassesBearerAndStripsCookies` (role in relayed JWT); IT `tokenWithoutRoleIsForbidden`; lookup IT `directAccessRequiresRole` |
+| KR-9 expiry/refresh (5m token; 30m idle / 24h max are config) | realm import + gateway session timeout; transparent refresh at the relay | GW-IT `expiredAccessTokenIsRefreshed` (shortened-lifespan realm) |
+| Zero-trust direct-service protection (ADR-009) | crm-security-starter resource-server chain in customer/lookup | IT `requestWithoutTokenIsRejected`, `malformedTokenRejectedHealthPublic`; lookup IT `directAccessRequiresRole` |
+| CSRF on unsafe browser operations (ADR-008) | XSRF-TOKEN/X-XSRF-TOKEN at the gateway only | GW-IT `csrfProtectsUnsafeProxiedRequests` |
+| No token exposure to the browser (ADR-007) | server-side token custody + TokenRelay | GW-IT `loginEstablishesSession` (cookie/body assertions), `anonymousHandling` |
+| Audit `*_by` = Keycloak `sub`; seeds stay `system` (ADR-004) | `CurrentActorProvider` + starter `JwtAuditorAware` | IT `auditColumnsCarryKeycloakSubject`, `createPersistsFullAggregate`, `softDeletePassivatesAggregate` |
+| User-token propagation to lookup; token-free MERNIS (ADR-010) | `HttpClientConfig` interceptor wiring | `OutboundBearerPropagationTest` |
+| No USERS/password table anywhere (ADR-011) | no such Flyway migration exists in any service | IT `schemaContainsNoLocalCatalogTables` covers customer_db tables; structural review — no automated dedicated test (workbook conflict recorded below) |
 
 ## Removed by the 16.07.2026 revision
 
@@ -52,7 +66,7 @@ FR/AC → implementation → automated test. Tests live in
 | AC-CUST-05-03 active-product delete guard | product/account domains | documented no-op |
 | AC-CUST-05-04 billing-account passivation | account-service | documented no-op (local aggregate is passivated) |
 | AC-ADDR-04-04 address in-use check (`MSG-ADDR-IN-USE`) | account/order domains | documented no-op |
-| FR-AUTH-01/02, KR-8, KR-9 | **next milestone** — authentication/security architecture (ADR-004 direction) | gateway `permitAll`, auth-service skeleton |
+| AC-AUTH-01-02/06/07/08/09 login-page UI details (button state, masking, 64-char cap) + LBL-LANGUAGE on the login screen | Keycloak **project theme** (future work) | standard Keycloak login page + built-in EN/TR i18n serve the flow today |
 | FR-ACCT-01..04 (ACCT_TP, CUST_ACCT; auto Customer Account on first billing account) | planned account-service | not implemented |
 | FR-PROD-01..02 (PROD_*, CMPG*, PROD_CATAL*) | planned product-service | not implemented |
 | FR-SALE-01..02 (BSN_INTER, CUST_ORD, CUST_ORD_ITEM, basket validation MSG-SALE-*) | planned order-service | not implemented |
@@ -68,3 +82,11 @@ FR/AC → implementation → automated test. Tests live in
    frontend passes `size` explicitly.
 4. **Use-case FR-CUST-03 duplicate step number "Adım 4.5"** — editorial defect,
    flagged for analysts.
+5. **Workbook USERS table (`username`/`password_hash`) vs Keycloak ownership** —
+   the table is deliberately NOT implemented; Keycloak owns credentials and
+   enabled/disabled state. Seed usernames live on as Keycloak dev users
+   (`mkaya` disabled). Recorded in **ADR-011** (analyst sign-off pending) and
+   [document-delta.md](document-delta.md).
+6. **FR-AUTH-01 wording assumes an in-app login form** — superseded by
+   ADR-006: credentials are entered on the (themable) Keycloak login page; the
+   AC-AUTH-01 UI criteria bind that page, not an Angular form.

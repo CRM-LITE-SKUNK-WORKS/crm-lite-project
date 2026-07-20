@@ -1,5 +1,30 @@
 server:
   port: 8080
+  servlet:
+    session:
+      # KR-9 idle timeout: mirrors Keycloak's SSO Session Idle (30m). The absolute
+      # 24h cap (KR-9) is enforced by Keycloak's SSO Session Max: once it is
+      # reached, token refresh fails and the user must log in again.
+      timeout: ${crm.security.session-idle:30m}
+      cookie:
+        http-only: true
+        # Lax (not Strict): the OAuth2 callback redirect from Keycloak is a
+        # top-level cross-site GET and must carry the session cookie.
+        same-site: lax
+        # Local dev runs plain http; MUST be true in any non-local environment.
+        secure: ${crm.security.cookie-secure:false}
+
+crm:
+  security:
+    keycloak:
+      # Browser-facing base URL — the canonical issuer host (pinned via KC_HOSTNAME
+      # in compose, so the JWT `iss` claim always matches this value).
+      base-url: http://localhost:8180
+      # Server-to-server base URL (token endpoint, JWKS). Same as base-url when the
+      # gateway runs on the host (IDE); overridden to http://keycloak:8180 in the
+      # compose network via CRM_SECURITY_KEYCLOAK_INTERNALBASEURL.
+      internal-base-url: http://localhost:8180
+      realm: crm-lite
 
 spring:
   # 3b) Global HTTP client timeouts.
@@ -7,35 +32,72 @@ spring:
   # NOT the WebFlux-only spring.cloud.gateway.httpclient.* properties.
   http:
     client:
-    
       connect-timeout: 2s
       read-timeout: 5s
 
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: crm-bff
+            # Public client + PKCE (ADR-006): no client secret exists anywhere in
+            # this repository. client-authentication-method 'none' makes Spring
+            # Security attach a PKCE code_challenge automatically.
+            client-authentication-method: none
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - openid
+              - profile
+        provider:
+          keycloak:
+            # Endpoints are configured explicitly (no OIDC discovery at startup) so
+            # the gateway does not hard-depend on Keycloak being up before it, and
+            # so browser-facing vs server-to-server URLs can differ (ADR-006 §issuer):
+            #   - authorization endpoint -> browser-facing base
+            #   - token/JWKS/userinfo    -> internal base
+            #   - issuer-uri             -> canonical value used for ID-token validation
+            issuer-uri: ${crm.security.keycloak.base-url}/realms/${crm.security.keycloak.realm}
+            authorization-uri: ${crm.security.keycloak.base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/auth
+            token-uri: ${crm.security.keycloak.internal-base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/token
+            jwk-set-uri: ${crm.security.keycloak.internal-base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/certs
+            user-info-uri: ${crm.security.keycloak.internal-base-url}/realms/${crm.security.keycloak.realm}/protocol/openid-connect/userinfo
+            user-name-attribute: preferred_username
+
   # 2b) Route definitions. Correct prefix for the WebMVC gateway is
   # spring.cloud.gateway.server.webmvc.routes (NOT the WebFlux spring.cloud.gateway.routes).
+  # TokenRelay (ADR-007): swaps the session for the user's Keycloak access token so
+  # domain services only ever see Authorization: Bearer. RemoveRequestHeader=Cookie:
+  # browser cookies never leave the BFF edge (binding: services do not see cookies).
   cloud:
     gateway:
       server:
         webmvc:
           routes:
-            - id: auth-service
-              uri: lb://auth-service
-              predicates:
-                - Path=/api/auth/**
             - id: customer-service
               uri: lb://customer-service
               predicates:
                 - Path=/api/customers/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
             # City/district reference data is owned by customer-service (local tables).
             - id: customer-service-cities
               uri: lb://customer-service
               predicates:
                 - Path=/api/cities/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
             # Shared GNL_ST/GNL_TP catalogs (ADR-002) — exposed for frontend dropdowns.
             - id: lookup-service
               uri: lb://lookup-service
               predicates:
                 - Path=/api/lookups/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
 
 eureka:
   client:
@@ -51,6 +113,8 @@ eureka:
 # NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway
 # does not provide it. In WebMVC, routes are registered as RouterFunction beans,
 # so they show up under /actuator/mappings instead.
+# Security hardening (ADR-009): only health stays anonymous; info/mappings require
+# an authenticated crm-user session (see SecurityConfig).
 management:
   endpoints:
     web:

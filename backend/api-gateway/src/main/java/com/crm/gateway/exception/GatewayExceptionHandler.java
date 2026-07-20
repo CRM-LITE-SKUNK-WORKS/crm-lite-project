@@ -15,7 +15,7 @@ import org.springframework.web.client.ResourceAccessException;
  * WebFlux distinction) does not translate a downstream-unavailable failure into a client-facing
  * status on its own: when Eureka has no instance for a route's service, LoadBalancerFilterFunctions
  * throws an HttpServerErrorException with the real status embedded (e.g. "503 Unable to find
- * instance for auth-service"), but nothing reads that status back out, so it falls through to
+ * instance for customer-service"), but nothing reads that status back out, so it falls through to
  * Spring Boot's default error handling as a generic 500. This advice extracts it.
  */
 @RestControllerAdvice

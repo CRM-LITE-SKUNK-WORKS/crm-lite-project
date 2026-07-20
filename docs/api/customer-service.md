@@ -395,4 +395,8 @@ curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers
 - Active-product check before delete and billing-account passivation → future
   account/product domains (TODO, no-op today).
 - Address in-use check (`MSG-ADDR-IN-USE`) → no-op until account/service addresses exist.
-- Gateway security is `permitAll` until the authentication milestone lands (ADR-004).
+- All endpoints require a Keycloak-authenticated caller with the `crm-user` role
+  (ADR-006..009): via the gateway that means a logged-in BFF session (browser /
+  `docs/postman/README.md` §Authentication); direct calls need a valid
+  `Authorization: Bearer` JWT. Anonymous requests get 401 `MSG-AUTH-UNAUTHORIZED`.
+  See `docs/api/authentication.md`.

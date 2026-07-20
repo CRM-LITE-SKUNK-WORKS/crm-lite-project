@@ -77,6 +77,17 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
+        <!-- Zero-trust resource server (ADR-009): validates the Keycloak JWT relayed
+             by the gateway BFF — signature, issuer, audience and the crm-user role. -->
+        <dependency>
+            <groupId>com.crm</groupId>
+            <artifactId>crm-security-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
+        </dependency>
         <!-- @LoadBalanced RestClient for outbound calls to lookup-service / mernis-stub -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

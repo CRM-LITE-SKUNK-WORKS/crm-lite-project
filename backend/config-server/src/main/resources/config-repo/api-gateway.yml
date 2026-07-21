@@ -106,6 +106,30 @@ spring:
               filters:
                 - TokenRelay=
                 - RemoveRequestHeader=Cookie
+            # Unified Swagger UI (ADR-012): proxy each service's OpenAPI JSON under this
+            # gateway's own origin so springdoc.swagger-ui.urls below can list them. Both
+            # services permit /v3/api-docs anonymously (crm.security.permit-paths), so no
+            # TokenRelay is needed here — it's schema metadata, not business data.
+            # X-Forwarded-Host/Proto are set explicitly (not assumed from a gateway
+            # default): springdoc reads these itself to build the OpenAPI "servers" URL
+            # used by "Try it out" — without them it self-reports its own container
+            # hostname:port, which the browser cannot reach (ADR-009).
+            - id: customer-service-docs
+              uri: lb://customer-service
+              predicates:
+                - Path=/v3/api-docs/customer-service
+              filters:
+                - RewritePath=/v3/api-docs/customer-service, /v3/api-docs
+                - AddRequestHeader=X-Forwarded-Host, localhost:8080
+                - AddRequestHeader=X-Forwarded-Proto, http
+            - id: lookup-service-docs
+              uri: lb://lookup-service
+              predicates:
+                - Path=/v3/api-docs/lookup-service
+              filters:
+                - RewritePath=/v3/api-docs/lookup-service, /v3/api-docs
+                - AddRequestHeader=X-Forwarded-Host, localhost:8080
+                - AddRequestHeader=X-Forwarded-Proto, http
 
 eureka:
   client:
@@ -116,6 +140,17 @@ eureka:
   instance:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${random.value}
+
+# Unified Swagger UI (ADR-012): one page at /swagger-ui.html with a service dropdown,
+# backed by the /v3/api-docs/* proxy routes above. Domain services only generate the
+# JSON (springdoc.swagger-ui.enabled=false there); this is the only UI in the platform.
+springdoc:
+  swagger-ui:
+    urls:
+      - name: customer-service
+        url: /v3/api-docs/customer-service
+      - name: lookup-service
+        url: /v3/api-docs/lookup-service
 
 # 2c) Actuator exposure.
 # NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway

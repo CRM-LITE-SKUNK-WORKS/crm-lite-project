@@ -64,6 +64,10 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health").permitAll()
                         .requestMatchers("/login/**", "/oauth2/**", "/error").permitAll()
+                        // Unified Swagger UI (ADR-012): docs pages and OpenAPI JSON are schema
+                        // metadata, not business data — viewable without logging in. Actually
+                        // executing "Try it out" still hits /api/** below, which stays gated.
+                        .requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         // Session probe: any authenticated session may ask "who am I".
                         .requestMatchers("/api/session/me").authenticated()
                         // Every business API needs the explicit KR-8 operator role,

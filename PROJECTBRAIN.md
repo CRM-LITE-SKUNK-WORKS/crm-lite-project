@@ -4,7 +4,12 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-18 (**AUTH/SECURITY milestone'u uygulandı — ADR-006..011:**
+> **Son güncelleme:** 2026-07-20 (**Swagger/OpenAPI eklendi — ADR-012:** tek, birleşik Swagger UI
+> sadece `api-gateway`'de (`http://localhost:8080/swagger-ui.html`); customer-service +
+> lookup-service sadece `/v3/api-docs` JSON'unu üretir (`springdoc.swagger-ui.enabled: false`),
+> gateway bunları proxy route'larıyla (`RewritePath`, TokenRelay YOK) birleştirir. Host portu
+> AÇILMADI — ADR-009 korundu; "Try it out" mevcut BFF session cookie'sini kullanır. Detay §4.7.)
+> Önceki durum: 2026-07-18 (**AUTH/SECURITY milestone'u uygulandı — ADR-006..011:**
 > Keycloak 26.3.4 tek kimlik/token otoritesi (realm `crm-lite`, import `infra/keycloak/`);
 > api-gateway artık **BFF** (Authorization Code + PKCE `oauth2Login`, HttpOnly session +
 > XSRF çerezleri, TokenRelay, RP-initiated logout) — permitAll KALKTI; customer-service +
@@ -196,6 +201,8 @@ crm-lite-project-dev/
 - **Timeout:** `spring.http.client.connect-timeout: 2s`, `read-timeout: 5s` (WebMVC'nin doğru property'leri).
 - **Eureka instance:** `prefer-ip-address: true`, `instance-id: ${spring.application.name}:${random.value}`.
 - **Actuator:** `health, info, mappings` açık.
+- **Swagger UI (ADR-012, YENİ):** `http://localhost:8080/swagger-ui.html` — customer-service ve
+  lookup-service'in `/v3/api-docs`'unu proxy'leyip tek sayfada birleştirir; detay §4.7.
 - **Not:** Route/timeout/eureka/actuator ayarlarının tamamı artık yerel `application.yml`'de değil,
   `config-server`'ın `config-repo/api-gateway.yml` dosyasında. Yerel dosyada sadece `spring.application.name`
   ve `spring.config.import` kaldı.
@@ -342,6 +349,68 @@ crm-lite-project-dev/
   `-classpath`'teki processor'leri (Lombok dahil) otomatik keşfetmiyor. `customer-service/pom.xml`'e bu
   yapılandırma eklenerek düzeltildi (bkz. §5.9). (Buradaki eski "auth-service'e de taşınmalı" uyarısı
   tarihseldir — auth-service 2026-07-17'de silindi; kural yeni Lombok kullanan HER modül için geçerli.)
+
+### 4.7 API Dokümantasyonu (Swagger/OpenAPI) ✅ (YENİ — ADR-012)
+- **Tek, birleşik Swagger UI — sadece gateway'de.** `customer-service` ve `lookup-service`
+  `springdoc-openapi-starter-webmvc-ui` ile kendi `@RestController`'larından `/v3/api-docs` JSON'unu
+  üretir ama `springdoc.swagger-ui.enabled: false` (config-repo) — kendi UI'larını sunmazlar.
+  `api-gateway` aynı starter'ı UI açık şekilde taşır; `springdoc.swagger-ui.urls` iki servisi
+  dropdown'da listeler; gerçek sayfa **`http://localhost:8080/swagger-ui.html`**.
+- **Neden gateway-proxy, neden servislere doğrudan host portu açmadık:** ADR-009 "no published host
+  port" kuralı — tüm client trafiği BFF'den girer. Alternatif (her servisin kendi Swagger UI'ını
+  8082/8083'te host etmesi + springdoc'un kendi OAuth2 Authorization Code+PKCE akışıyla Keycloak'tan
+  doğrudan Bearer token alması) crm-security-starter'ın asıl zero-trust modelini daha sadık test
+  ederdi, ama host port açmayı ve iki farklı auth mekanizmasını (BFF session vs. doğrudan Bearer)
+  aynı anda idame ettirmeyi gerektirirdi. Gateway-proxy seçildi çünkü: (1) controller path'leri
+  zaten `/api/customers`, `/api/lookups` ile mevcut gateway route'larıyla birebir örtüşüyor — "Try
+  it out" ekstra hiçbir auth kodu yazmadan mevcut BFF session cookie'sini kullanıyor; (2) yeni host
+  portu YOK, ADR-009 hiç esnetilmedi; (3) tek sayfa, tek auth modeli — geliştirici zihinsel yükü az.
+- **Gateway route'ları** (`api-gateway.yml`, mevcut `spring.cloud.gateway.server.webmvc.routes`
+  kalıbıyla aynı şekilde): `customer-service-docs` ve `lookup-service-docs`, `/v3/api-docs/{servis}`
+  path'ini `RewritePath` ile downstream servisin `/v3/api-docs`'una çevirir. `TokenRelay` YOK — docs
+  JSON'u iş verisi değil, şema metadata'sı, her iki tarafta da anonim.
+- **Güvenlik izinleri:** her iki resource-server'da `crm.security.permit-paths` (starter'ın
+  extension point'i, kod değişikliği gerekmez) `/v3/api-docs/**`'i ekliyor; `api-gateway`'in kendi
+  `SecurityConfig.java`'sında `/swagger-ui/**`, `/swagger-ui.html`, `/v3/api-docs/**` `permitAll()`.
+  Docs sayfası login'siz görülebilir; "Try it out"'un asıl `/api/**` çağrısı hâlâ `ROLE_crm-user`
+  gerektirir (mevcut kural değişmedi) — kullanıcı ayrı bir sekmede normal login akışını tamamlamış
+  olmalı, aynı origin olduğu için session cookie'si otomatik gider.
+- **Bilinen sınır:** Swagger UI'ın varsayılan `requestInterceptor`'ı CSRF header'ı (`X-XSRF-TOKEN`)
+  otomatik eklemiyor — GET'ler sorunsuz, mutating (POST/PUT/DELETE/PATCH) "Try it out" çağrıları için
+  şimdilik kullanıcı `XSRF-TOKEN` cookie değerini elle header olarak eklemeli. Otomatikleştirmek
+  (custom JS interceptor) ayrı, küçük bir takip işi (bkz. §9).
+- **springdoc versiyonu:** root `pom.xml`'de `springdoc-openapi.version=2.8.6` (Maven Central'daki
+  en güncel sürüm; Spring Boot 4.1.0/Spring Framework 7 ile springdoc'un 3.x hattı henüz
+  yayınlanmadığı için 2.x kullanıldı — derleme/test bunu doğruladı, uyumsuzluk çıkarsa ilk şüpheli yer burası).
+- **"Try it out" URL çözümü — bir deneme çöp oldu, kayıt altında:** İlk kurulumda "Try it out"
+  isteklerinin gittiği adres, `customer-service`/`lookup-service`'in **kendi container hostname'i**
+  oluyordu (`http://<container-id>:8082/...`) — tarayıcıdan erişilemez. İlk deneme
+  `server.forward-headers-strategy: framework` (config-repo) + gateway route'larına
+  `AddRequestHeader=X-Forwarded-Host, localhost:8080` eklemekti; springdoc bu header'ları
+  güvenilir şekilde yansıtmadı, **işe yaramadı**. **Gerçek çözüm:** her iki serviste
+  `common/config/OpenApiConfig.java` — bir `OpenApiCustomizer` bean'i, üretilen OpenAPI
+  dokümanının `servers` alanını doğrudan **relatif `"/"`** olarak zorluyor. Bu sayede Swagger UI
+  API çağrılarını her zaman kendi sayfasının origin'ine (`http://localhost:8080`) göre yapıyor,
+  forwarded-header davranışına hiç bağımlı değil. `forward-headers-strategy: framework` config'te
+  kaldı (zararsız) ama bu sorunu asıl çözen o DEĞİL — yeni bir servis eklerken ona güvenme, aşağıdaki
+  `OpenApiConfig` adımını uygula. Uçtan uca doğrulandı: login → GET liste/detay/adres → CSRF'li
+  PATCH (200) → CSRF header'sız aynı istek (403 `MSG-AUTH-CSRF-REJECTED`) → docs anonim erişim (200)
+  → `mkaya` (disabled) login reddi — hepsi gerçek gateway/Keycloak'a karşı test edildi (2026-07-20).
+- **Yeni bir servis eklendiğinde Swagger'da görünmesi için (OTOMATİK DEĞİL — 4 adım):**
+  1. Yeni servisin `pom.xml`'ine `springdoc-openapi-starter-webmvc-ui` bağımlılığı ekle (versiyon
+     root `pom.xml`'in `dependencyManagement`'ından geliyor, ayrı versiyon yazma).
+  2. Yeni servisin config-repo YAML'ına: `springdoc.swagger-ui.enabled: false` (kendi UI'ını
+     sunmasın) + `crm.security.permit-paths` listesine `/v3/api-docs/**` ekle (starter'ın
+     `/actuator/health` varsayılanını da tekrar yazmayı unutma — liste extend değil override eder).
+  3. `common/config/OpenApiConfig.java`'yı **birebir kopyala** (bkz. `customer-service` veya
+     `lookup-service`'teki dosya) — sadece paket adını değiştir. `forward-headers-strategy` EKLEMENE
+     gerek yok, gerçek çözüm bu bean.
+  4. `api-gateway.yml`'e: yeni bir `{servis}-docs` route'u (`customer-service-docs` ile birebir aynı
+     kalıp — `RewritePath=/v3/api-docs/{servis}, /v3/api-docs`) + `springdoc.swagger-ui.urls`
+     listesine bir satır. `api-gateway`'in `SecurityConfig.java`'sına DOKUNMANA gerek yok —
+     `/v3/api-docs/**` zaten prefix olarak permitAll.
+  Tüm bunlardan sonra config-server'ı (yeni route/permit-path onun classpath'inde) VE ilgili yeni
+  servisi yeniden build+deploy etmeyi unutma.
 
 ---
 
@@ -665,6 +734,67 @@ docs/api/shared-lookup-service.md, docs/api/mernis-stub.md, **docs/api/authentic
 (login/session/CSRF/logout kontratı); runbook: docs/runbooks/local-development.md;
 **Postman koleksiyonu:** docs/postman/.
 
+**Swagger UI (ADR-012):** `http://localhost:8080/swagger-ui.html` login'siz açılır (sağ üstte
+customer-service/lookup-service dropdown'ı). "Try it out" için önce ayrı bir sekmede
+`http://localhost:8080/` üzerinden normal login yapılmış olmalı — aynı origin olduğu için session
+cookie'si otomatik gider. Mutating istekler (POST/PUT/DELETE/PATCH) için `XSRF-TOKEN` cookie
+değeri şimdilik elle `X-XSRF-TOKEN` header'ı olarak eklenmeli (bkz. §4.7, §9.2).
+
+---
+
+## 8A. Detaylı Fonksiyonel Test Rehberi (Auth + Customer + Swagger)
+
+Manuel/QA testi için §8'deki kompakt smoke test'ten daha ayrıntılı üç yol. Hepsi 2026-07-20'de
+gerçek Keycloak + gateway + customer-service/lookup-service'e karşı doğrulandı.
+
+### A) Tarayıcıdan (en kolay yol — asıl tasarlandığı akış budur)
+**Auth testi:** `http://localhost:8080/` adresini aç → Keycloak login sayfasına yönlenirsin →
+`ayilmaz` / `crm-dev` (veya `edemir` / `crm-dev`) ile giriş yap → gateway'e geri döner ve
+`{"authenticated":true,"username":"ayilmaz","roles":["crm-user"]}` JSON'ını görürsün
+(`SessionController.home`). Bu, tüm Authorization Code + PKCE zincirinin çalıştığını kanıtlar.
+Negatif test için `mkaya` / `crm-dev` dene — bu kullanıcı realm'de `enabled: false`, Keycloak
+**"Account is disabled"** hatası verir.
+
+**Customer/lookup testi (GET'ler):** Aynı sekmede (session cookie hâlâ tarayıcıda):
+- `http://localhost:8080/api/customers` → müşteri listesi (Page)
+- `http://localhost:8080/api/customers/1001` → tek müşteri detayı
+- `http://localhost:8080/api/customers/1001/addresses` → adresler
+- `http://localhost:8080/api/lookups/statuses?domain=GENERAL` → merkezi katalog (ADR-002)
+
+Tarayıcı sadece GET yapabildiği için POST/PUT/DELETE/PATCH testlerini tarayıcıdan yapamazsın —
+onun için Postman veya Swagger UI (C, aşağıda) gerekir.
+
+### B) Postman'dan (mutating istekler + tam kontrol için)
+Postman'ın yerleşik cookie jar'ı var (eklenti gerekmez, Postman 9+).
+1. **GET** `http://localhost:8080/oauth2/authorization/keycloak` — Send (redirect takibi varsayılan
+   açık). Yanıt Keycloak'ın login HTML'i olur. Body'de `<form id="kc-form-login" ...
+   action="http://localhost:8180/realms/crm-lite/login-actions/authenticate?session_code=...">`
+   satırındaki `action` URL'ini kopyala (tek kullanımlık, her denemede yeniden al).
+2. **POST** o `action` URL'ine, Body → `x-www-form-urlencoded`: `username=ayilmaz`,
+   `password=crm-dev`. Gönder → Postman redirect zincirini takip eder, `JSESSIONID` +
+   `XSRF-TOKEN`'ı cookie jar'a yazar.
+3. **GET** `http://localhost:8080/api/session/me` → `authenticated:true` dönerse login tamam.
+4. **GET** `http://localhost:8080/api/customers` → müşteri listesi JSON.
+5. **Mutating istekler** (`POST /api/customers`, `PATCH .../addresses/{id}/primary` vb.): Postman'ın
+   Cookies panelinden `localhost` altındaki `XSRF-TOKEN` değerini kopyala, isteğe
+   `X-XSRF-TOKEN: <değer>` header'ı ekle (double-submit CSRF — cookie'yi Postman otomatik gönderir,
+   header'ı sen eklersin). Header'sız aynı istek `403` + `MSG-AUTH-CSRF-REJECTED` döner (bilerek —
+   test edilmiş davranış).
+
+Not: `customer-service`'e (8082) doğrudan Postman'dan erişilemez — host'a port açılmıyor (ADR-009),
+her şey `localhost:8080` üzerinden gateway'e gitmeli.
+
+### C) Swagger UI'dan (ADR-012 — dropdown + "Try it out")
+`http://localhost:8080/swagger-ui.html` → sağ üstte customer-service/lookup-service dropdown'ı,
+login'siz açılır. "Try it out" çalıştırmadan önce ayrı bir sekmede (A)'daki gibi login ol — aynı
+origin olduğu için session cookie'si Swagger sekmesine de geçer. GET'ler direkt çalışır; mutating
+çağrılar için tarayıcı DevTools → Application → Cookies'ten `XSRF-TOKEN` değerini alıp isteğin
+header alanına `X-XSRF-TOKEN` olarak elle ekle (bkz. §4.7 "Bilinen sınır"). Doğrulanmış örnek:
+```bash
+curl -b cookies.txt -X PATCH -H "X-XSRF-TOKEN: <xsrf-token>" \
+  http://localhost:8080/api/customers/1001/addresses/1/primary
+```
+
 ---
 
 ## 9. Sırada Ne Var (Roadmap / Öncelik)
@@ -686,6 +816,9 @@ account/product/order domain'leri, FR-LANG lokalizasyon (varsayılan dil İngili
   (ADR-007), gateway'e resilience4j (eski §9.5 maddesi).
 - [ ] (Opsiyonel) Postman/CI araçları için gateway'e hibrit Bearer kabulü — şu an gateway yalnız
   oturum kabul ediyor; araçlar tarayıcı oturum çerezini kullanıyor (docs/postman/README.md).
+- [ ] **Swagger UI CSRF interceptor (ADR-012, §4.7):** `swagger-ui.html`'e custom `requestInterceptor`
+  JS'i eklenip `XSRF-TOKEN` cookie'sinin `X-XSRF-TOKEN` header'ına otomatik kopyalanması — şu an
+  mutating "Try it out" çağrıları için kullanıcı bunu elle yapıyor.
 
 ### 9.3 customer-service — kalan bilinçli TODO'lar
 - [x] ~~Adres/iletişim~~ — **TAMAMLANDI, aynı serviste** (ADR-001; ayrı address/contact-service YOK).

@@ -1,5 +1,9 @@
 server:
   port: 8083
+  # See the identical comment in customer-service.yml (ADR-012): without this, "Try it
+  # out" in Swagger UI targets this container's own hostname:port instead of the
+  # gateway's public origin.
+  forward-headers-strategy: framework
 
 spring:
   datasource:
@@ -20,11 +24,24 @@ spring:
 crm:
   security:
     issuer: http://localhost:8180/realms/crm-lite
+    # Overrides (not extends) the starter's default permit-paths list, so
+    # /actuator/health must be repeated here. /v3/api-docs is the OpenAPI JSON the
+    # gateway proxies into the unified Swagger UI (ADR-012) — schema metadata only,
+    # no business data, safe to leave anonymous like the docs page itself.
+    permit-paths:
+      - /actuator/health
+      - /v3/api-docs/**
 
 eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka
+
+# Only the OpenAPI JSON is served here; the gateway hosts the actual Swagger UI
+# and proxies this service's /v3/api-docs into it (ADR-012).
+springdoc:
+  swagger-ui:
+    enabled: false
 
 management:
   endpoints:

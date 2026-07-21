@@ -1,5 +1,13 @@
 server:
   port: 8082
+  # Swagger UI "Try it out" is executed by the browser against whatever server URL
+  # springdoc auto-detects from the incoming request. Without this, that's the raw
+  # request as customer-service itself sees it (the gateway's proxied call), i.e. this
+  # container's own hostname:port — unreachable from the browser (ADR-009: no
+  # published host port). `framework` makes Spring honor the X-Forwarded-* headers
+  # Spring Cloud Gateway already sends, so the detected server becomes the gateway's
+  # public origin (localhost:8080) instead (ADR-012).
+  forward-headers-strategy: framework
 
 spring:
   datasource:
@@ -25,6 +33,13 @@ crm:
     # (CRM_SECURITY_JWKSETURI env override); issuer validation stays canonical.
     issuer: http://localhost:8180/realms/crm-lite
     # audience: crm-api and required-role: crm-user are the starter defaults.
+    # Overrides (not extends) the starter's default permit-paths list, so
+    # /actuator/health must be repeated here. /v3/api-docs is the OpenAPI JSON the
+    # gateway proxies into the unified Swagger UI (ADR-012) — schema metadata only,
+    # no business data, safe to leave anonymous like the docs page itself.
+    permit-paths:
+      - /actuator/health
+      - /v3/api-docs/**
   lookup:
     base-url: http://lookup-service   # central GNL_ST/GNL_TP owner (ADR-002)
     cache-ttl: 15m
@@ -36,6 +51,12 @@ eureka:
   client:
     service-url:
       defaultZone: http://localhost:8761/eureka
+
+# Only the OpenAPI JSON is served here; the gateway hosts the actual Swagger UI
+# and proxies this service's /v3/api-docs into it (ADR-012).
+springdoc:
+  swagger-ui:
+    enabled: false
 
 management:
   endpoints:

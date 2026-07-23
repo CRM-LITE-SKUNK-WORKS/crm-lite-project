@@ -2,6 +2,7 @@
   "realm": "crm-lite",
   "enabled": true,
   "displayName": "CRM Lite",
+  "loginTheme": "crm-lite",
   "sslRequired": "external",
   "registrationAllowed": false,
   "resetPasswordAllowed": false,

@@ -1,8 +1,10 @@
 # CRM Lite Agent Instructions
 
 - Read PROJECTBRAIN.md before architectural changes.
-- Final requirements are under docs\source\requirements (current: FR/AC v8 Final,
-  16.07.2026 revision — reconciliation record in docs/requirements/document-delta.md).
+- Final requirements are under docs\source\requirements (current: FR/AC v8-1 Final,
+  23.07.2026 revision — reconciliation record in docs/requirements/document-delta.md).
+  account-service scope (KR-11, FR-ACCT-01..04) is documented but not implemented;
+  no account-specific ADR exists yet — do not build against it without one.
 - Approved architecture decisions are under docs/architecture/adr/ (ADR-001..005 are binding;
   they override older wording in any other document or diagram).
 - GNL_ST/GNL_TP are centrally owned by lookup-service: never create local copies, local seeds

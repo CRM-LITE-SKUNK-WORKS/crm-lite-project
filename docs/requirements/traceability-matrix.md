@@ -1,7 +1,9 @@
 # Traceability Matrix — customer-service + authentication scope
 
-Last updated: 2026-07-18 (authentication/security milestone, ADR-006..011; base:
-FR/AC v8 Final 16.07.2026 revision — see [document-delta.md](document-delta.md)).
+Last updated: 2026-07-23 (FR/AC v8-1 Final 23.07.2026 revision reconciled —
+documentation only, KR-11/FR-ACCT-01..04; see
+[document-delta.md](document-delta.md)). Prior: 2026-07-18 (authentication/security
+milestone, ADR-006..011; base: FR/AC v8 Final 16.07.2026 revision).
 FR/AC → implementation → automated test. Tests live in
 `backend/customer-service/src/test/java` unless noted.
 `IT` = `CustomerServiceIntegrationTest` (Testcontainers, real PostgreSQL + HTTP).
@@ -67,7 +69,7 @@ Testcontainers, committed realm import).
 | AC-CUST-05-04 billing-account passivation | account-service | documented no-op (local aggregate is passivated) |
 | AC-ADDR-04-04 address in-use check (`MSG-ADDR-IN-USE`) | account/order domains | documented no-op |
 | AC-AUTH-01-02/06/07/08/09 login-page UI details (button state, masking, 64-char cap) + LBL-LANGUAGE on the login screen | Keycloak **project theme** (future work) | standard Keycloak login page + built-in EN/TR i18n serve the flow today |
-| FR-ACCT-01..04 (ACCT_TP, CUST_ACCT; auto Customer Account on first billing account) | planned account-service | not implemented |
+| FR-ACCT-01..04 + KR-11 (ACCT_TP, CUST_ACCT; Account Number `[T][YY][SSSSSS][C]`; Active+Passive list; delete = passivation) | **planned account-service — next approved Sprint domain**, account-specific ADRs pending | not implemented; contract documented 23.07.2026 (FR v8-1) |
 | FR-PROD-01..02 (PROD_*, CMPG*, PROD_CATAL*) | planned product-service | not implemented |
 | FR-SALE-01..02 (BSN_INTER, CUST_ORD, CUST_ORD_ITEM, basket validation MSG-SALE-*) | planned order-service | not implemented |
 | FR-LANG-01 (TR/EN catalogs, **default EN** per 16.07.2026) | frontend + planned localization capability | backend returns language-neutral `messageKey`s |
@@ -90,3 +92,13 @@ Testcontainers, committed realm import).
 6. **FR-AUTH-01 wording assumes an in-app login form** — superseded by
    ADR-006: credentials are entered on the (themable) Keycloak login page; the
    AC-AUTH-01 UI criteria bind that page, not an Angular form.
+7. **Use-case doc FR-ACCT-04 still describes deletion as removal from the active
+   list** ("aktif hesap listesinden kaldırılması" / Adım 5) — contradicts FR v8-1
+   AC-ACCT-04-02 (deletion = passivation, stays visible as Passive). FR v8-1 governs;
+   use-case wording not updated by this revision.
+8. **draw.io ACCT-04 node still labeled "Hesabı aktif listeden kaldır"** — same
+   conflict as #7; FR v8-1 AC-ACCT-04-02 governs.
+9. **Entity/seed workbook `CUST_ACCT` sample `account_number` values don't satisfy
+   KR-11** (`0101112900`, `0101112911`, `0101112915`, `0101112441` — wrong segment
+   digit, no check digit) — flagged for analysts; account-service's real seed must
+   use the KR-11 format instead.

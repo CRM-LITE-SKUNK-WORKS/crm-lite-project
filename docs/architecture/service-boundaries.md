@@ -1,6 +1,8 @@
 # Service Boundaries
 
-Last updated: 2026-07-18 (authentication/security milestone — ADR-006..011).
+Last updated: 2026-07-23 (FR/AC v8-1 reconciliation, documentation only — account-service
+roadmap entry updated; see `docs/requirements/document-delta.md`). Prior: 2026-07-18
+(authentication/security milestone — ADR-006..011).
 
 ```
    browser ──► api-gateway :8080 ◄──────── login redirect ────► Keycloak :8180
@@ -77,7 +79,7 @@ Last updated: 2026-07-18 (authentication/security milestone — ADR-006..011).
 | contact-service | 🚫 Must NOT exist | internal customer-service module under ADR-001 |
 | auth / security milestone | ✅ **Implemented (2026-07-17)** | Keycloak sole authority + gateway BFF + zero-trust resource servers + JWT-sub audit (ADR-006..011). The auth-service skeleton was REMOVED (ADR-007) — it must not come back; a future profile store, if ever needed, is a new sub-keyed service per ADR-011 |
 | localization-service | 🗓️ Planned | Required by FR-LANG if the architecture keeps a central label/message catalog; **default language is now English** (16.07.2026). Backend already returns language-neutral `messageKey`s. Not started |
-| account-service | 🗓️ Planned (probable owner) | ACCT_TP + CUST_ACCT (billing accounts, auto Customer Account); boundary not analyst-final |
+| account-service | 🗓️ **Next approved Sprint domain** | ACCT_TP + CUST_ACCT (billing accounts). FR v8-1 (23.07.2026) documented KR-11 (Account Number: 10-digit `[T][YY][SSSSSS][C]`, segment `1` this phase, per-segment/per-year sequence from `100000`, immutable, never reused) and FR-ACCT-01..04 (Active+Passive list sorted Active-then-Passive/Account Number ASC; create requires name+billing address; delete = passivation, stays visible as Passive). Documentation only — no account-specific ADR yet, service not started; see `docs/requirements/document-delta.md` |
 | product-service | 🗓️ Planned (probable owner) | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* (product/catalog/campaign/product-instance); final boundary may combine product+catalog scope for this project — not analyst-final |
 | order-service | 🗓️ Planned (probable owner) | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + sale orchestration (FR-SALE); not analyst-final |
 

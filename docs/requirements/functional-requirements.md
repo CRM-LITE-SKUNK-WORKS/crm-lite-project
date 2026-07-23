@@ -1,9 +1,10 @@
 # Functional Requirements — Implementation Summary
 
-Source of truth: `docs/source/requirements/CRM_Lite_FR_AC_v8_Final.docx`
-(**16.07.2026 revision** — see [document-delta.md](document-delta.md) for what changed).
-This file summarizes what the backend implements today and where behaviour is
-intentionally deferred. IDs refer to the FR document.
+Source of truth: `docs/source/requirements/CRM_Lite_FR_AC_v8-1_Final.docx`
+(**23.07.2026 revision**, supersedes the 16.07.2026 v8 Final — see
+[document-delta.md](document-delta.md) for what changed). This file summarizes what
+the backend implements today and where behaviour is intentionally deferred. IDs
+refer to the FR document.
 
 ## Implemented (customer-service, port 8082)
 
@@ -62,7 +63,15 @@ search-criteria rule (ADR-005); no endpoint uses it anymore.
 - Active-product check on customer delete (AC-CUST-05-03) → no-op until product/account domains exist.
 - Billing-account passivation on customer delete (part of AC-CUST-05-04) → cross-service future work.
 - Address in-use check (AC-ADDR-04-04, MSG-ADDR-IN-USE) → no-op until account/service-address records exist.
-- **ACCT** (FR-ACCT-01..04, ACCT_TP/CUST_ACCT ownership) → planned account-service.
+- **ACCT** (FR-ACCT-01..04, ACCT_TP/CUST_ACCT ownership) → **planned account-service,
+  now the next approved Sprint domain** (roadmap; see PROJECTBRAIN §2). The 23.07.2026
+  revision documented the target contract — **KR-11** Account Number
+  (`[T][YY][SSSSSS][C]`, 10-digit, segment `1` this phase, per-segment/per-year
+  sequence from `100000`, immutable/never reused) and **FR-ACCT-01..04** (list shows
+  Active+Passive sorted Active-then-Passive/Account Number ASC; create requires
+  name+billing address; delete = passivation, stays visible as Passive,
+  `MSG-ACCT-DELETED`/`MSG-ACCT-HAS-PRODUCTS`) — but none of it is implemented yet;
+  account-specific ADRs are still pending
 - **PROD** (FR-PROD-01..02) and **SALE** (FR-SALE-01..02, KR-06/KR-7 basket+order flow)
   → planned product/order services.
 - **LANG** (FR-LANG-01: TR/EN label+message catalogs, **default language English** per

@@ -4,7 +4,20 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-20 (**Swagger/OpenAPI eklendi — ADR-012:** tek, birleşik Swagger UI
+> **Son güncelleme:** 2026-07-23 (**FR/AC v8-1 Final (23.07.2026) revizyonuyla mutabakat —
+> yalnız dokümantasyon:** analist dokümanı KR-11 (Account Number formatı:
+> 10 haneli `[T][YY][SSSSSS][C]`, bu faz için segment sabit `1`, segment+yıl bazlı sıra
+> `100000`'den başlar, kalıcı/yeniden kullanılmaz, check-digit yöntemi teknik tasarıma bırakılmış)
+> ve FR-ACCT-01/02/04'ü güncelledi: liste hem Active hem Passive hesapları gösterir
+> (AC-ACCT-01-03), sıralama Active→Passive sonra Account Number ASC (AC-ACCT-01-04), **silme =
+> pasifleştirme** — hesap Passive statüyle listede kalmaya devam eder, aktif listeden
+> KALDIRILMAZ (AC-ACCT-04-02, önceki metnin tersi). `account-service` henüz YOK — bu bir
+> **belgeleme turu**; hiçbir kod değişmedi. `account-service` roadmap'te artık **sıradaki
+> onaylı Sprint domain'i** (hesap-özel ADR'ler bekleniyor — ADR-013/014 bu turda AÇILMADI).
+> use-case dokümanı + draw.io hâlâ eski "aktif listeden kaldır" ifadesini taşıyor, workbook'taki
+> `CUST_ACCT` örnek `account_number` değerleri KR-11 formatına uymuyor — üçü de yeni açık
+> çelişki olarak kaydedildi (bkz. §9B, `docs/requirements/document-delta.md`).) Önceki durum:
+> 2026-07-20 (**Swagger/OpenAPI eklendi — ADR-012:** tek, birleşik Swagger UI
 > sadece `api-gateway`'de (`http://localhost:8080/swagger-ui.html`); customer-service +
 > lookup-service sadece `/v3/api-docs` JSON'unu üretir (`springdoc.swagger-ui.enabled: false`),
 > gateway bunları proxy route'larıyla (`RewritePath`, TokenRelay YOK) birleştirir. Host portu
@@ -89,7 +102,7 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 |---|---|---|
 | ~~auth/security milestone~~ | Keycloak tek otorite + gateway BFF + zero-trust resource server + JWT-sub audit (ADR-006..011). auth-service iskeleti SİLİNDİ | ✅ **UYGULANDI (2026-07-17)** |
 | localization-service | FR-LANG merkezi etiket/mesaj kataloğu (varsayılan dil artık **İngilizce**, 16.07.2026). Backend zaten dil-bağımsız `messageKey` dönüyor | 🗓️ Planlı, başlanmadı |
-| account-service | ACCT_TP + CUST_ACCT (fatura hesapları) | 🗓️ Planlı, sınır analist-final değil |
+| account-service | ACCT_TP + CUST_ACCT (fatura hesapları) | 🗓️ **Sıradaki onaylı Sprint domain'i** (FR v8-1, 23.07.2026 — KR-11 + FR-ACCT-01..04 belgelendi); hesap-özel ADR'ler (KR-11 Account Number kontratı, FR-ACCT API/DB şekli) onaya sunulmadan servis AÇILMAYACAK |
 | product-service | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* — product+catalog kapsamı birleşebilir | 🗓️ Planlı, sınır analist-final değil |
 | order-service | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + satış orkestrasyonu (FR-SALE) | 🗓️ Planlı, sınır analist-final değil |
 
@@ -860,7 +873,9 @@ curl -b cookies.txt -X PATCH -H "X-XSRF-TOKEN: <xsrf-token>" \
 Müşteri agregatı ✅ (2026-07-11), ADR-005 liste kontratı ✅ (2026-07-16), **auth/security
 milestone'u ✅ (2026-07-17, ADR-006..011 — detay §4.3)**. Milestone'un tasarım kararı netleşti:
 auth-service iskeleti KALDIRILDI; BFF gateway'de, kimlik Keycloak'ta. **Sıradaki adaylar:**
-account/product/order domain'leri, FR-LANG lokalizasyon (varsayılan dil İngilizce), frontend
+**account-service** (FR v8-1, 23.07.2026 revizyonuyla KR-11 + FR-ACCT-01..04 belgelendi —
+şimdi roadmap'te sıradaki onaylı Sprint domain'i, hesap-özel ADR'ler bekleniyor; bkz. §9B),
+product/order domain'leri, FR-LANG lokalizasyon (varsayılan dil İngilizce), frontend
 (Angular — docs/api/authentication.md kontratına karşı) ve Keycloak login sayfası proje teması.
 **Adres/iletişim için ayrı servis YOK ve PLANLANMIYOR** (ADR-001).
 
@@ -930,6 +945,22 @@ serbest (PR squash'lanıyor).
 ## 9B. Açık Analist/Doküman Çelişkileri (sessizce çözülmedi — kayıt altında)
 
 Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
+
+**FR v8-1 (23.07.2026) ile eklenen yeni çelişkiler — hesap/ACCT kapsamı:**
+
+7. **Use-case dokümanı FR-ACCT-04'ü hâlâ "aktif hesap listesinden kaldırma" olarak
+   anlatıyor** ("Beklenen Çıktı" + Ana Senaryo Adım 5): FR v8-1 AC-ACCT-04-02 (silme =
+   pasifleştirme; hesap Passive statüyle listede kalmaya devam eder) ile çelişiyor. FR
+   v8-1 geçerli; use-case metni analiste bildirilecek.
+8. **draw.io ACCT-04 akışındaki "Hesabı aktif listeden kaldır" düğümü** aynı çelişkiyi
+   taşıyor — bu revizyonda diyagram güncellenmedi; FR v8-1 AC-ACCT-04-02 geçerli.
+9. **Entity/Seed workbook `CUST_ACCT` örnek `account_number` değerleri KR-11 formatına
+   uymuyor** (`0101112900`, `0101112911`, `0101112915`, `0101112441` — segment hanesi
+   sabit `1` olması gerekirken `0`, check-digit yok). account-service'in Flyway seed'i
+   yazılırken bu değerler KR-11 formatına göre yeniden üretilmeli, olduğu gibi
+   kopyalanmamalı — analiste bildirilecek.
+
+**Önceki (16.07.2026 ve öncesi) çelişkiler, hâlâ açık:**
 
 1. **NATID "aktif" ifadesi:** use-case dokümanı (FR-CUST-03 alternatif adım 4.5) hâlâ "eşleşen
    **aktif** bir müşteri" diyor; FR AC-CUST-03-12 (nitelik yok) + ADR-003 (kalıcı global tekillik)

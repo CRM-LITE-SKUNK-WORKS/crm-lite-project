@@ -744,8 +744,9 @@ değeri şimdilik elle `X-XSRF-TOKEN` header'ı olarak eklenmeli (bkz. §4.7, §
 
 ## 8A. Detaylı Fonksiyonel Test Rehberi (Auth + Customer + Swagger)
 
-Manuel/QA testi için §8'deki kompakt smoke test'ten daha ayrıntılı üç yol. Hepsi 2026-07-20'de
-gerçek Keycloak + gateway + customer-service/lookup-service'e karşı doğrulandı.
+Manuel/QA testi için §8'deki kompakt smoke test'ten daha ayrıntılı üç yol. Hepsi gerçek
+Keycloak + gateway + customer-service/lookup-service'e karşı doğrulandı (A/C: 2026-07-20,
+B: 2026-07-22).
 
 ### A) Tarayıcıdan (en kolay yol — asıl tasarlandığı akış budur)
 **Auth testi:** `http://localhost:8080/` adresini aç → Keycloak login sayfasına yönlenirsin →
@@ -765,21 +766,77 @@ Tarayıcı sadece GET yapabildiği için POST/PUT/DELETE/PATCH testlerini taray�
 onun için Postman veya Swagger UI (C, aşağıda) gerekir.
 
 ### B) Postman'dan (mutating istekler + tam kontrol için)
-Postman'ın yerleşik cookie jar'ı var (eklenti gerekmez, Postman 9+).
-1. **GET** `http://localhost:8080/oauth2/authorization/keycloak` — Send (redirect takibi varsayılan
-   açık). Yanıt Keycloak'ın login HTML'i olur. Body'de `<form id="kc-form-login" ...
-   action="http://localhost:8180/realms/crm-lite/login-actions/authenticate?session_code=...">`
-   satırındaki `action` URL'ini kopyala (tek kullanımlık, her denemede yeniden al).
-2. **POST** o `action` URL'ine, Body → `x-www-form-urlencoded`: `username=ayilmaz`,
-   `password=crm-dev`. Gönder → Postman redirect zincirini takip eder, `JSESSIONID` +
-   `XSRF-TOKEN`'ı cookie jar'a yazar.
-3. **GET** `http://localhost:8080/api/session/me` → `authenticated:true` dönerse login tamam.
-4. **GET** `http://localhost:8080/api/customers` → müşteri listesi JSON.
-5. **Mutating istekler** (`POST /api/customers`, `PATCH .../addresses/{id}/primary` vb.): Postman'ın
-   Cookies panelinden `localhost` altındaki `XSRF-TOKEN` değerini kopyala, isteğe
-   `X-XSRF-TOKEN: <değer>` header'ı ekle (double-submit CSRF — cookie'yi Postman otomatik gönderir,
-   header'ı sen eklersin). Header'sız aynı istek `403` + `MSG-AUTH-CSRF-REJECTED` döner (bilerek —
-   test edilmiş davranış).
+Koleksiyon: `docs/postman/CRM-Lite.postman_collection.json` +
+`CRM-Lite.local.postman_environment.json` (detay: `docs/postman/README.md`,
+`docs/runbooks/auth-testing.md` §6). 2026-07-22'de sıfırdan bir Postman kurulumuyla uçtan
+uca doğrulandı — Keycloak login formunu Postman içinden POST'lamaya **çalışma**, kırılgan ve
+artık desteklenmiyor; login her zaman gerçek tarayıcıda yapılır.
+
+**B.0 — İçe aktar (bir kere).** Sol üstte bir **Team workspace**'teysen ve import/create
+sırasında `"you don't have permission"` hatası alırsan **My Workspace**'e (kişisel) geç, orada
+dene. **Import** → iki JSON dosyasını birlikte sürükle-bırak (dosya *yolunu* metin kutusuna
+yapıştırma — `Incorrect format` hatası verir). Sağ üstteki environment dropdown'dan
+**"CRM Lite — Local"**ı seç — seçmezsen her istek `getaddrinfo ENOTFOUND {{gatewayBaseUrl}}`
+ile patlar.
+
+**B.1 — Tarayıcıda giriş yap.** `http://localhost:8080/` (veya `/api/session/me`) aç → Keycloak
+login sayfasına yönlenir → `ayilmaz` / `crm-dev` → gateway'e döner,
+`{"authenticated":true,"username":"ayilmaz","roles":["crm-user"]}` JSON'ı görürsün.
+
+**B.2 — Cookie'leri Postman'a taşı.** DevTools (F12) → Application → Cookies →
+`http://localhost:8080` → **`JSESSIONID`** ve **`XSRF-TOKEN`** değerlerini kopyala (sadece
+value, `<`/`>` yok). Postman → herhangi bir isteğin **Send** altındaki **Cookies** linki →
+**Add Domain** `localhost` →
+```text
+JSESSIONID=<değer>; Path=/
+XSRF-TOKEN=<değer>; Path=/
+```
+
+**B.3 — `xsrfToken` environment değişkenini ayarla.** Sol kenar çubuğu → **Environments** →
+**CRM Lite — Local** → `xsrfToken` satırının **CURRENT VALUE** kolonuna `XSRF-TOKEN` cookie
+değerini yapıştır → **Save**.
+
+**B.4 — Doğrula.** `09 - Authentication` → *Session probe* → `200` + `"username": "ayilmaz"`
+beklenir; `401` dönerse B.1–B.3'ü tekrarla.
+
+**B.5 — GET istekleri.** `00`–`03` ve `04`/`05`/`06`'daki read istekleri ekstra bir şey
+gerektirmez, cookie jar yeterli.
+
+**B.6 — Mutating istekler** (`POST`/`PUT`/`PATCH`/`DELETE`, klasör 04/05/06 + 08'deki negatif
+senaryolar — ~19 istek). Koleksiyonda **sadece Logout** isteği `X-XSRF-TOKEN` header'ını hazır
+taşır; diğer tüm yazma isteklerinde **elle eklenmesi gerekir**:
+1. İsteği aç → **Headers** sekmesi
+2. Yeni satır: Key `X-XSRF-TOKEN`, Value `{{xsrfToken}}`
+3. Send
+
+Header'sız aynı istek `403` + `MSG-AUTH-CSRF-REJECTED` (`Invalid CSRF Token 'null'...`) döner
+(bilerek — test edilmiş davranış). `04` sırayla çalıştırılmalı (detail → create → update →
+delete → 404 doğrulama); *create*'ten önce `nationalityId`'yi taze, hiç kullanılmamış bir
+11 haneli değere çevir (ADR-003 — silinen id'ler bile sonsuza dek rezerve).
+
+**B.7 — Logout.** `09` → *Logout* isteği `followRedirects: false` ile gelir (yalnız hedef
+URL'i doğrular, gerçekten ziyaret etmez) — bu yüzden **gateway oturumunu** (JSESSIONID) bitirir
+ama **Keycloak SSO cookie'sine dokunmaz**. `302` + Keycloak `end_session` URL'i beklenir; eğer
+Location Keycloak yerine `http://localhost:8080/` çıkarsa, oturum zaten geçersiz/anonimdi (ör.
+bu istek daha önce bir kez çalıştırılmış) — B.1'den tazele.
+
+Postman'dan logout attıktan sonra tarayıcıda `/api/session/me` `401` döner (uygulama oturumu
+gerçekten bitti — aynı JSESSIONID paylaşılıyor), ama `/oauth2/authorization/keycloak`'a
+gidersen **şifre sormadan geri giriş yaptırır** — Keycloak SSO tarayıcıda hâlâ canlı, beklenen
+davranış. Tarayıcıdan tam logout (uygulama + SSO) şu an gerçek bir Angular shell olmadığı için
+sadece tam-sayfa navigasyonla mümkün; DevTools console'dan `fetch('/logout', ...)` sadece
+uygulama oturumunu bitirir (SSO hayatta kalır — bkz. `docs/runbooks/auth-testing.md` §4.1
+"Trap 2"), tam temiz başlangıç için incognito pencereyi kapat.
+
+**B.8 — Sık hatalar**
+
+| Belirti | Sebep | Çözüm |
+|---|---|---|
+| `403 MSG-AUTH-CSRF-REJECTED`, token `'null'` | Header hiç eklenmemiş | B.6 |
+| `401` her istekte | Oturum 30 dk idle timeout / cookie yanlış | B.1–B.2 tazele |
+| `getaddrinfo ENOTFOUND {{gatewayBaseUrl}}` | Environment seçilmemiş | B.0 |
+| Import sırasında "you don't have permission" | Team workspace'te yetki yok | My Workspace'e geç |
+| Logout `302` ama Keycloak'a değil `/`'a gidiyor | Oturum zaten sonlanmış | B.1'den tazele |
 
 Not: `customer-service`'e (8082) doğrudan Postman'dan erişilemez — host'a port açılmıyor (ADR-009),
 her şey `localhost:8080` üzerinden gateway'e gitmeli.

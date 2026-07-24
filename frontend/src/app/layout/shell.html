@@ -1,0 +1,203 @@
+<!-- Application shell — mock-ui-analysis §4. Colours/sizes come only from EDS
+     tokens exposed as Tailwind utilities (FE-ADR-011); no literal hex, no
+     off-scale pixel value. -->
+<div class="flex h-screen flex-col bg-page">
+  <!-- HEADER: 64px tall, navy (bg-inverse), 24px side padding -->
+  <header
+    class="z-sticky-header flex h-16 shrink-0 items-center justify-between bg-inverse px-6 shadow-e1"
+    data-testid="app-header"
+  >
+    <a
+      routerLink="/customers"
+      class="text-body-lg font-semibold text-on-inverse"
+      [attr.aria-label]="'UI-NAV-GO-TO-SEARCH' | t"
+      data-testid="app-logo-link"
+    >
+      {{ 'UI-COMMON-APP-NAME' | t }}
+    </a>
+
+    <!-- Right block: 32px tall, 20px gaps (§4.1) -->
+    <div class="flex h-8 items-center gap-5">
+      <!-- Real TR/EN switcher — the mock's static "EN" text is replaced
+           (decision 2.22, AC-LANG-01-01) -->
+      <div
+        class="flex items-center gap-1"
+        role="group"
+        [attr.aria-label]="'UI-COMMON-LANGUAGE' | t"
+        data-testid="app-language-switcher"
+      >
+        @for (option of languages; track option) {
+          <button
+            type="button"
+            class="rounded-sm px-2 py-1 text-body font-medium uppercase transition-colors duration-100"
+            [class.text-on-inverse]="lang() === option"
+            [class.text-ink-faint]="lang() !== option"
+            [attr.aria-pressed]="lang() === option"
+            (click)="setLanguage(option)"
+            [attr.data-testid]="'app-language-' + option"
+          >
+            {{ option }}
+          </button>
+        }
+      </div>
+
+      <span class="h-6 w-px bg-white/20" aria-hidden="true"></span>
+
+      <div class="flex items-center gap-2" data-testid="app-user">
+        <span
+          class="flex size-7 items-center justify-center rounded-full bg-white/10"
+          [attr.aria-label]="'UI-COMMON-USER-AVATAR' | t"
+        >
+          <svg
+            class="size-4 text-on-inverse"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+        </span>
+        <span class="text-body font-medium text-on-inverse" data-testid="app-username">
+          {{ username() }}
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <div class="flex min-h-0 flex-1">
+    <!-- SIDENAV: 80px wide, white, 1px right border (§4.2) -->
+    <nav
+      class="flex w-20 shrink-0 flex-col gap-1 border-r border-line bg-surface px-2 py-3"
+      data-testid="app-sidenav"
+    >
+      <a
+        routerLink="/customers"
+        routerLinkActive="bg-brand text-on-brand"
+        class="flex h-14 flex-col items-center justify-center gap-1 rounded-md border border-transparent text-ink-soft transition-colors duration-100"
+        data-testid="app-nav-b2c"
+      >
+        <svg
+          class="size-6"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+        <span class="text-caption font-semibold">{{ 'UI-NAV-B2C' | t }}</span>
+      </a>
+
+      <!-- Visible but inert: no navigation, no active state (decision 2.21).
+           aria-disabled (not `disabled`) keeps them announced and focusable. -->
+      <button
+        type="button"
+        aria-disabled="true"
+        class="flex h-14 cursor-default flex-col items-center justify-center gap-1 rounded-md border border-transparent text-ink-soft"
+        data-testid="app-nav-b2b"
+      >
+        <svg
+          class="size-6"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="2" y="7" width="20" height="14" rx="2" />
+          <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+        </svg>
+        <span class="text-caption font-semibold">{{ 'UI-NAV-B2B' | t }}</span>
+      </button>
+
+      <button
+        type="button"
+        aria-disabled="true"
+        class="flex h-14 cursor-default flex-col items-center justify-center rounded-md border border-transparent text-ink-soft"
+        [attr.aria-label]="'UI-NAV-MENU' | t"
+        data-testid="app-nav-menu"
+      >
+        <svg
+          class="size-6"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M3 12h18M3 6h18M3 18h18" />
+        </svg>
+      </button>
+
+      <button
+        type="button"
+        aria-disabled="true"
+        class="flex h-14 cursor-default flex-col items-center justify-center rounded-md border border-transparent text-ink-soft"
+        [attr.aria-label]="'UI-NAV-LEADS' | t"
+        data-testid="app-nav-leads"
+      >
+        <svg
+          class="size-6"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3z" />
+          <path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3" />
+        </svg>
+      </button>
+
+      <span class="flex-1"></span>
+
+      <!-- Logout lives at the bottom of the sidenav, as in the mock. It is a
+           CSRF-protected POST, never a form and never a link (FE-ADR-005 §3). -->
+      <button
+        type="button"
+        class="flex h-14 flex-col items-center justify-center rounded-md border border-transparent text-ink-soft transition-colors duration-100 hover:bg-sunken"
+        (click)="logout()"
+        [attr.aria-label]="'UI-COMMON-LOGOUT' | t"
+        [attr.title]="'UI-COMMON-LOGOUT' | t"
+        data-testid="app-logout-button"
+      >
+        <svg
+          class="size-6"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+          <path d="M16 17l5-5-5-5" />
+          <path d="M21 12H9" />
+        </svg>
+      </button>
+    </nav>
+
+    <!-- MAIN: fills the rest, 24px padding, 20px gap between blocks -->
+    <main class="flex min-w-0 flex-1 flex-col gap-5 overflow-auto p-6" data-testid="app-main">
+      <router-outlet />
+    </main>
+  </div>
+</div>

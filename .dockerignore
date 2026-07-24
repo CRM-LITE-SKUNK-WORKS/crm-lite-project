@@ -8,3 +8,10 @@
 
 # Local env files
 **/*.log
+
+# Frontend artefacts (FE-ADR-010 §2). node_modules is host-platform specific —
+# installing on Windows/macOS and copying it into a Linux image breaks native
+# modules — and dist is rebuilt inside the image anyway. Backend Maven builds do
+# not read either path, so excluding them cannot affect them.
+**/node_modules
+frontend/dist

@@ -157,14 +157,20 @@ services:
     networks:
       - crm-net
 
-  # One-shot: guarantees the crm-lite login theme is actually selected by the realm.
-  # `--import-realm` imports ONLY on first start (when the realm is absent from
-  # keycloak_db), so a developer whose keycloak_db predates the theme commit keeps
-  # an empty realm.login_theme and still sees Keycloak's stock login page — the
-  # manual Admin Console step described in keycloak/themes/crm-lite/README.md.
-  # This container removes that manual step: on every `up` it writes loginTheme on
-  # the realm. Idempotent (rewrites the same value), and nothing depends_on it, so
-  # if it ever fails the rest of the stack still comes up exactly as before.
+  # One-shot: reconciles realm settings that `--import-realm` cannot deliver to an
+  # EXISTING keycloak_db. `--import-realm` imports ONLY on first start (when the
+  # realm is absent), so a developer whose keycloak_db predates a realm change keeps
+  # the old values — for the login theme that meant Keycloak's stock login page, and
+  # for the redirect URIs below it would mean a broken frontend login. This container
+  # removes those manual Admin Console steps: on every `up` it re-applies both.
+  # Idempotent (rewrites the same values), and nothing depends_on it, so if it ever
+  # fails the rest of the stack still comes up exactly as before.
+  #
+  # Applied settings:
+  #   1. realm loginTheme = crm-lite            (FR-AUTH-01 UI; ADR-006)
+  #   2. crm-bff redirectUris / webOrigins      (FE-ADR-004: frontend on :4200 must
+  #      / post.logout.redirect.uris             be a valid OAuth origin alongside
+  #                                              the gateway's own :8080)
   keycloak-init:
     image: quay.io/keycloak/keycloak:26.3.4
     container_name: keycloak-init
@@ -177,7 +183,13 @@ services:
         /opt/keycloak/bin/kcadm.sh config credentials
         --server http://keycloak:8180 --realm master --user admin --password admin &&
         /opt/keycloak/bin/kcadm.sh update realms/crm-lite -s loginTheme=crm-lite &&
-        echo "keycloak-init: loginTheme=crm-lite applied to realm crm-lite"
+        echo "keycloak-init: loginTheme=crm-lite applied to realm crm-lite" &&
+        CID=$$(/opt/keycloak/bin/kcadm.sh get clients -r crm-lite --query clientId=crm-bff --fields id --format csv --noquotes) &&
+        /opt/keycloak/bin/kcadm.sh update clients/$$CID -r crm-lite
+        -s 'redirectUris=["http://localhost:8080/login/oauth2/code/keycloak","http://localhost:4200/login/oauth2/code/keycloak"]'
+        -s 'webOrigins=["http://localhost:8080","http://localhost:4200"]'
+        -s 'attributes."post.logout.redirect.uris"=http://localhost:8080/*##http://localhost:4200/*' &&
+        echo "keycloak-init: crm-bff redirect URIs applied (:8080 gateway + :4200 frontend)"
     depends_on:
       keycloak:
         condition: service_healthy
@@ -317,6 +329,41 @@ services:
       lookup-service:
         condition: service_healthy
       customer-service:
+        condition: service_healthy
+    networks:
+      - crm-net
+
+  # Frontend SPA (FE-ADR-010). Multi-stage build: the Node toolchain stays in the
+  # build stage and the runtime image is nginx + static assets only.
+  #
+  # nginx also reverse-proxies /api, /oauth2, /login and /logout to the gateway
+  # over crm-net, so the browser sees ONE origin — the container-side half of
+  # FE-ADR-004, behaviourally identical to the `ng serve` dev proxy. That is why
+  # no API URL is injected here: the app calls relative paths and nginx decides
+  # the upstream (FE-ADR-010 §6).
+  frontend:
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
+    image: crm-lite/frontend:local
+    container_name: frontend
+    # 4200 matches `ng serve`, so the browser-facing origin is identical in
+    # development and in the container (FE-ADR-010 §5). That matters: this exact
+    # origin is registered on the crm-bff Keycloak client by keycloak-init.
+    ports:
+      - "4200:80"
+    healthcheck:
+      # nginx:alpine has BusyBox wget but no bash, so the `</dev/tcp` probe the
+      # JVM services use is not available here.
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+    depends_on:
+      # The proxy target must already be answering, otherwise the first page load
+      # races the gateway's boot and every API call 502s.
+      api-gateway:
         condition: service_healthy
     networks:
       - crm-net

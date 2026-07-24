@@ -1,5 +1,16 @@
 server:
   port: 8080
+  # The frontend container (FE-ADR-004/010) serves the SPA on :4200 and reverse-
+  # proxies /api, /oauth2, /login and /logout to this gateway, so the browser only
+  # ever talks to one origin. For that to hold through the OAuth2 dance, the gateway
+  # must build its redirect_uri from the ORIGIN THE BROWSER USED, not from the
+  # internal request it receives. `framework` makes Spring honour the X-Forwarded-*
+  # headers nginx sets, so {baseUrl} resolves to http://localhost:4200 for requests
+  # arriving through the frontend and stays http://localhost:8080 for direct hits
+  # (Swagger UI, Postman, curl) — both are registered on the crm-bff client, and
+  # Keycloak's registered-URI list remains the security backstop for any other value.
+  # customer-service and lookup-service already set this for the same class of reason.
+  forward-headers-strategy: framework
   servlet:
     session:
       # KR-9 idle timeout: mirrors Keycloak's SSO Session Idle (30m). The absolute

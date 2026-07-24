@@ -1,0 +1,215 @@
+/* ============================================================================
+   CRM Lite — global stylesheet
+   Etiya EDS Lite design tokens → Tailwind v4 theme.
+   Every value below is the REAL token value from docs/frontend/mock-ui-analysis.md
+   §2 (verified 2026-07-23). No placeholders, no invented values (FE-ADR-011).
+
+   Only SEMANTIC roles are exposed as utilities (FE-ADR-011 §b): the primitive
+   palette (orange and ink ramps) is intentionally NOT surfaced, so components
+   can only reach semantic tokens. The EDS-token → Tailwind-class map lives in
+   FRONTEND_BRAIN.md §"EDS Token → Tailwind Sınıfı Haritası".
+   ============================================================================ */
+
+/* Inter (variable, self-hosted). index.css carries every subset incl. latin-ext,
+   which Turkish characters (ç ğ ı ş ö ü / İ) require — mock-ui-analysis §2.12. */
+@import '@fontsource-variable/inter/index.css';
+@import 'tailwindcss';
+
+@theme {
+  /* ---- Disable Tailwind's default palette so only EDS colors exist ---- */
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+
+  /* ===== Brand / primary action (Etiya Orange) ===== */
+  --color-brand: #f58220; /* action-primary-bg, border-focus, border-selected */
+  --color-brand-hover: #db7013; /* action-primary-bg-hover */
+  --color-brand-active: #b85c0d; /* action-primary-bg-active, text-brand (links) */
+  --color-on-brand: #242441; /* action-primary-text — NEVER white on orange */
+
+  /* ===== Surfaces (use with bg-*) ===== */
+  --color-page: #f7f7fb; /* bg-page */
+  --color-surface: #ffffff; /* bg-surface */
+  --color-sunken: #efeff6; /* bg-surface-sunken, bg-disabled, action-disabled-bg */
+  --color-selected: #fef6ee; /* bg-selected */
+  --color-inverse: #242441; /* bg-inverse (navy header / avatar) */
+  --color-overlay: rgba(36, 36, 65, 0.5); /* modal backdrop */
+
+  /* ===== Foreground / text (use with text-*) ===== */
+  --color-ink: #242441; /* text-primary */
+  --color-ink-soft: #57577e; /* text-secondary */
+  --color-ink-muted: #6e6e96; /* text-tertiary */
+  --color-ink-faint: #9c9cbc; /* text-placeholder, text-disabled, action-disabled-text */
+  --color-on-inverse: #ffffff; /* text-inverse */
+
+  /* ===== Borders (use with border-*) ===== */
+  --color-line: #dedeeb; /* border-default */
+  --color-line-strong: #c6c6db; /* border-input */
+  --color-line-hover: #9c9cbc; /* border-hover */
+
+  /* ===== Feedback — success ===== */
+  --color-success-surface: #f0fdf4; /* feedback/status bg */
+  --color-success-border: #bbf7d0;
+  --color-success: #16a34a; /* icon / status dot */
+  --color-success-fg: #15803d; /* text */
+
+  /* ===== Feedback — danger (also the danger action) ===== */
+  --color-danger-surface: #fef2f2;
+  --color-danger-border: #fecaca;
+  --color-danger: #dc2626; /* icon, action-danger-bg, border-error */
+  --color-danger-hover: #b91c1c; /* action-danger-bg-hover */
+  --color-danger-fg: #b91c1c; /* text */
+
+  /* ===== Feedback — warning ===== */
+  --color-warning-surface: #fefce8;
+  --color-warning-border: #fde68a;
+  --color-warning: #ca8a04;
+  --color-warning-fg: #854d0e;
+
+  /* ===== Feedback — info ===== */
+  --color-info-surface: #eff6ff;
+  --color-info-border: #bfdbfe;
+  --color-info: #2563eb;
+  --color-info-fg: #1d4ed8;
+
+  /* ===== Spacing (4px base; EDS uses steps 1,2,3,4,5,6,8,10,12 only) =====
+     Tailwind's 0.25rem base already maps p-1=4px … p-12=48px onto the EDS
+     scale, so no override is needed. In-between steps (p-7, p-9, p-11) are
+     off-scale and must not be used (FE-ADR-011 §f). --eds-space-10 = 40px. */
+
+  /* ===== Radius ===== */
+  --radius-sm: 4px; /* checkbox, tag, badge */
+  --radius-md: 6px; /* button, input, select */
+  --radius-lg: 8px; /* card, modal, popover, toast — ceiling */
+  --radius-full: 999px; /* avatar, status dot, switch */
+
+  /* ===== Typography ===== */
+  --font-sans: 'Inter Variable', 'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  /* size + line-height pairs (700+ weight is never used — hierarchy is size/space) */
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-label: 12px;
+  --text-label--line-height: 16px;
+  --text-body-sm: 13px;
+  --text-body-sm--line-height: 18px;
+  --text-code: 13px;
+  --text-code--line-height: 20px;
+  --text-body: 14px;
+  --text-body--line-height: 20px;
+  --text-body-lg: 16px;
+  --text-body-lg--line-height: 24px;
+  --text-h3: 16px;
+  --text-h3--line-height: 24px;
+  --text-h2: 20px;
+  --text-h2--line-height: 28px;
+  --text-h1: 24px;
+  --text-h1--line-height: 32px;
+  --text-display: 32px;
+  --text-display--line-height: 40px;
+
+  /* ===== Elevation (shadow base color always Ink 900; cards do NOT elevate on hover) ===== */
+  --shadow-e0: none; /* card, table — flat, bordered not shadowed */
+  --shadow-e1: 0 1px 2px rgba(36, 36, 65, 0.06); /* sticky header underline */
+  --shadow-e2: 0 2px 8px rgba(36, 36, 65, 0.1); /* dropdown, popover, tooltip, datepicker */
+  --shadow-e3: 0 8px 24px rgba(36, 36, 65, 0.14); /* modal, drawer */
+  --shadow-e4: 0 12px 32px rgba(36, 36, 65, 0.18); /* toast */
+
+  /* ===== Motion — durations ===== */
+  --duration-100: 100ms;
+  --duration-150: 150ms;
+  --duration-200: 200ms;
+  --duration-300: 300ms;
+  --duration-400: 400ms;
+
+  /* ===== Motion — easings (bounce/spring/overshoot are prohibited system-wide) ===== */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-enter: cubic-bezier(0, 0, 0.15, 1);
+  --ease-exit: cubic-bezier(0.3, 0, 1, 1);
+
+  /* ===== Breakpoints (desktop-first, optimized 1024–1440px) ===== */
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+  --breakpoint-xl: 1280px;
+  --breakpoint-2xl: 1440px;
+}
+
+/* ============================================================================
+   Z-index layers (Tailwind v4 has no z-index theme namespace).
+   BINDING: never write a numeric z-index literal — use these utilities only
+   (mock-ui-analysis §2.15). Order: header < dropdown < overlay < modal < toast
+   < tooltip.
+   ============================================================================ */
+@utility z-sticky-header {
+  z-index: 100;
+}
+@utility z-dropdown {
+  z-index: 1000;
+}
+@utility z-overlay {
+  z-index: 1300;
+}
+@utility z-modal {
+  z-index: 1400;
+}
+@utility z-toast {
+  z-index: 1500;
+}
+@utility z-tooltip {
+  z-index: 1600;
+}
+
+/* Control heights (mock-ui-analysis §2.15) — map onto the spacing scale:
+   h-8 = 32px (sm), h-10 = 40px (md, the form default), h-12 = 48px (lg).
+   Row heights: h-12 = 48px (default), h-10 = 40px (compact). */
+
+/* ============================================================================
+   Base layer — EDS foundations on top of Tailwind's preflight.
+   ============================================================================ */
+@layer base {
+  :root {
+    color-scheme: light only; /* light-only by deliberate scope decision */
+  }
+
+  body {
+    background: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Mandatory on ID / amount / date columns (mock-ui-analysis §2.16). */
+  .eds-tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Non-form interactive elements (buttons, links, menu items). Form controls
+     use the focus-ring box-shadow instead — declared per component. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+
+  /* Reduced-motion contract (mock-ui-analysis §2.14). Spinner opts out via
+     [data-eds-motion-exempt]; skeleton shimmer settles under the general rule. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 1ms !important;
+      scroll-behavior: auto !important;
+    }
+    *:not([data-eds-motion-exempt]) {
+      animation-duration: 1ms !important;
+      animation-iteration-count: 1 !important;
+    }
+  }
+}

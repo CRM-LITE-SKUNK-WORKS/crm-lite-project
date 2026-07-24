@@ -2196,6 +2196,722 @@
           }
         }
       ]
+    },
+    {
+      "name": "10 - Billing Accounts (FR-ACCT)",
+      "description": "account-service via the gateway (ADR-013/014). Run top-to-bottom: the create stores createdAccountNumber, which the update/delete/passive requests reuse. Login (folder 09 / README) required; write requests carry X-XSRF-TOKEN pre-set. Delete = PASSIVATION: the row stays in the list as Passive (v8-1 AC-ACCT-04-02). The K-8 223 Customer Account (seed 1261000002) is never exposed by the API.",
+      "item": [
+        {
+          "name": "List billing accounts (seed 1001) — 224 only, Active first",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts?customerId={{customerNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "customerId",
+                  "value": "{{customerNumber}}"
+                }
+              ]
+            },
+            "description": "FR-ACCT-01: plain array (no pagination), only type 224, Active group before Passive, accountNumber ASC inside each group. The hidden 223 (1261000002) must NOT appear."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"224 only, contract keys, K-8 223 hidden, Active-first order\", () => {",
+                  "    const rows = pm.response.json();",
+                  "    pm.expect(rows).to.be.an(\"array\");",
+                  "    rows.forEach(r => {",
+                  "        pm.expect(r.accountTypeCode).to.eql(\"224\");",
+                  "        pm.expect(Object.keys(r).sort()).to.eql([\"accountName\",\"accountNumber\",\"accountStatus\",\"accountTypeCode\",\"accountTypeName\",\"billingAddressId\"]);",
+                  "    });",
+                  "    pm.expect(rows.map(r => r.accountNumber)).to.not.include(\"1261000002\");",
+                  "    const firstPassive = rows.findIndex(r => r.accountStatus === \"Passive\");",
+                  "    if (firstPassive >= 0) rows.slice(firstPassive).forEach(r => pm.expect(r.accountStatus).to.eql(\"Passive\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List without customerId -> 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "description": "customerId is a required query parameter."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"MSG-VALIDATION-ERROR\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VALIDATION-ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List for unknown customer -> 200 []",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts?customerId=999999",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ],
+              "query": [
+                {
+                  "key": "customerId",
+                  "value": "999999"
+                }
+              ]
+            },
+            "description": "Reads stay local; an unknown customer is simply an empty list."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Empty array\", () => pm.expect(pm.response.json()).to.eql([]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Billing-account detail (seed 1261000010)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{seedBillingAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{seedBillingAccountNumber}}"
+              ]
+            },
+            "description": "Support endpoint for the update screen. Internal ids never appear."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"KR-11 number, no internal id\", () => {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.accountNumber).to.match(/^\\d{10}$/);",
+                  "    pm.expect(b).to.not.have.property(\"id\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail of the hidden K-8 223 -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/1261000002",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "1261000002"
+              ]
+            },
+            "description": "The automatic 223 Customer Account is a pure side effect and is never exposed (ADR-013 §4)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"MSG-ACCT-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create billing account (stores createdAccountNumber)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "description": "FR-ACCT-02 + KR-11. Account type is NOT client-selectable (forced 224). addressId 1 is seed customer 1001's primary address. If 1001 had no 223 yet, K-8 would lazily create it in the same transaction (seed already has one).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerNumber}}\",\n  \"accountName\": \"Postman Billing\",\n  \"addressId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"KR-11 number assigned, Active, 224\", () => {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.accountNumber).to.match(/^\\d{10}$/);",
+                  "    pm.expect(b.accountTypeCode).to.eql(\"224\");",
+                  "    pm.expect(b.accountStatus).to.eql(\"Active\");",
+                  "    pm.environment.set(\"createdAccountNumber\", b.accountNumber);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create with forbidden field -> 400 MSG-ACCT-IMMUTABLE-FIELD",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "description": "Unknown/immutable properties are rejected, never silently ignored (ADR-013 §3).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerNumber}}\",\n  \"accountName\": \"Sneaky\",\n  \"addressId\": 1,\n  \"accountType\": \"223\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"MSG-ACCT-IMMUTABLE-FIELD\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-IMMUTABLE-FIELD\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create with another customer's address -> 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "description": "addressId 3 belongs to seed customer 1002, not 1001 — the address must be in the owning customer's ACTIVE address list.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerNumber}}\",\n  \"accountName\": \"Wrong address\",\n  \"addressId\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"MSG-VALIDATION-ERROR\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VALIDATION-ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create for unknown customer -> 404",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": 999999,\n  \"accountName\": \"Ghost\",\n  \"addressId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"MSG-CUST-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-CUST-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update created account (name + address)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{createdAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{createdAccountNumber}}"
+              ]
+            },
+            "description": "FR-ACCT-03: mutable fields are EXACTLY accountName and addressId (addressId 2 is 1001's second seed address).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountName\": \"Postman Billing (renamed)\",\n  \"addressId\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Updated representation, number unchanged\", () => {",
+                  "    const b = pm.response.json();",
+                  "    pm.expect(b.accountName).to.eql(\"Postman Billing (renamed)\");",
+                  "    pm.expect(b.billingAddressId).to.eql(2);",
+                  "    pm.expect(b.accountNumber).to.eql(pm.environment.get(\"createdAccountNumber\"));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update with immutable accountNumber -> 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{createdAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{createdAccountNumber}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountName\": \"X\",\n  \"addressId\": 1,\n  \"accountNumber\": \"9999999999\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"MSG-ACCT-IMMUTABLE-FIELD\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-IMMUTABLE-FIELD\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update unknown account -> 404",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/1999999999",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "1999999999"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountName\": \"X\",\n  \"addressId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"MSG-ACCT-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete account with active products -> 409 (seed guard)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{seedBillingAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{seedBillingAccountNumber}}"
+              ]
+            },
+            "description": "AC-ACCT-04-03: seed involvement rows (cust_acct_prod_invl) block passivation of 1261000010."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"MSG-ACCT-HAS-PRODUCTS\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-HAS-PRODUCTS\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete created account — PASSIVATION (DESTRUCTIVE)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{createdAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{createdAccountNumber}}"
+              ]
+            },
+            "description": "AC-ACCT-04-02 (v8-1): 204 No Content; the row is NOT removed — it stays list-visible as Passive. The frontend shows MSG-ACCT-DELETED after this response."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Detail after delete -> 200 Passive (stays visible)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{createdAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{createdAccountNumber}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Passive but fully readable\", () => pm.expect(pm.response.json().accountStatus).to.eql(\"Passive\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Re-delete Passive account -> 409",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{createdAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{createdAccountNumber}}"
+              ]
+            },
+            "description": "Approved policy: not idempotent-204 and not 404 — the record demonstrably still exists."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"MSG-ACCT-NOT-ACTIVE\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Passive account -> 409",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=utf-8"
+              },
+              {
+                "key": "X-XSRF-TOKEN",
+                "value": "{{xsrfToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/{{createdAccountNumber}}",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "{{createdAccountNumber}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountName\": \"Should fail\",\n  \"addressId\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"MSG-ACCT-NOT-ACTIVE\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-ACTIVE\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

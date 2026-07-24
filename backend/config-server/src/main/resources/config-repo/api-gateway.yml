@@ -106,6 +106,16 @@ spring:
               filters:
                 - TokenRelay=
                 - RemoveRequestHeader=Cookie
+            # Billing accounts (FR-ACCT-01..04, ADR-013). Same BFF contract as the other
+            # domain routes: session swapped for the user's Bearer token, cookies never
+            # leave the edge. The /api/accounts/** prefix overlaps no other route.
+            - id: account-service
+              uri: lb://account-service
+              predicates:
+                - Path=/api/accounts/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
             # Unified Swagger UI (ADR-012): proxy each service's OpenAPI JSON under this
             # gateway's own origin so springdoc.swagger-ui.urls below can list them. Both
             # services permit /v3/api-docs anonymously (crm.security.permit-paths), so no
@@ -130,6 +140,14 @@ spring:
                 - RewritePath=/v3/api-docs/lookup-service, /v3/api-docs
                 - AddRequestHeader=X-Forwarded-Host, localhost:8080
                 - AddRequestHeader=X-Forwarded-Proto, http
+            - id: account-service-docs
+              uri: lb://account-service
+              predicates:
+                - Path=/v3/api-docs/account-service
+              filters:
+                - RewritePath=/v3/api-docs/account-service, /v3/api-docs
+                - AddRequestHeader=X-Forwarded-Host, localhost:8080
+                - AddRequestHeader=X-Forwarded-Proto, http
 
 eureka:
   client:
@@ -151,6 +169,8 @@ springdoc:
         url: /v3/api-docs/customer-service
       - name: lookup-service
         url: /v3/api-docs/lookup-service
+      - name: account-service
+        url: /v3/api-docs/account-service
 
 # 2c) Actuator exposure.
 # NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway

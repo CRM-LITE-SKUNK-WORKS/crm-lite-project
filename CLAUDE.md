@@ -3,10 +3,14 @@
 - Read PROJECTBRAIN.md before architectural changes.
 - Final requirements are under docs\source\requirements (current: FR/AC v8-1 Final,
   23.07.2026 revision — reconciliation record in docs/requirements/document-delta.md).
-  account-service scope (KR-11, FR-ACCT-01..04) is documented but not implemented;
-  no account-specific ADR exists yet — do not build against it without one.
-- Approved architecture decisions are under docs/architecture/adr/ (ADR-001..005 are binding;
-  they override older wording in any other document or diagram).
+- Approved architecture decisions are under docs/architecture/adr/ (ADR-001..005 and
+  ADR-013/014 are binding; they override older wording in any other document or diagram).
+- account-service (FR-ACCT-01..04, KR-11) is implemented per ADR-013/014: account numbers are
+  VARCHAR(10) Luhn-checked KR-11 values that are immutable and never reused; delete =
+  passivation (Passive rows stay list-visible); the K-8 automatic 223 Customer Account is a
+  create-time side effect that never appears in any API response; cust_acct_prod_invl is
+  written ONLY by account-service — future product/order services must integrate through an
+  account-service API/event, never by writing account_db directly.
 - GNL_ST/GNL_TP are centrally owned by lookup-service: never create local copies, local seeds
   or cross-database foreign keys in another service's database (ADR-002).
 - Nationality ID is permanently, globally unique — soft delete never releases it (ADR-003).

@@ -1,0 +1,657 @@
+package com.crm.account;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import com.crm.account.account.number.AccountNumberCapacityExceededException;
+import com.crm.account.account.number.AccountNumberGenerator;
+import com.crm.account.account.number.LuhnCheckDigit;
+import com.crm.account.customer.CustomerAddress;
+import com.crm.account.customer.CustomerServiceClient;
+import com.crm.account.customer.CustomerServiceUnavailableException;
+import com.crm.account.customer.CustomerSummary;
+import com.crm.account.lookup.LookupCatalogClient;
+import com.crm.account.lookup.LookupCatalogUnavailableException;
+import com.crm.account.lookup.LookupStatusResponse;
+import com.crm.account.testsecurity.TestSecurity;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.MethodOrderer;
+import org.junit.jupiter.api.Order;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestMethodOrder;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.web.client.RestClient;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+/**
+ * End-to-end tests against a real PostgreSQL (Testcontainers) through real HTTP.
+ * The two external boundaries — the shared catalog client (ADR-002) and the
+ * customer-service client (ADR-013) — are mocked at their interface, never
+ * bypassed: the real LookupCatalogService validation/caching logic still runs.
+ *
+ * Security (ADR-009): the REAL resource-server filter chain from
+ * crm-security-starter is active; only JWT decoding is stubbed (TestSecurity).
+ *
+ * The Clock is pinned to 2026 so KR-11 numbers continue the Flyway seed
+ * deterministically (seed consumed 100000..100003; next_value = 100004).
+ *
+ * Ordered: later tests build on the sequence/passivation state of earlier ones.
+ * Requires a running Docker daemon. Rerun with:
+ *   mvn -pl backend/account-service test
+ */
+@Testcontainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import({TestSecurity.TestJwtDecoderConfiguration.class, AccountServiceIntegrationTest.FixedClockConfiguration.class})
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+class AccountServiceIntegrationTest {
+
+    @TestConfiguration(proxyBeanMethods = false)
+    static class FixedClockConfiguration {
+        @Bean
+        @Primary
+        Clock fixedClock() {
+            return Clock.fixed(Instant.parse("2026-07-23T12:00:00Z"), ZoneOffset.UTC);
+        }
+    }
+
+    @Container
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16");
+
+    @DynamicPropertySource
+    static void datasource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+    }
+
+    @LocalServerPort
+    int port;
+
+    @MockitoBean
+    LookupCatalogClient lookupCatalogClient;
+
+    @MockitoBean
+    CustomerServiceClient customerServiceClient;
+
+    @Autowired
+    JdbcTemplate jdbcTemplate;
+
+    @Autowired
+    AccountNumberGenerator numberGenerator;
+
+    RestClient http;
+
+    @BeforeEach
+    void setUp() {
+        http = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestSecurity.OPERATOR_TOKEN)
+                .defaultStatusHandler(status -> true, (req, res) -> { /* assert on status manually */ })
+                .build();
+        stubHealthyCatalog();
+        stubCustomers();
+    }
+
+    private void stubHealthyCatalog() {
+        Mockito.when(lookupCatalogClient.fetchStatus("ACTV"))
+                .thenReturn(Optional.of(new LookupStatusResponse(1L, "ACTV", "Active", "GENERAL")));
+        Mockito.when(lookupCatalogClient.fetchStatus("PASV"))
+                .thenReturn(Optional.of(new LookupStatusResponse(2L, "PASV", "Passive", "GENERAL")));
+    }
+
+    private void stubCustomers() {
+        Mockito.when(customerServiceClient.fetchCustomer(Mockito.anyLong())).thenReturn(Optional.empty());
+        Mockito.when(customerServiceClient.fetchCustomer(1001L))
+                .thenReturn(Optional.of(new CustomerSummary(1001L, "ACTV")));
+        Mockito.when(customerServiceClient.fetchCustomer(1002L))
+                .thenReturn(Optional.of(new CustomerSummary(1002L, "ACTV")));
+        Mockito.when(customerServiceClient.fetchAddresses(1001L))
+                .thenReturn(List.of(new CustomerAddress(1L, true), new CustomerAddress(2L, false)));
+        Mockito.when(customerServiceClient.fetchAddresses(1002L))
+                .thenReturn(List.of(new CustomerAddress(3L, true)));
+    }
+
+    // ---------------------------------------------------------------- http helpers
+
+    private ResponseEntity<Map> get(String path) {
+        return http.get().uri(path).retrieve().toEntity(Map.class);
+    }
+
+    private ResponseEntity<List> getList(String path) {
+        return http.get().uri(path).retrieve().toEntity(List.class);
+    }
+
+    private ResponseEntity<Map> send(HttpMethod method, String path, String json) {
+        return http.method(method).uri(path)
+                .headers(h -> h.setContentType(MediaType.APPLICATION_JSON))
+                .body(json).retrieve().toEntity(Map.class);
+    }
+
+    private ResponseEntity<Map> delete(String path) {
+        return http.method(HttpMethod.DELETE).uri(path).retrieve().toEntity(Map.class);
+    }
+
+    private int nextValue(int segment, int year) {
+        Integer value = jdbcTemplate.queryForObject(
+                "SELECT next_value FROM acct_number_seq WHERE segment = ? AND seq_year = ?",
+                Integer.class, segment, year);
+        return value == null ? -1 : value;
+    }
+
+    private int accountCount() {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM cust_acct", Integer.class);
+        return count == null ? -1 : count;
+    }
+
+    private static final Set<String> CONTRACT_KEYS = Set.of(
+            "accountNumber", "accountName", "accountTypeCode", "accountTypeName", "billingAddressId", "accountStatus");
+
+    // ---------------------------------------------------------------- security (ADR-009)
+
+    @Test
+    @Order(1)
+    @DisplayName("zero trust: anonymous -> 401, token without crm-user -> 403, health public")
+    void securityChecks() {
+        RestClient anonymous = RestClient.builder().baseUrl("http://localhost:" + port)
+                .defaultStatusHandler(status -> true, (req, res) -> { }).build();
+        ResponseEntity<Map> unauthorized = anonymous.get().uri("/api/accounts?customerId=1001")
+                .retrieve().toEntity(Map.class);
+        assertThat(unauthorized.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(unauthorized.getBody().get("messageKey")).isEqualTo("MSG-AUTH-UNAUTHORIZED");
+
+        RestClient noRole = RestClient.builder().baseUrl("http://localhost:" + port)
+                .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + TestSecurity.NO_ROLE_TOKEN)
+                .defaultStatusHandler(status -> true, (req, res) -> { }).build();
+        ResponseEntity<Map> forbidden = noRole.get().uri("/api/accounts?customerId=1001")
+                .retrieve().toEntity(Map.class);
+        assertThat(forbidden.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+        assertThat(forbidden.getBody().get("messageKey")).isEqualTo("MSG-AUTH-FORBIDDEN");
+
+        assertThat(anonymous.get().uri("/actuator/health").retrieve().toEntity(Map.class).getStatusCode())
+                .isEqualTo(HttpStatus.OK);
+    }
+
+    // ---------------------------------------------------------------- schema + seed (CP3)
+
+    @Test
+    @Order(2)
+    @DisplayName("schema: only account tables exist — no gnl_*, customer, address or users tables (ADR-002/011/013)")
+    void schemaContainsOnlyAccountTables() {
+        List<String> tables = jdbcTemplate.queryForList(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1",
+                String.class);
+        assertThat(tables).containsExactlyInAnyOrder(
+                "acct_tp", "cust_acct", "cust_acct_prod_invl", "acct_number_seq", "flyway_schema_history");
+    }
+
+    @Test
+    @Order(3)
+    @DisplayName("seed: KR-11 regenerated numbers, next_value=100004, 224-only list in AC-ACCT-01-04 order, 223 hidden")
+    void seedDataLoaded() {
+        assertThat(nextValue(1, 2026)).isEqualTo(100004);
+
+        ResponseEntity<List> response = getList("/api/accounts?customerId=1001");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> rows = response.getBody();
+        assertThat(rows).hasSize(3);
+        assertThat(rows).extracting(row -> row.get("accountNumber"))
+                .containsExactly("1261000010", "1261000028", "1261000036");
+        assertThat(rows).allSatisfy(row -> {
+            assertThat(row.keySet()).isEqualTo(CONTRACT_KEYS);        // no internal ids, no Action field
+            assertThat(row.get("accountTypeCode")).isEqualTo("224");  // AC-ACCT-01-02: 224 only
+            assertThat(row.get("accountStatus")).isEqualTo("Active");
+            assertThat(LuhnCheckDigit.isValid((String) row.get("accountNumber"))).isTrue();
+        });
+
+        // K-8: the 223 exists in the database but is invisible through the public API.
+        Integer type223 = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cust_acct WHERE account_number = '1261000002' AND account_type_id = 1",
+                Integer.class);
+        assertThat(type223).isEqualTo(1);
+        ResponseEntity<Map> detail223 = get("/api/accounts/1261000002");
+        assertThat(detail223.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(detail223.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+    }
+
+    // ---------------------------------------------------------------- list contract (FR-ACCT-01)
+
+    @Test
+    @Order(4)
+    @DisplayName("list: customerId is required and numeric; unknown customer -> empty list, no cross-service call")
+    void listValidation() {
+        ResponseEntity<Map> missing = get("/api/accounts");
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missing.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        ResponseEntity<Map> nonNumeric = get("/api/accounts?customerId=abc");
+        assertThat(nonNumeric.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(nonNumeric.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        ResponseEntity<List> unknownCustomer = getList("/api/accounts?customerId=9999");
+        assertThat(unknownCustomer.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(unknownCustomer.getBody()).isEmpty();
+        // Reads stay local (ADR-013 §3.1): the list never consults customer-service.
+        Mockito.verify(customerServiceClient, Mockito.never()).fetchAddresses(Mockito.anyLong());
+    }
+
+    // ---------------------------------------------------------------- create + K-8 (FR-ACCT-02)
+
+    @Test
+    @Order(5)
+    @DisplayName("first 224 for a customer lazily creates the 223 in the SAME transaction (K-8), from the same sequence")
+    void firstBillingAccountCreates223() {
+        ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002, "accountName": "Zeynep Billing", "addressId": 3}
+                """);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        Map<String, Object> body = response.getBody();
+        assertThat(body.keySet()).isEqualTo(CONTRACT_KEYS);
+        // Sequence continuation: 223 consumed 100004 -> 1261000044; the returned 224
+        // consumed 100005 -> 1261000051 (both Luhn-checked KR-11 numbers).
+        assertThat(body.get("accountNumber")).isEqualTo("1261000051");
+        assertThat(body.get("accountName")).isEqualTo("Zeynep Billing");
+        assertThat(body.get("accountTypeCode")).isEqualTo("224");
+        assertThat(body.get("accountTypeName")).isEqualTo("Billing Account");
+        assertThat(body.get("billingAddressId")).isEqualTo(3);
+        assertThat(body.get("accountStatus")).isEqualTo("Active");
+
+        // The K-8 223: fixed name constant, customer's primary address, same generator,
+        // audit attribution = the JWT subject.
+        Map<String, Object> row223 = jdbcTemplate.queryForMap(
+                "SELECT account_number, account_name, address_id, created_by FROM cust_acct "
+                        + "WHERE customer_number = 1002 AND account_type_id = 1");
+        assertThat(row223.get("account_number")).isEqualTo("1261000044");
+        assertThat(row223.get("account_name")).isEqualTo("Customer Account");
+        assertThat(((Number) row223.get("address_id")).longValue()).isEqualTo(3L);
+        assertThat(row223.get("created_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+
+        // The 223 never shows up in the list (AC-ACCT-01-02).
+        ResponseEntity<List> list = getList("/api/accounts?customerId=1002");
+        assertThat(list.getBody()).hasSize(1);
+        assertThat(((Map<String, Object>) list.getBody().get(0)).get("accountNumber")).isEqualTo("1261000051");
+
+        assertThat(nextValue(1, 2026)).isEqualTo(100006);
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("second 224 for the same customer does NOT create another 223")
+    void secondBillingAccountDoesNotDuplicate223() {
+        ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002, "accountName": "Zeynep Billing 2", "addressId": 3}
+                """);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("accountNumber")).isEqualTo("1261000069");
+
+        Integer count223 = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cust_acct WHERE customer_number = 1002 AND account_type_id = 1", Integer.class);
+        assertThat(count223).isEqualTo(1);
+        assertThat(nextValue(1, 2026)).isEqualTo(100007);
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("create validation: unknown customer 404, foreign address 400, forbidden field 400 MSG-ACCT-IMMUTABLE-FIELD")
+    void createValidation() {
+        int accountsBefore = accountCount();
+
+        ResponseEntity<Map> unknownCustomer = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 9999, "accountName": "Ghost", "addressId": 1}
+                """);
+        assertThat(unknownCustomer.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknownCustomer.getBody().get("messageKey")).isEqualTo("MSG-CUST-NOT-FOUND");
+
+        ResponseEntity<Map> foreignAddress = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002, "accountName": "Wrong addr", "addressId": 99}
+                """);
+        assertThat(foreignAddress.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(foreignAddress.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        // Account type is not client-selectable; unknown properties are never
+        // silently ignored (ADR-013 §3.2/3.4).
+        ResponseEntity<Map> forbiddenField = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002, "accountName": "Sneaky", "addressId": 3, "accountType": "223"}
+                """);
+        assertThat(forbiddenField.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(forbiddenField.getBody().get("messageKey")).isEqualTo("MSG-ACCT-IMMUTABLE-FIELD");
+        assertThat((String) forbiddenField.getBody().get("message")).contains("accountType");
+
+        ResponseEntity<Map> missingFields = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002}
+                """);
+        assertThat(missingFields.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missingFields.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        assertThat(accountCount()).isEqualTo(accountsBefore);
+        assertThat(nextValue(1, 2026)).isEqualTo(100007);   // nothing consumed
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("fail closed (503 MSG-SERVICE-UNAVAILABLE): lookup or customer-service down -> nothing persisted, no sequence use")
+    void createFailsClosed() {
+        int accountsBefore = accountCount();
+        int nextBefore = nextValue(1, 2026);
+
+        Mockito.when(lookupCatalogClient.fetchStatus("ACTV"))
+                .thenThrow(new LookupCatalogUnavailableException("catalog down", null));
+        ResponseEntity<Map> catalogDown = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002, "accountName": "No catalog", "addressId": 3}
+                """);
+        assertThat(catalogDown.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(catalogDown.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+
+        Mockito.when(customerServiceClient.fetchCustomer(1002L))
+                .thenThrow(new CustomerServiceUnavailableException("customer-service down", null));
+        ResponseEntity<Map> customerDown = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1002, "accountName": "No customer svc", "addressId": 3}
+                """);
+        assertThat(customerDown.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(customerDown.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+
+        assertThat(accountCount()).isEqualTo(accountsBefore);
+        assertThat(nextValue(1, 2026)).isEqualTo(nextBefore);
+    }
+
+    // ---------------------------------------------------------------- update (FR-ACCT-03)
+
+    @Test
+    @Order(9)
+    @DisplayName("update: accountName/addressId mutable; immutable fields 400; unknown account 404; foreign address 400")
+    void updateFlows() {
+        ResponseEntity<Map> updated = send(HttpMethod.PUT, "/api/accounts/1261000028",
+                """
+                {"accountName": "Renamed Billing", "addressId": 2}
+                """);
+        assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(updated.getBody().keySet()).isEqualTo(CONTRACT_KEYS);
+        assertThat(updated.getBody().get("accountNumber")).isEqualTo("1261000028");   // immutable
+        assertThat(updated.getBody().get("accountName")).isEqualTo("Renamed Billing");
+        assertThat(updated.getBody().get("billingAddressId")).isEqualTo(2);
+
+        ResponseEntity<Map> immutableField = send(HttpMethod.PUT, "/api/accounts/1261000028",
+                """
+                {"accountName": "X", "addressId": 1, "accountNumber": "9999999999"}
+                """);
+        assertThat(immutableField.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(immutableField.getBody().get("messageKey")).isEqualTo("MSG-ACCT-IMMUTABLE-FIELD");
+
+        ResponseEntity<Map> unknownAccount = send(HttpMethod.PUT, "/api/accounts/1999999999",
+                """
+                {"accountName": "X", "addressId": 1}
+                """);
+        assertThat(unknownAccount.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknownAccount.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+
+        ResponseEntity<Map> foreignAddress = send(HttpMethod.PUT, "/api/accounts/1261000028",
+                """
+                {"accountName": "X", "addressId": 77}
+                """);
+        assertThat(foreignAddress.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(foreignAddress.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+    }
+
+    // ---------------------------------------------------------------- delete (FR-ACCT-04)
+
+    @Test
+    @Order(10)
+    @DisplayName("delete guard: seeded ACTIVE involvements block passivation with 409 MSG-ACCT-HAS-PRODUCTS")
+    void deleteBlockedByActiveProducts() {
+        ResponseEntity<Map> blocked = delete("/api/accounts/1261000010");
+        assertThat(blocked.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(blocked.getBody().get("messageKey")).isEqualTo("MSG-ACCT-HAS-PRODUCTS");
+
+        ResponseEntity<Map> detail = get("/api/accounts/1261000010");
+        assertThat(detail.getBody().get("accountStatus")).isEqualTo("Active");
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("delete = soft passivation: 204, row stays list-visible as Passive AFTER the actives, no physical delete")
+    void deletePassivates() {
+        ResponseEntity<Map> deleted = delete("/api/accounts/1261000036");
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // AC-ACCT-01-03/04: still visible, Passive group after the Active group.
+        List<Map<String, Object>> rows = getList("/api/accounts?customerId=1001").getBody();
+        assertThat(rows).extracting(row -> row.get("accountNumber"))
+                .containsExactly("1261000010", "1261000028", "1261000036");
+        assertThat(rows).extracting(row -> row.get("accountStatus"))
+                .containsExactly("Active", "Active", "Passive");
+
+        // Passive detail stays readable (sprint decision), with full payload.
+        ResponseEntity<Map> detail = get("/api/accounts/1261000036");
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(detail.getBody().get("accountStatus")).isEqualTo("Passive");
+
+        // No physical delete: the row exists with the full soft-delete invariant.
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT status_id, deleted_date, deleted_by, updated_date FROM cust_acct WHERE account_number = '1261000036'");
+        assertThat(((Number) row.get("status_id")).longValue()).isEqualTo(2L);
+        assertThat(row.get("deleted_date")).isNotNull();
+        assertThat(row.get("updated_date")).isNotNull();
+        assertThat(row.get("deleted_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("passive account: PUT and re-DELETE -> 409 MSG-ACCT-NOT-ACTIVE (not 204, not 404)")
+    void passiveAccountMutationsRejected() {
+        ResponseEntity<Map> update = send(HttpMethod.PUT, "/api/accounts/1261000036",
+                """
+                {"accountName": "Should fail", "addressId": 1}
+                """);
+        assertThat(update.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(update.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-ACTIVE");
+
+        ResponseEntity<Map> reDelete = delete("/api/accounts/1261000036");
+        assertThat(reDelete.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(reDelete.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-ACTIVE");
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("delete fails closed too: catalog down while resolving PASV -> 503, account stays Active")
+    void deleteFailsClosedOnCatalogOutage() {
+        Mockito.when(lookupCatalogClient.fetchStatus("PASV"))
+                .thenThrow(new LookupCatalogUnavailableException("catalog down", null));
+        ResponseEntity<Map> response = delete("/api/accounts/1261000028");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+
+        assertThat(get("/api/accounts/1261000028").getBody().get("accountStatus")).isEqualTo("Active");
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("KR-11: a passivated account's number is never reused by later creations")
+    void numberNeverReusedAfterPassivation() {
+        Set<String> existing = new HashSet<>(jdbcTemplate.queryForList(
+                "SELECT account_number FROM cust_acct", String.class));
+        assertThat(existing).contains("1261000036");   // passivated, still holding its number
+
+        ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
+                """
+                {"customerId": 1001, "accountName": "Post-passivation", "addressId": 1}
+                """);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        String newNumber = (String) response.getBody().get("accountNumber");
+        assertThat(newNumber).isNotIn(existing);
+        assertThat(LuhnCheckDigit.isValid(newNumber)).isTrue();
+    }
+
+    // ---------------------------------------------------------------- generator (ADR-014, CP5)
+
+    @Test
+    @Order(15)
+    @DisplayName("sequence: first value is EXACTLY 100000, then 100001; next_value invariant holds (no off-by-one)")
+    void sequenceFirstValueBehaviour() {
+        assertThat(numberGenerator.allocate(1, 2040)).isEqualTo(100000);
+        assertThat(numberGenerator.allocate(1, 2040)).isEqualTo(100001);
+        assertThat(nextValue(1, 2040)).isEqualTo(100002);
+    }
+
+    @Test
+    @Order(16)
+    @DisplayName("sequence isolation: each (segment, year) pair advances independently from 100000")
+    void sequenceSegmentYearIsolation() {
+        assertThat(numberGenerator.allocate(2, 2040)).isEqualTo(100000);
+        assertThat(numberGenerator.allocate(1, 2041)).isEqualTo(100000);
+        assertThat(nextValue(1, 2040)).isEqualTo(100002);   // untouched by the other pairs
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("overflow above 999999 -> AccountNumberCapacityExceededException (mapped to 409, never a raw 500)")
+    void sequenceOverflow() {
+        jdbcTemplate.update("UPDATE acct_number_seq SET next_value = 1000000 WHERE segment = 1 AND seq_year = 2041");
+        assertThatThrownBy(() -> numberGenerator.allocate(1, 2041))
+                .isInstanceOf(AccountNumberCapacityExceededException.class);
+    }
+
+    @Test
+    @Order(18)
+    @DisplayName("endpoint-level overflow: exhausted segment+year -> 409 MSG-ACCT-NUMBER-CAPACITY-EXCEEDED, nothing persisted")
+    void createMapsCapacityTo409() {
+        int accountsBefore = accountCount();
+        int nextBefore = nextValue(1, 2026);
+        jdbcTemplate.update("UPDATE acct_number_seq SET next_value = 1000000 WHERE segment = 1 AND seq_year = 2026");
+        try {
+            ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
+                    """
+                    {"customerId": 1002, "accountName": "No capacity", "addressId": 3}
+                    """);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NUMBER-CAPACITY-EXCEEDED");
+            assertThat(accountCount()).isEqualTo(accountsBefore);
+        } finally {
+            jdbcTemplate.update("UPDATE acct_number_seq SET next_value = ? WHERE segment = 1 AND seq_year = 2026",
+                    nextBefore);
+        }
+    }
+
+    @Test
+    @Order(20)
+    @DisplayName("K-8 atomicity: when the 224's number allocation fails AFTER the 223 was created, BOTH roll back")
+    void createIsAtomicAcrossThe223And224() {
+        Mockito.when(customerServiceClient.fetchCustomer(1005L))
+                .thenReturn(Optional.of(new CustomerSummary(1005L, "ACTV")));
+        Mockito.when(customerServiceClient.fetchAddresses(1005L))
+                .thenReturn(List.of(new CustomerAddress(5L, true)));
+
+        int nextBefore = nextValue(1, 2026);
+        // Leave capacity for exactly ONE number: the 223 gets 999999, the 224's
+        // allocation then overflows — the whole transaction (223 included) must vanish.
+        jdbcTemplate.update("UPDATE acct_number_seq SET next_value = 999999 WHERE segment = 1 AND seq_year = 2026");
+        try {
+            ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
+                    """
+                    {"customerId": 1005, "accountName": "Atomicity probe", "addressId": 5}
+                    """);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NUMBER-CAPACITY-EXCEEDED");
+
+            Integer rowsFor1005 = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM cust_acct WHERE customer_number = 1005", Integer.class);
+            assertThat(rowsFor1005).isZero();                    // no partial 223 survived
+            assertThat(nextValue(1, 2026)).isEqualTo(999999);    // both allocations rolled back
+        } finally {
+            jdbcTemplate.update("UPDATE acct_number_seq SET next_value = ? WHERE segment = 1 AND seq_year = 2026",
+                    nextBefore);
+        }
+    }
+
+    @Test
+    @Order(21)
+    @DisplayName("duplicate-number race: DB UNIQUE fallback surfaces as clean 409 MSG-ACCT-DUP-NUMBER, never 500 (ADR-014 §7)")
+    void duplicateNumberRaceMapsTo409() {
+        // Pre-claim the exact number the next allocation will produce, simulating a
+        // race that slipped past the generator.
+        int next = nextValue(1, 2026);
+        String payload = "1" + "26" + "%06d".formatted(next);
+        String collidingNumber = payload + LuhnCheckDigit.compute(payload);
+        jdbcTemplate.update("""
+                INSERT INTO cust_acct (customer_number, account_type_id, account_number, account_name,
+                                       description, address_id, status_id, created_date, created_by)
+                VALUES (9990, 2, ?, 'Race fixture', 'Race fixture', 1, 1, NOW(), 'system')
+                """, collidingNumber);
+        try {
+            ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
+                    """
+                    {"customerId": 1002, "accountName": "Race loser", "addressId": 3}
+                    """);
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+            assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-ACCT-DUP-NUMBER");
+        } finally {
+            jdbcTemplate.update("DELETE FROM cust_acct WHERE customer_number = 9990");
+        }
+    }
+
+    @Test
+    @Order(19)
+    @DisplayName("concurrency: parallel allocations yield strictly distinct consecutive values, next_value exact")
+    void sequenceConcurrency() throws Exception {
+        int threads = 8;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        try {
+            CountDownLatch start = new CountDownLatch(1);
+            List<Future<Integer>> futures = java.util.stream.IntStream.range(0, threads)
+                    .mapToObj(i -> executor.submit(() -> {
+                        start.await();
+                        return numberGenerator.allocate(1, 2050);
+                    }))
+                    .toList();
+            start.countDown();
+
+            Set<Integer> issued = new HashSet<>();
+            for (Future<Integer> future : futures) {
+                issued.add(future.get(30, TimeUnit.SECONDS));
+            }
+            assertThat(issued).hasSize(threads);
+            assertThat(issued).allSatisfy(v -> assertThat(v).isBetween(100000, 100000 + threads - 1));
+            assertThat(nextValue(1, 2050)).isEqualTo(100000 + threads);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+}

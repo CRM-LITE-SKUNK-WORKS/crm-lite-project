@@ -48,20 +48,25 @@ infra/docker-compose.yml down -v` (⚠️ wipes ALL local data) or create it by 
 ## Startup order (matters!)
 
 Write operations in customer-service require the shared catalog owner
-(**lookup-service**, ADR-002) and **mernis-stub** (KR-10). Business APIs
-additionally require a **Keycloak login** (401 without a session/token).
+(**lookup-service**, ADR-002) and **mernis-stub** (KR-10); write operations in
+account-service require **lookup-service** and **customer-service** (address
+validation, ADR-013). Business APIs additionally require a **Keycloak login**
+(401 without a session/token).
 
 1. PostgreSQL + Keycloak 2. config-server 3. discovery-server 4. lookup-service
-5. mernis-stub 6. api-gateway 7. customer-service
+5. mernis-stub 6. api-gateway 7. customer-service 8. account-service
 
-customer-service still *boots* and serves reads if 4/5 are down — but every create/
-update/delete will fail closed with 503 until they are up. That is intended behaviour,
-not a bug. Keycloak matters at LOGIN time (and first JWKS fetch), not at service boot.
+customer-service and account-service still *boot* and serve reads if their write
+dependencies are down — but every create/update/delete will fail closed with 503
+until they are up. That is intended behaviour, not a bug. Keycloak matters at
+LOGIN time (and first JWKS fetch), not at service boot.
 
 ### Maven, one terminal each (repo root)
 
 ```bash
-# 0) PostgreSQL + Keycloak (first volume init creates customer_db, lookup_db, keycloak_db)
+# 0) PostgreSQL + Keycloak (first volume init creates customer_db, lookup_db,
+#    keycloak_db, account_db — older volumes: see docs/runbooks/database.md for
+#    the one-line manual CREATE DATABASE account_db)
 podman compose -f infra/docker-compose.yml up -d postgres keycloak
 
 mvn -pl backend/config-server    spring-boot:run   # terminal 1
@@ -70,6 +75,7 @@ mvn -pl backend/lookup-service   spring-boot:run   # terminal 3
 mvn -pl backend/mernis-stub      spring-boot:run   # terminal 4
 mvn -pl backend/api-gateway      spring-boot:run   # terminal 5
 mvn -pl backend/customer-service spring-boot:run   # terminal 6
+mvn -pl backend/account-service  spring-boot:run   # terminal 7
 ```
 
 IntelliJ: run the same applications in the same order (Postgres/Keycloak still via compose).
@@ -84,8 +90,8 @@ podman compose -f infra/docker-compose.yml up --build
 Healthchecks + `depends_on: service_healthy` enforce the boot order automatically.
 **In the compose profile only the gateway (8080), Keycloak (8180), config (8888),
 eureka (8761) and postgres (5432) publish host ports** — customer-service,
-lookup-service and mernis-stub are reachable only inside `crm-net` (ADR-009/010);
-all business traffic goes through the gateway.
+lookup-service, mernis-stub and account-service are reachable only inside
+`crm-net` (ADR-009/010); all business traffic goes through the gateway.
 
 ## Smoke test (startup sequence verification)
 
@@ -100,10 +106,13 @@ curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/actuator/healt
 curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8083/actuator/health   # lookup
 curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8084/actuator/health   # mernis-stub
 curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8082/actuator/health   # customer
+curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8085/actuator/health   # account
 
 # security is ON: anonymous business API -> 401 MSG-AUTH-UNAUTHORIZED
 curl -sS -w "\nHTTP Status: %{http_code}\n" -H "Accept: application/json" \
   "http://localhost:8080/api/customers"
+curl -sS -w "\nHTTP Status: %{http_code}\n" -H "Accept: application/json" \
+  "http://localhost:8080/api/accounts?customerId=1001"
 
 # login: open http://localhost:8080/api/session/me in a BROWSER -> Keycloak login
 # (ayilmaz / crm-dev) -> back to a JSON session summary. Business flows via
@@ -114,9 +123,9 @@ Direct service checks (`:8082/:8083`) with a token require a real Keycloak JWT �
 normal clients never need this; the gateway relays tokens automatically after login.
 
 Full endpoint-by-endpoint catalogs: `docs/api/customer-service.md`,
-`docs/api/shared-lookup-service.md`, `docs/api/mernis-stub.md`,
-**`docs/api/authentication.md`** (login/session/CSRF/logout contract). Importable
-Postman collection: `docs/postman/`.
+`docs/api/account-service.md`, `docs/api/shared-lookup-service.md`,
+`docs/api/mernis-stub.md`, **`docs/api/authentication.md`** (login/session/CSRF/
+logout contract). Importable Postman collection: `docs/postman/`.
 
 ## MERNIS stub behaviour (deterministic, no real personal data)
 
@@ -134,6 +143,7 @@ mvn -pl backend/api-gateway      test       # BFF E2E vs real Keycloak (Docker/P
 mvn -pl backend/customer-service test       # 62 tests (IT needs Docker/Podman)
 mvn -pl backend/lookup-service   test       # Docker required
 mvn -pl backend/mernis-stub      test       # no Docker needed
+mvn -pl backend/account-service  test       # 41 tests (IT needs Docker/Podman)
 ```
 
 - Docker/Podman down ⇒ the Testcontainers classes fail with "Could not find a valid
@@ -149,8 +159,8 @@ mvn -pl backend/mernis-stub      test       # no Docker needed
 ## Ports
 
 8888 config · 8761 eureka · 8080 gateway (BFF) · 8180 keycloak · 8082 customer ·
-8083 lookup · 8084 mernis-stub · 5432 postgres
-(8082/8083/8084 are host-visible only in the IDE-run topology.)
+8083 lookup · 8084 mernis-stub · 8085 account · 5432 postgres
+(8082/8083/8084/8085 are host-visible only in the IDE-run topology.)
 
 ## Troubleshooting — issuer / JWKS / 401s (ADR-006 §6)
 

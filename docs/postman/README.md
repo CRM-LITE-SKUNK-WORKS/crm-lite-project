@@ -6,7 +6,7 @@ MERNIS stub, negative scenarios). Collection schema: **Postman v2.1**.
 
 | File | Purpose |
 |---|---|
-| `CRM-Lite.postman_collection.json` | The collection (folders 00–09) |
+| `CRM-Lite.postman_collection.json` | The collection (folders 00–10) |
 | `CRM-Lite.local.postman_environment.json` | Local environment: base URLs + dynamic variables. **Contains no secrets and no tokens** |
 
 ## Authentication (READ FIRST — ADR-006..008)
@@ -51,6 +51,7 @@ CSRF correlation value readable by the browser by design).
 1. PostgreSQL + Keycloak (`podman compose -f infra/docker-compose.yml up -d postgres keycloak`)
 2. config-server (8888) → 3. discovery-server (8761) → 4. lookup-service (8083)
 → 5. mernis-stub (8084) → 6. api-gateway (8080) → 7. customer-service (8082)
+→ 8. account-service (8085)
 
 Details: `docs/runbooks/local-development.md`. Folder **00 - Health** verifies the
 whole stack top-to-bottom.
@@ -68,6 +69,15 @@ Folders are numbered in the intended order. Within these folders order matters:
 - **05 - Addresses**: list (stores `addressId`) → create (stores `createdAddressId`)
   → PUT update → set primary → primary-delete guard (409) → set primary back →
   delete created address.
+- **10 - Billing Accounts (FR-ACCT)**: run top-to-bottom — list/detail reads →
+  **create** (stores `createdAccountNumber`) → negative creates → update →
+  immutable-field 400 → delete-guard 409 (seed `1261000010` has active product
+  involvements) → **delete created** (passivation, 204) → Passive detail/re-delete/
+  update checks. Unlike folders 04/05/06, every write request in folder 10 carries
+  the `X-XSRF-TOKEN: {{xsrfToken}}` header **pre-set** — you only need the
+  `xsrfToken` environment variable filled (step B.3 above). Note: delete =
+  **passivation** — the account stays in the list as Passive (v8-1); the hidden
+  K-8 223 (`1261000002`) intentionally answers 404.
 - Other folders are order-independent.
 
 Business requests go through `{{gatewayBaseUrl}}` (port 8080) and need the
@@ -88,6 +98,7 @@ Test scripts write values back into the environment:
 | `createdCustomerNumber` | *04 / Atomic customer create* (from the 201 response) | update, delete, verify-404 in folder 04 |
 | `addressId` | *05 / List addresses* (first row of seed customer 1001) | set-primary-back in folder 05 |
 | `createdAddressId` | *05 / Create address* (from the 201 response) | PUT update, set primary, delete in folder 05 |
+| `createdAccountNumber` | *10 / Create billing account* (from the 201 response) | update, delete and Passive-policy checks in folder 10 |
 
 Static defaults you may edit: `customerNumber` (1001), `cityId` (1), `districtId`
 (1), `nationalityId` (see the freshness rule above).

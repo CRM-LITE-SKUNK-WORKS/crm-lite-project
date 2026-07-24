@@ -4,7 +4,26 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-23 (**FR/AC v8-1 Final (23.07.2026) revizyonuyla mutabakat —
+> **Son güncelleme:** 2026-07-23 (**account-service UYGULANDI — ADR-013/014:**
+> FR-ACCT-01..04 + KR-11 kapsamı `backend/account-service`'te (port 8085, `account_db`,
+> `com.crm.account`) hayata geçti. KR-11 Account Number: VARCHAR(10), Luhn check-digit,
+> `acct_number_seq` upsert tahsisi (`next_value` = sıradaki değer; seed sonrası 100004),
+> değişmez/asla yeniden kullanılmaz. Silme = pasifleştirme (Passive satır listede kalır);
+> liste yalnız 224, Active→Passive + Account Number ASC, sayfalama YOK. **K-8 (analist
+> onaylı):** ilk 224 oluşturulurken müşterinin tek 223 Customer Account'u AYNI ACID
+> transaction'da tembel yaratılır — API'de asla görünmez (404). `cust_acct_prod_invl`
+> yalnız account-service tarafından yazılan GERÇEK yerel guard state (AC-ACCT-04-03,
+> 409 MSG-ACCT-HAS-PRODUCTS); gelecekte product/order servisleri account-service
+> API'si/event'i üzerinden besler, account_db'ye ASLA doğrudan yazmaz. Adres doğrulama
+> customer-service'in mevcut adres API'siyle (kullanıcı token'ı taşınır, ADR-010 eki);
+> customer-service kaynak kodu BU sprintte DEĞİŞMEDİ (501/no-op'ların gerçek çağrıya
+> dönmesi ayrı bir takip PR'ı). Gateway `/api/accounts/**` route'u + birleşik Swagger
+> dropdown'ına account-service eklendi. Testcontainers yönetimi artık kök POM'da
+> merkezî (BOM 1.21.3 + docker-java 3.5.1 + surefire `-Dapi.version=1.44` pluginManagement).
+> Test kanıtı: account-service 41/41; tüm reactor `mvn clean verify` YEŞİL (133 test)
+> — gateway Keycloak E2E'si 8080'i bağladığı için compose stack'i kapatılarak koşuldu.
+> Detay: §4.8, ADR-013/014, `docs/architecture/account-service-decisions.md`.)
+> Önceki durum: 2026-07-23 (**FR/AC v8-1 Final (23.07.2026) revizyonuyla mutabakat —
 > yalnız dokümantasyon:** analist dokümanı KR-11 (Account Number formatı:
 > 10 haneli `[T][YY][SSSSSS][C]`, bu faz için segment sabit `1`, segment+yıl bazlı sıra
 > `100000`'den başlar, kalıcı/yeniden kullanılmaz, check-digit yöntemi teknik tasarıma bırakılmış)
@@ -93,6 +112,7 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 | `customer-service` | 8082 | Müşteri agregatı: FR-CUST + FR-ADDR + FR-CNTC (`customer_db`) — **JWT resource server** | ✅ Çalışıyor — Postgres + lookup-service + mernis-stub (yazma işlemleri için) |
 | `lookup-service` | 8083 | **Paylaşılan GNL_ST/GNL_TP kataloglarının TEK sahibi** (`lookup_db`, ADR-002) — **JWT resource server** | ✅ Çalışıyor — Postgres gerekli |
 | `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL, **CRM token'ı görmez (ADR-010)** | ✅ Çalışıyor |
+| `account-service` | 8085 | Fatura hesapları: FR-ACCT-01..04 + KR-11 (`account_db` — ADR-013/014) — **JWT resource server**; K-8 tembel 223; silme = pasifleştirme | ✅ Uygulandı (2026-07-23) — Postgres + lookup-service + customer-service (yazma işlemleri için) |
 | ~~`auth-service`~~ | ~~8081~~ | ~~Kimlik doğrulama~~ | 🗑️ **SİLİNDİ (2026-07-17, ADR-007)** — BFF gateway'de, kimlik Keycloak'ta; iskelet geri getirilmeyecek |
 
 **Planlanan servisler (henüz YOK — analist/mimari onayı bekliyor; ayrıntı:
@@ -102,7 +122,7 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 |---|---|---|
 | ~~auth/security milestone~~ | Keycloak tek otorite + gateway BFF + zero-trust resource server + JWT-sub audit (ADR-006..011). auth-service iskeleti SİLİNDİ | ✅ **UYGULANDI (2026-07-17)** |
 | localization-service | FR-LANG merkezi etiket/mesaj kataloğu (varsayılan dil artık **İngilizce**, 16.07.2026). Backend zaten dil-bağımsız `messageKey` dönüyor | 🗓️ Planlı, başlanmadı |
-| account-service | ACCT_TP + CUST_ACCT (fatura hesapları) | 🗓️ **Sıradaki onaylı Sprint domain'i** (FR v8-1, 23.07.2026 — KR-11 + FR-ACCT-01..04 belgelendi); hesap-özel ADR'ler (KR-11 Account Number kontratı, FR-ACCT API/DB şekli) onaya sunulmadan servis AÇILMAYACAK |
+| ~~account-service~~ | ACCT_TP + CUST_ACCT (fatura hesapları) — ADR-013/014 | ✅ **UYGULANDI (2026-07-23)** — bkz. §2 tablo + §4.8 |
 | product-service | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* — product+catalog kapsamı birleşebilir | 🗓️ Planlı, sınır analist-final değil |
 | order-service | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + satış orkestrasyonu (FR-SALE) | 🗓️ Planlı, sınır analist-final değil |
 
@@ -427,6 +447,56 @@ crm-lite-project-dev/
 
 ---
 
+### 4.8 account-service ✅ (YENİ — 2026-07-23, ADR-013/014)
+- Port 8085, DB `account_db`, paket kökü `com.crm.account`. Kapsam: **FR-ACCT-01..04 + KR-11**
+  (FR v8-1 Final, 23.07.2026). Compose'da host portu YAYINLANMAZ (ADR-009); gateway route'u
+  `/api/accounts/**` (TokenRelay + cookie stripping); birleşik Swagger dropdown'ında kayıtlı.
+- **Tablolar (Flyway V1/V2):** `acct_tp` (YEREL hesap-tipi kataloğu, kontrat: 1=223 Customer
+  Account, 2=224 Billing Account — GNL kataloğu DEĞİL), `cust_acct` (`customer_number` = dış
+  iş numarası, `address_id` = dış adres referansı — FK'sız; `account_number VARCHAR(10) UNIQUE`),
+  `cust_acct_prod_invl` (yerel ürün-ilişki projeksiyonu), `acct_number_seq` (KR-11 durum
+  tablosu; `next_value` = SIRADAKİ değer — seed sonrası (1,2026)=100004). Workbook sapmaları
+  kayıtlı (ADR-013/014 + document-delta): legacy numaralar KR-11'e göre YENİDEN üretildi
+  (`1261000002`/`1261000010`/`1261000028`/`1261000036`), `customer_id` yerine
+  `customer_number`, K-8 223 adı sabit "Customer Account".
+- **KR-11 üretimi (ADR-014):** enjekte edilebilir `Clock` + tek atomik
+  `INSERT ... ON CONFLICT ... DO UPDATE ... RETURNING next_value - 1` upsert'i (yarış-güvenli,
+  gapless, ilk değer TAM 100000) + Luhn check-digit (kanonik örnek `126100000`→`1261000002`).
+  Taşma → 409 `MSG-ACCT-NUMBER-CAPACITY-EXCEEDED`; UNIQUE yarışı → 409 `MSG-ACCT-DUP-NUMBER`
+  (asla 500).
+- **API (tam liste — başka endpoint YOK):** `GET /api/accounts?customerId=` (yalnız 224,
+  Active+Passive, Active→Passive + numara ASC, sayfalama yok, boşsa `[]`),
+  `POST /api/accounts` (tip zorla 224; adres customer-service'in aktif adres listesinden
+  doğrulanır; 201), `GET/PUT/DELETE /api/accounts/{accountNumber}`. PUT yalnız
+  accountName+addressId; fazla/immutable alan → 400 `MSG-ACCT-IMMUTABLE-FIELD` (sessizce
+  yutulmaz). DELETE = pasifleştirme (204; satır listede Passive olarak KALIR); aktif ürün →
+  409 `MSG-ACCT-HAS-PRODUCTS`; Passive'e PUT/tekrar DELETE → 409 `MSG-ACCT-NOT-ACTIVE`.
+  İç ID'ler asla dışarı sızmaz; yanıt alanları: accountNumber/accountName/accountTypeCode/
+  accountTypeName/billingAddressId/accountStatus.
+- **K-8 (analist onaylı):** müşterinin İLK 224'ü yaratılırken 223 yoksa AYNI transaction'da
+  yaratılır (aynı KR-11 sequence'ı, sabit ad, birincil adres; partial unique index
+  `ux_cust_acct_single_223` müşteri başına tek non-deleted 223 garantiler). 223 hiçbir API
+  yanıtında görünmez (liste 224-filtreli; numarası 404).
+- **Dış bağımlılıklar:** lookup-service (ACTV/PASV çözümü — yazmalar 503 ile fail-closed) +
+  customer-service (müşteri varlık/adres doğrulaması — `GET /api/customers/{n}` +
+  `/addresses`, kullanıcı token'ı `BearerTokenPropagationInterceptor` ile taşınır, ADR-010
+  eki; Eureka üzerinden DOĞRUDAN, gateway'den DEĞİL). Okumalar tamamen yerel.
+- **`cust_acct_prod_invl` tek-yazarlı:** yalnız account-service yazar; şimdilik yalnız
+  seed/test verisiyle dolu ama SORGULANAN gerçek guard state. Gelecek product/order
+  servisleri account-service komut API'si veya event'i üzerinden besleyecek —
+  `account_db`'ye doğrudan yazım YASAK (bilinçli, dokümante TODO — ADR-013 §5).
+- **Testler (41 test, hepsi geçiyor):** birim (`LuhnCheckDigitTest`, `AccountNumberFormatTest`,
+  `AccountBusinessRulesTest`, `OutboundBearerPropagationTest` — iki outbound istemcinin de
+  token taşıdığı kanıtlı) + `AccountServiceIntegrationTest` (21 IT: şema/seed doğrulaması,
+  sequence ilk-değer/izolasyon/taşma/8-thread eşzamanlılık, K-8 atomikliği — 224 tahsisi
+  patlarsa 223 de geri alınır, numara asla yeniden kullanılmaz, fail-closed 503'ler,
+  soft-delete + sıralama, zero-trust 401/403, audit = JWT sub, iç ID sızıntısı yok).
+  Sabit `Clock` (2026) ile deterministik numaralar.
+- **Yeni modül tuzak notları uygulandı:** `spring-boot-flyway` açık bağımlılık (§5.11),
+  Lombok `annotationProcessorPaths` (§5.9), `OpenApiConfig` relative-server bean'i (§4.7
+  4-adım listesi), Testcontainers pinleri artık KÖK POM'dan (modül-yerel pin YOK).
+
+
 ## 5. Alınan Kararlar ve Gerekçeleri
 
 Bu bölüm "neden böyle yapıldı" sorusunun cevabıdır. Değiştirmeden önce gerekçeyi oku.
@@ -674,6 +744,8 @@ bu ikisi olmadan servis açılır ve okuma çalışır ama create/update/delete 
 6. **api-gateway** → Eureka'da `API-GATEWAY`; tarayıcıda `http://localhost:8080/api/session/me`
    → Keycloak login (`ayilmaz`/`crm-dev`) → oturum JSON'u
 7. **customer-service** → Flyway V1/V2 loglarda; `http://localhost:8082/actuator/health`
+8. **account-service** → Flyway V1/V2 loglarda; `http://localhost:8085/actuator/health`
+   (yazma işlemleri lookup-service + customer-service ister — ADR-013 fail-closed)
 
 ### 7.1b Terminal / Maven (aynı sıra, ayrı terminallerde)
 ```bash
@@ -688,6 +760,7 @@ mvn -pl backend/lookup-service   spring-boot:run   # Terminal 3
 mvn -pl backend/mernis-stub      spring-boot:run   # Terminal 4
 mvn -pl backend/api-gateway      spring-boot:run   # Terminal 5
 mvn -pl backend/customer-service spring-boot:run   # Terminal 6
+mvn -pl backend/account-service  spring-boot:run   # Terminal 7
 ```
 Detaylı curl doğrulama sırası: docs/api/customer-service.md; runbook: docs/runbooks/local-development.md.
 
@@ -737,6 +810,7 @@ curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8180/realms/crm-lit
 curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/actuator/health            # gateway (tek anonim actuator)
 # Security ON: anonim iş API'si 401 döner (MSG-AUTH-UNAUTHORIZED)
 curl -sS -w "\nHTTP Status: %{http_code}\n" -H "Accept: application/json" "http://localhost:8080/api/customers"
+curl -sS -w "\nHTTP Status: %{http_code}\n" -H "Accept: application/json" "http://localhost:8080/api/accounts?customerId=1001"
 ```
 
 **Oturumlu doğrulama tarayıcıyla yapılır:** `http://localhost:8080/api/session/me` → Keycloak
@@ -897,11 +971,14 @@ product/order domain'leri, FR-LANG lokalizasyon (varsayılan dil İngilizce), fr
 - [x] ~~gsmNumber araması 501~~ — **yerel implementasyon** (CNTC_MEDIUM artık customer_db'de).
 - [x] ~~nationality_id tekillik çelişkisi~~ — **ADR-003 ile kapandı**: kalıcı global DB UNIQUE.
 - [x] ~~Testcontainers yok~~ — **kuruldu**: entegrasyon testleri gerçek PostgreSQL container'ına karşı.
-- [ ] **account/order domain'leri** kurulunca `accountNumber`/`orderNumber` aramasını 501'den gerçek
-  entegrasyona çevir (KR-02).
-- [ ] **product/account domain'leri** kurulunca `checkCustomerHasNoActiveProducts`'ı (AC-CUST-05-03) ve
-  müşteri silmede fatura hesabı pasifleştirmeyi (AC-CUST-05-04'ün kalan kısmı) gerçek çağrıya çevir.
-- [ ] `checkAddressIsNotInUse` (AC-ADDR-04-04, `MSG-ADDR-IN-USE`) — hesap/servis adresi kayıtları gelince.
+- [ ] **`accountNumber` araması** 501'den gerçek account-service entegrasyonuna çevrilecek (KR-02) —
+  account-service ARTIK VAR (2026-07-23), bu bilinçli olarak **ayrı bir takip PR'ı** (bu sprint
+  customer-service'e dokunmadı); `orderNumber` hâlâ order domain'ini bekliyor.
+- [ ] `checkCustomerHasNoActiveProducts` (AC-CUST-05-03) + müşteri silmede fatura hesabı
+  pasifleştirme (AC-CUST-05-04'ün kalan kısmı) → aynı takip PR'ında gerçek account-service
+  çağrısına çevrilecek.
+- [ ] `checkAddressIsNotInUse` (AC-ADDR-04-04, `MSG-ADDR-IN-USE`) — `cust_acct.address_id` artık
+  var; aynı takip PR'ında gerçek kontrole çevrilecek.
 - [ ] Arama performansı: kelime-başı `'% q%'` LIKE deseni index kullanamaz — veri hacmi büyürse `pg_trgm`
   değerlendirilmeli (şu an bootcamp ölçeğinde sorun değil).
 
@@ -990,7 +1067,9 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
 - **config-server native/classpath, sır yönetimi yok** — `config-repo` dosyaları düz metin olarak jar'a gömülüyor;
   gerçek bir sır girilecekse önce §9.4 sertleştirmesi gerekir (auth milestone'u bu yüzden config-repo'ya
   secret KOYMADI; Keycloak ayarları env-var tabanlı).
-- **Compose 8 servis** — keycloak dahil; 8082/8083/8084 host'a yayınlanmaz (yalnız `crm-net`).
+- **Compose 9 servis** (+ tek seferlik keycloak-init) — keycloak ve account-service dahil;
+  8082/8083/8084/8085 host'a yayınlanmaz (yalnız `crm-net`). Eski volume'larda `account_db`
+  yoksa runbook'taki tek satırlık `CREATE DATABASE` çözümüne bakın (keycloak_db ile aynı durum).
 - **PAYLAŞILAN KATALOG KURALLARI (ADR-002 — bağlayıcı):**
   - GNL_ST ve GNL_TP **merkezi, cross-service kataloglardır**; tek sahibi `lookup-service` (`lookup_db`).
   - customer-service'te (ve gelecekteki hiçbir serviste) **yerel GNL_ST/GNL_TP tablosu veya seed'i YOKTUR**;

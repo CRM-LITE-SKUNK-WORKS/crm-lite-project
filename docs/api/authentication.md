@@ -20,8 +20,9 @@ Postman setup and the known traps — follow
   in localStorage/sessionStorage, and nothing that may be put there.
 - Browser-visible cookies are exactly: `JSESSIONID` (HttpOnly, SameSite=Lax,
   Secure outside local dev) and `XSRF-TOKEN` (readable, for CSRF echo).
-- All business APIs (`/api/customers/**`, `/api/cities/**`, `/api/lookups/**`)
-  require an authenticated session **with the `crm-user` role**.
+- All business APIs (`/api/customers/**`, `/api/cities/**`, `/api/lookups/**`,
+  `/api/accounts/**`) require an authenticated session **with the `crm-user`
+  role**.
 
 ## Login
 

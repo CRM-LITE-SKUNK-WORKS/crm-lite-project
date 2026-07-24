@@ -283,6 +283,44 @@ services:
     networks:
       - crm-net
 
+  account-service:
+    build:
+      context: ..
+      dockerfile: backend/account-service/Dockerfile
+    image: crm-lite/account-service:local
+    container_name: account-service
+    # No published host port (ADR-009): all client traffic enters through the
+    # gateway BFF; direct calls inside crm-net still require a valid Keycloak JWT.
+    environment:
+      SPRING_CONFIG_IMPORT: optional:configserver:http://config-server:8888
+      EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://discovery-server:8761/eureka
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/account_db
+      SPRING_DATASOURCE_USERNAME: crmlite
+      SPRING_DATASOURCE_PASSWORD: crmlite
+      # JWKS via internal DNS; issuer validation stays on the canonical value.
+      CRM_SECURITY_JWKSETURI: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/certs
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8085' || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      # Writes need the shared catalog (ADR-002) and customer/address validation
+      # (ADR-013); reads do not, but waiting gives a fully usable stack on first `up`.
+      lookup-service:
+        condition: service_healthy
+      customer-service:
+        condition: service_healthy
+    networks:
+      - crm-net
+
 networks:
   crm-net:
     driver: bridge

@@ -28,7 +28,42 @@ the missing extension separator), byte-identical in content to
 distinct analyst document; left as-is per "never edit/rename analyst source files"
 — flagged here so it isn't mistaken for a competing revision later.
 
-### Accepted changes (documented; not yet implemented — account-service does not exist)
+### Implementation record (2026-07-23, later the same day — account-service built)
+
+The v8-1 ACCT scope below is now **implemented** in `backend/account-service`
+under **ADR-013/ADR-014** (which govern; sprint decisions recorded in
+`docs/architecture/account-service-decisions.md`). Points of record:
+
+- **v8-1 supersedes v8** (confirmed from document metadata, table above);
+  deletion = **passivation** — Passive accounts remain list-visible
+  (AC-ACCT-01-03/04, AC-ACCT-04-02).
+- **K-8 analyst decision (approved):** the use-case's automatic 223 Customer
+  Account (steps 8–8.3) is implemented as a lazy, same-transaction side effect
+  of the first 224 creation; one 223 per customer; never exposed via the API.
+  This closes the "FR/AC is silent on the 223" gap in the FR text — the FR
+  itself still does not mention it (flagged for a future FR revision).
+- **Workbook deviations (workbook not edited):** `CUST_ACCT` seed
+  `account_number` values regenerated to KR-11 (`1261000002`, `1261000010`,
+  `1261000028`, `1261000036` — conflict #9 below); `customer_number` (public
+  business number 1001) stored instead of the workbook's internal
+  `customer_id`; the added `acct_number_seq` table (KR-11 needs sequence
+  state the workbook does not define); the 223 seed row's `account_name` is
+  the fixed K-8 constant "Customer Account" instead of the workbook's
+  per-customer text.
+- `acct_tp` is a **local account-domain catalog** (223/224) — NOT a shared
+  GNL_ST/GNL_TP catalog; the GNL rules (ADR-002) are untouched, and
+  `account_db` contains no gnl tables and no cross-database FKs.
+- `cust_acct_prod_invl` is owned/written **only by account-service**; future
+  product/order/sale services populate it via an account-service command/API
+  or a consumed event — direct `account_db` access is prohibited (ADR-013 §5).
+- customer-service is deliberately **unmodified**: its `accountNumber` 501,
+  customer-delete guards and `MSG-ADDR-IN-USE` no-op convert to real
+  account-service calls in a separate follow-up PR.
+- Conflicts #7 and #8 below (use-case + draw.io still describing FR-ACCT-04 as
+  list removal) **remain open on the analyst side**; the implementation follows
+  FR v8-1 (passivation, stays visible).
+
+### Accepted changes (documented 23.07.2026 morning; since implemented — see the implementation record above)
 
 | # | Change | Source | Action taken |
 |---|---|---|---|

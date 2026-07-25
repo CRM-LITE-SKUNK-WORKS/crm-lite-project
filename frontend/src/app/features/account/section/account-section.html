@@ -1,0 +1,127 @@
+<!-- Billing accounts (mock §6.4 tab 2 layout; K-8: 224s only, ever). The row
+     EXPANSION + product sub-table stay out until product-service exists — the
+     products "Coming soon" block renders in the parent (scope §4.23/2, §4.24). -->
+<div class="flex items-center justify-between border-b border-line px-6 py-5">
+  <h2 class="text-h3 font-semibold text-ink">{{ 'UI-DETAIL-ACCOUNTS-HEADING' | t }}</h2>
+  <app-button
+    size="sm"
+    iconLeading="plus"
+    testId="customer-detail-account-create-button"
+    (action)="openCreate()"
+  >
+    {{ 'LBL-CREATE-NEW-ACCOUNT' | t }}
+  </app-button>
+</div>
+
+@if (store.isLoading() || store.status() === 'idle') {
+  <app-skeleton
+    [label]="'UI-ACCOUNT-LOADING' | t"
+    [lines]="4"
+    testId="customer-detail-account-loading"
+  />
+} @else if (errorText(); as text) {
+  <div
+    class="m-6 flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+    role="alert"
+    data-testid="customer-detail-account-error-banner"
+  >
+    <span class="text-body-sm text-danger-fg">{{ text }}</span>
+    <app-button
+      variant="secondary"
+      size="sm"
+      testId="customer-detail-account-retry-button"
+      (action)="store.reload()"
+    >
+      {{ 'UI-COMMON-RETRY' | t }}
+    </app-button>
+  </div>
+} @else if (store.isEmpty()) {
+  <!-- 200 [] — a customer with no billing accounts yet (FR-ACCT-01). -->
+  <app-empty-state
+    icon="inbox"
+    [title]="'UI-ACCOUNT-EMPTY-TITLE' | t"
+    [body]="'UI-ACCOUNT-EMPTY-BODY' | t"
+    testId="customer-detail-account-empty-state"
+  />
+} @else {
+  <!-- Rows render in SERVER order: Active first, then Passive, accountNumber
+       ascending (AC-ACCT-01-04) — Passive rows stay listed (AC-ACCT-01-03). -->
+  <div class="min-h-0 overflow-auto">
+    <app-table
+      [columns]="columns()"
+      [rows]="store.accounts()"
+      [rowTestId]="rowTestIdFor"
+      testId="customer-detail-account-table"
+    >
+      <ng-template appTableCell="status" let-account>
+        <app-status-badge
+          [variant]="account.accountStatus === 'Active' ? 'success' : 'neutral'"
+          [label]="statusLabel(account)"
+          [testId]="'customer-detail-account-row-' + account.accountNumber + '-status'"
+        />
+      </ng-template>
+      <ng-template appTableCell="number" let-account>
+        <!-- KR-11: display-only, always. -->
+        {{ account.accountNumber }}
+      </ng-template>
+      <ng-template appTableCell="name" let-account>
+        {{ account.accountName }}
+      </ng-template>
+      <ng-template appTableCell="type" let-account>
+        {{ account.accountTypeName }}
+      </ng-template>
+      <ng-template appTableCell="actions" let-account>
+        <!-- Passive rows keep BOTH actions enabled: the backend's 409
+             (MSG-ACCT-NOT-ACTIVE) is the check — never imitated client-side. -->
+        <div class="flex items-center justify-end gap-2">
+          <app-icon-button
+            icon="pencil"
+            [ariaLabel]="'UI-ACCOUNT-EDIT-TITLE' | t"
+            [testId]="'customer-detail-account-row-' + account.accountNumber + '-edit'"
+            (action)="openEdit(account)"
+          />
+          <app-icon-button
+            icon="trash-2"
+            variant="danger-ghost"
+            [ariaLabel]="'UI-ACCOUNT-DELETE' | t"
+            [testId]="'customer-detail-account-row-' + account.accountNumber + '-delete'"
+            (action)="askDelete(account)"
+          />
+        </div>
+      </ng-template>
+    </app-table>
+  </div>
+}
+
+<app-account-form-dialog
+  [open]="formDialogOpen()"
+  [account]="formDialogTarget()"
+  [addressOptions]="addressOptions()"
+  (closed)="onFormClosed()"
+  (saved)="onFormSaved()"
+/>
+
+<!-- FR-ACCT-04: confirm → DELETE (passivation). 409 guards flip the dialog
+     into its error state with the backend's translated messageKey. -->
+<app-confirm-dialog
+  [open]="deleteTarget() !== null"
+  [title]="'UI-ACCOUNT-DELETE' | t"
+  [message]="'MSG-ACCT-DELETE-CONFIRM' | t"
+  [confirmLabel]="'LBL-YES' | t"
+  [cancelLabel]="'LBL-NO' | t"
+  [closeLabel]="'UI-COMMON-CLOSE' | t"
+  [errorText]="deleteError()"
+  [busy]="deleteBusy()"
+  testId="customer-detail-account-delete-dialog"
+  (confirmed)="confirmDelete()"
+  (cancelled)="cancelDelete()"
+/>
+
+@if (toastKey(); as key) {
+  <app-toast
+    [message]="key | t"
+    [dismissLabel]="'UI-COMMON-DISMISS' | t"
+    testId="customer-detail-account-toast"
+    (dismissed)="dismissToast()"
+  />
+}

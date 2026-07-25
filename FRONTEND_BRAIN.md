@@ -6,7 +6,36 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-25 (**🎉 İLK İŞ EKRANI: Customer Search yazıldı** —
+> **Son güncelleme:** 2026-07-25 (**🏁 KAPSAM-İÇİ EKRANLARIN TAMAMI BİTTİ:
+> Create Customer wizard yazıldı (FR-CUST-03, KR-10)** — 3 adımlı wizard
+> (`/customers/new`): demografik + yerel adres taslakları (paylaşılan adres
+> dialog'u `draft` modunda) + iletişim → **tek atomik POST**; MERNIS backend'de
+> (istemci stub'a gitmez, ADR-009); 409 dup-natid/MERNIS/400/503 hataları
+> alan+banner+adım-atlama ile. Yeni desen: **Stepper**. Search'ün "Create new
+> customer" butonu aktifleşti. **256/256 test**, lint + konvansiyon + prod
+> build yeşil; kayıt: scope §4.25. Aynı gün önce:
+> **💳 HESAP BÖLÜMÜ CANLI (FR-ACCT-01..04, KR-11)** —
+> Customer Info'nun hesap sekmesi gerçek işlevine kavuştu: liste (pasifler
+> görünür kalır, sunucu sırası), oluştur/güncelle (KR-11 numara salt metin),
+> sil=pasifleştir (409 guard'ları dialog'da). `features/account/section/`
+> AccountSection — FE-ADR-003 §Consequences'ın öngördüğü tek kardeş-feature
+> importuyla customer tüketiyor. Yeni desen: **StatusBadge**. Ürün bölümü hâlâ
+> "Coming soon" (product-service yok). **242/242 test**, lint + konvansiyon +
+> prod build yeşil; kayıtlar: scope §1A (tamamlandı) + §4.24. Aynı gün önce:
+> **🎉 İKİNCİ İŞ EKRANI: Customer Info yazıldı** —
+> `/customers/:customerNumber`: demografik görüntüle/düzenle (FR-CUST-02/04),
+> adres CRUD + primary + şehir→ilçe cascade (FR-ADDR-01..05), iletişim
+> görüntüle/güncelle (FR-CNTC-01/02), müşteri silme onay+toast (FR-CUST-05);
+> hesap sekmesi F6'ya **rezerve** (API çağrısı yok), ürün bölümü "Coming soon"
+> (A3). Yeni desenler: **Tabs, ConfirmDialog** (+Modal `headerless`).
+> Search satır linki **aktifleşti** (§2A.5). **231/231 test**, lint +
+> konvansiyon + prod build yeşil; kayıtlar: scope §4.22–4.23. Aynı gün önce:
+> **`shared/patterns/` katmanı kuruldu** —
+> Customer Search'ün inline desenleri 6 paylaşılan desene çıkarıldı: Table,
+> EmptyState, Skeleton, Pagination (Search tüketiyor) + Toast, Modal (sonraki
+> ekranlar için hazır); ekran davranışı/testid'ler birebir korundu, **201/201
+> test**, lint + konvansiyon + prod build yeşil; kayıt: scope §4.21. Aynı gün
+> önce: **🎉 İLK İŞ EKRANI: Customer Search yazıldı** —
 > golden path uçtan uca canlı: browse + filtre + sayfalama + 12 durum;
 > parametreli i18n (FE-ADR-012 §h) uygulandı; placeholder kaldırıldı.
 > **169/169 test**, lint + konvansiyon + prod build yeşil. Önceki aynı gün:
@@ -145,21 +174,36 @@ frontend/
         │   │   ├── icon/ button/ icon-button/ form-field/
         │   │   ├── text-input/ select/ date-picker/   # hepsi spec'li (98 test)
         │   │   └── index.ts     # barrel; metinler ÇÖZÜLMÜŞ girer (§4.14) — bileşen çeviri yapmaz
-        │   └── [ ] patterns/    # modal, toast, tabs, stepper, pagination, badge, card
+        │   └── [✓] patterns/    # ✅ 2026-07-25: DS'de olmayan kompozit desenler (FE-ADR-011 §d, mock §7.2)
+        │       ├── table/ empty-state/ skeleton/ pagination/   # Customer Search tüketiyor
+        │       ├── toast/ modal/ tabs/ confirm-dialog/   # Customer Info tüketiyor (modal: headerless varyantlı)
+        │       ├── status-badge/    # ✅ 2026-07-25 (F6): nokta+metin durum rozeti (mock §6.4)
+        │       ├── stepper/         # ✅ 2026-07-25 (F7): pasif wizard göstergesi (mock §6.3)
+        │       └── index.ts         # barrel; sözleşme shared/ui ile aynı (saf sunum, çözülmüş metin,
+        │                            #   testId zorunlu; kayıt: scope §4.21/4.23); stepper/badge/card → ekranı gelince
         └── features/
             ├── [✓] access-denied/           # 403 rol reddi sayfası (MSG-AUTH-FORBIDDEN)
             ├── customer/
-            │   ├── [✓] customer.routes.ts   # lazy chunk kökü
-            │   ├── [✓] customer-placeholder.ts  # geçici korumalı sayfa → yerini search alacak
-            │   ├── [ ] search/ create/ detail/   # ekranlar (kapsam içi) — henüz yok
-            │   ├── [ ] address/ contact/          # ALT MODÜL (FE-ADR-003 §3) — henüz yok
+            │   ├── [✓] customer.routes.ts   # lazy chunk kökü ('' Search, ':customerNumber' Detail)
+            │   ├── [✓] search/              # ✅ Customer Search (golden path) — satır linki artık Detail'e gider
+            │   ├── [✓] detail/              # ✅ 2026-07-25: Customer Info (tabs; demografik+iletişim dialogları,
+            │   │                            #   silme ConfirmDialog; hesap sekmesi F6'ya rezerve, ürün Coming soon)
+            │   ├── [✓] create/              # ✅ 2026-07-25 (F7): 3 adımlı wizard — atomik POST; adresler
+            │   │                            #   yerel taslak; hata→adım atlama; başarıda flash→Info toast'ı
+            │   ├── [✓] address/             # ✅ ALT MODÜL (FE-ADR-003 §3): AddressCards + AddressFormDialog
+            │   │                            #   (Detail API modunda, Create `draft` modunda tüketiyor)
+            │   ├── [ ] contact/             # alt modül klasörü boş — iletişim dialog'u şimdilik detail/ içinde
             │   ├── [✓] model/               # ✅ 2026-07-25: Customer/Address/Contact/Page/filter tipleri
             │   ├── [✓] data/                # ✅ CustomerApiService (liste+filtre, CRUD, adres, iletişim) (+spec)
-            │   └── [✓] state/               # ✅ CustomerListStore (signal: filtre/sayfa/sonuç/seçili) (+spec)
-            └── [✓] account/                 # ✅ 2026-07-25: FR-ACCT veri katmanı (yeni kardeş feature)
+            │   └── [✓] state/               # ✅ CustomerListStore (+spec) · CustomerDetailStore (3 bağımsız
+            │                                #   bölüm okuması + mutasyonlar) · CustomerFlashService (eds_flash karşılığı)
+            └── [✓] account/                 # ✅ 2026-07-25: FR-ACCT (kardeş feature) — F6'da bölüm canlı
                 ├── [✓] model/               #   AccountResponse/Create/Update — K-8: 223 YOK, KR-11 salt okunur
                 ├── [✓] data/                #   AccountApiService (/api/accounts/**, 224-only) (+spec)
-                └── [✓] state/               #   AccountListStore (signal: müşteri fatura hesapları) (+spec)
+                ├── [✓] state/               #   AccountListStore (+mutasyonlar: create/update/delete → reload) (+spec)
+                └── [✓] section/             # ✅ F6: AccountSection + AccountFormDialog (+spec) — Customer
+                                             #   Info'nun hesap sekmesine expose edilen bileşen (FE-ADR-003
+                                             #   §Consequences); adresler BillingAddressOption ile yukarıdan girer
 ```
 
 **Katman lint'i doğrulandı:** `shared/`'dan `core/`'a import denemesi ESLint
@@ -275,10 +319,18 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
 - [x] ~~`DatePicker`~~ ✅ **2026-07-25 yazıldı** — **custom panel** kararıyla
       (§4.15): maskeli `DD.MM.YYYY` + takvim popover; form değeri daima ISO;
       ay/gün adları `Intl` + `locale` girdisi; roving-tabindex klavye gezinme
-- [ ] `shared/patterns/` — tablo, boş durum, sayfalama, toast, skeleton
-      (Customer Search'ün ihtiyacı); modal/stepper/tabs sonraki ekranlarda
-- [x] ~~Her bileşen kendi spec'iyle gelir~~ ✅ 7 bileşen / 7 spec — toplam
-      **98/98 test**, lint + `check:conventions` + prod build yeşil (2026-07-25)
+- [x] ~~`shared/patterns/` — tablo, boş durum, sayfalama, toast, skeleton~~
+      ✅ **2026-07-25 yazıldı** — 6 desen: `Table` (kolon tanımı + hücre
+      şablonları dışarıdan, iş-anahtarlı satır testid), `EmptyState`,
+      `Skeleton`, `Pagination` (0-tabanlı `pageChange`, kesme kuralı tek yerde),
+      `Toast` (6sn otomatik kapanma, `role="status"`) ve `Modal` (odak tuzağı +
+      Escape + `aria-modal`, 420/560/680 tema token'ları) — Modal/Toast sonraki
+      ekranlar için önceden kuruldu. Customer Search inline desenlerinden
+      refactor edildi, ekran davranışı birebir; uygulama kayıtları scope §4.21.
+      Stepper/tabs/badge/card ekranları gelince
+- [x] ~~Her bileşen kendi spec'iyle gelir~~ ✅ 7 ui bileşeni + 6 desen / 13 spec —
+      toplam **201/201 test**, lint + `check:conventions` + prod build yeşil
+      (2026-07-25)
 
 ### 5.4 Ekranlar (kapsam içi)
 - [x] ~~**Customer Search**~~ ✅ **YAZILDI (2026-07-25)** — golden path canlı:
@@ -290,13 +342,33 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
       rota `''` artık Search. Satır linki Detail gelene kadar **pasif** (§2A.5),
       "Create new customer" **disabled** (wizard gelince `routerLink`). Uygulama
       kayıtları: `scope-and-conflicts §4.20`
-- [ ] **Create Customer** — 3 adımlı wizard + adres dialog'u (`DatePicker` burada gerekiyor)
-- [ ] **Customer Info** — demografik + adres + iletişim sekmeleri; **hesap
-      bölümü artık kapsam İÇİ** (`features/account/`, kontrat
-      `docs/api/account-service.md`; yalnız 224 Billing Account, KR-11 numarası
-      salt okunur, silme = pasifleştirme — FE-ADR-013 §Amendment A1); ürün
-      bölümü "Coming soon" (A3). Hesap ekranından önce 5 `MSG-ACCT-*` anahtarı
-      kataloğa eklenmeli (`scope-and-conflicts.md` §1A.6)
+- [x] ~~**Create Customer**~~ ✅ **YAZILDI (2026-07-25, F7)** —
+      `features/customer/create/`: mock §6.3 birebir (h1 + Stepper + wizard
+      kartı). Adım 1 demografik (8 alan; VR-NAME/NATID/BIRTHDATE/AGE Next'te),
+      adım 2 adresler (paylaşılan AddressCards + AddressFormDialog **draft
+      modunda** — API'siz yerel taslaklar, tam-biri-primary), adım 3 iletişim
+      (VR-EMAIL/MOBILE/PHONE) → **tek atomik `POST /api/customers`** (kısmi
+      istek yok). MERNIS backend'de (KR-10); 409 `MSG-CUST-DUP-NATID` (ADR-003)
+      + MERNIS 400/503 + alan-bazlı 400'ler i18n'le, sahibi olan adıma
+      atlayarak. Başarı: flash → yeni müşterinin Info sayfasında toast.
+      Kayıt: scope §4.25
+- [x] ~~**Customer Info**~~ ✅ **YAZILDI (2026-07-25)** — `features/customer/detail/`:
+      4 sekme (mock §6.4 birebir). Demografik görüntüle/düzenle (FR-CUST-02/04,
+      DÜZ PUT gövdesi), adres liste/ekle/düzenle/sil/primary (FR-ADDR-01..05;
+      cascade `core/lookup`'tan; silme onayı ConfirmDialog, 409 guard'ları
+      dialog hata durumunda), iletişim görüntüle/güncelle (FR-CNTC-01/02,
+      Email→Home→Mobile→Fax sırası), müşteri silme (FR-CUST-05: onay → 204 →
+      flash toast ile Search'e dönüş; 409 `MSG-CUST-HAS-PRODUCTS` mock'un hata
+      durumu). **Hesap sekmesi F6'ya rezerve** (düzen var, API çağrısı YOK —
+      §4.23/1); ürün bölümü **"Coming soon"** inert (A3). 5 `MSG-ACCT-*`
+      anahtarı kataloğa çoktan eklendi (§1A.6 kapandı — `messages.ts`).
+      **+ F6 (aynı gün): hesap sekmesi CANLI** — `features/account/section/`
+      AccountSection: liste (pasifler görünür, sunucu sırası korunur,
+      AC-ACCT-01-03/04), oluştur (`{customerId, accountName, addressId}` —
+      tip seçilemez, K-8 sunucuda), güncelle (yalnız `{accountName, addressId}`;
+      KR-11 numara dialog'da salt metin), sil=pasifleştir (ConfirmDialog; 409
+      `MSG-ACCT-HAS-PRODUCTS`/`MSG-ACCT-NOT-ACTIVE` dialog hata durumunda —
+      istemci taklit etmez). Kayıt: scope §4.24
 
 ### 5.5 Container
 - [x] ~~`frontend/Dockerfile` (multi-stage) + `nginx.conf`~~ ✅ 2026-07-24
@@ -597,18 +669,20 @@ Bu bölüm **teknik olmayan okuyucu** içindir: projeyi çekip çalıştırmak,
 
 | ✅ Çalışıyor | ❌ Henüz yok |
 |---|---|
-| Keycloak üzerinden **giriş** (CRM Lite temalı login sayfası) | **Müşteri Oluşturma** sihirbazı |
-| **Müşteri Arama** — giriş sonrası ana ekran: tüm müşteriler listelenir, filtrelenir, sayfalanır | **Müşteri Bilgisi** ekranı |
-| Uygulama **çerçevesi**: üst bar, sol menü, kullanıcı adı, çıkış | Hesap bölümü ekranları |
+| Keycloak üzerinden **giriş** (CRM Lite temalı login sayfası) | Ürün bölümü ("Çok yakında" olarak görünür) |
+| **Müşteri Arama** — giriş sonrası ana ekran: tüm müşteriler listelenir, filtrelenir, sayfalanır | Arama'daki "Account number"/"Order number" filtreleri (arka uç entegrasyonu bekliyor) |
+| **Müşteri Oluşturma** — "Create new customer" ile açılan 3 adımlı sihirbaz: kimlik bilgileri, adres(ler), iletişim; kayıt tek işlemde oluşur, kimlik doğrulaması (MERNİS) otomatik yapılır | |
+| **Müşteri Bilgisi** — satırdaki müşteri numarasına tıklayınca açılır: bilgileri görüntüleme/düzenleme, adres ekleme/düzenleme/silme/birincil yapma, iletişim güncelleme, müşteri silme (onaylı) | |
+| **Fatura hesapları** — Müşteri Bilgisi'nin "Customer account" sekmesi: listeleme (silinen hesaplar "Pasif" olarak listede kalır), hesap oluşturma, ad/adres güncelleme, silme (onaylı; hesap numarası hiçbir zaman düzenlenemez) | |
+| Uygulama **çerçevesi**: üst bar, sol menü, kullanıcı adı, çıkış | |
 | **TR/EN dil değiştirici** — anında, tercih hatırlanıyor | |
 | **Yetki reddi** (403) ve **oturum kapatıldı** sayfaları | |
 | Backend'e güvenli erişim (oturum + CSRF + hata çevirisi) | |
 
-> Müşteri Arama'daki **"Create new customer"** düğmesi ve satırlardaki müşteri
-> numarası bağlantısı **bilinçli olarak pasif** — hedef ekranlar (Oluşturma
-> sihirbazı, Müşteri Bilgisi) yazıldığında etkinleşecek. "Account number" ve
-> "Order number" filtreleri de hesap/sipariş arama entegrasyonu gelene kadar
-> kapalı.
+> "Account number" ve "Order number" arama filtreleri hesap/sipariş arama
+> entegrasyonu gelene kadar kapalı. Müşteri Bilgisi'ndeki **ürün bölümü**
+> "Çok yakında" etiketiyle görünür ve tıklanamaz (ürün servisi henüz yok).
+> Bunların dışında **kapsam içi tüm ekranlar canlıdır.**
 
 ### 10.2 Gereksinimler (tek seferlik)
 

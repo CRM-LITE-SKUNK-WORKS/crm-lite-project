@@ -50,6 +50,10 @@ export const UI = {
   'UI-COMMON-LANGUAGE-TR': { en: 'Turkish', tr: 'Türkçe' },
   'UI-COMMON-LOADING': { en: 'Loading…', tr: 'Yükleniyor…' },
   'UI-COMMON-RETRY': { en: 'Try again', tr: 'Tekrar dene' },
+  'UI-COMMON-CLOSE': { en: 'Close', tr: 'Kapat' },
+  'UI-COMMON-OPTIONAL': { en: '(optional)', tr: '(isteğe bağlı)' },
+  'UI-COMMON-COMING-SOON': { en: 'Coming soon', tr: 'Çok yakında' },
+  'UI-COMMON-DISMISS': { en: 'Dismiss notification', tr: 'Bildirimi kapat' },
   'UI-COMMON-LOGOUT': { en: 'Log out', tr: 'Çıkış yap' },
   'UI-COMMON-SIGN-IN': { en: 'Sign in', tr: 'Giriş yap' },
   'UI-COMMON-USER-AVATAR': { en: 'Signed in user', tr: 'Oturum açan kullanıcı' },
@@ -148,6 +152,12 @@ export const UI = {
   'UI-CREATE-FIELD-MOBILE': { en: 'Mobile phone', tr: 'Cep telefonu' },
   'UI-CREATE-FIELD-HOME': { en: 'Home phone', tr: 'Ev telefonu' },
   'UI-CREATE-FIELD-FAX': { en: 'Fax', tr: 'Faks' },
+  // Success flash after the atomic create (mock §6.3 eds_flash wording) —
+  // PROJECT-AUTHORED; shown as a Toast on Customer Info.
+  'UI-CREATE-TOAST-SUCCESS': {
+    en: 'Customer created successfully.',
+    tr: 'Müşteri başarıyla oluşturuldu.',
+  },
   'UI-CREATE-FIELD-CITY': { en: 'City', tr: 'İl' },
   'UI-CREATE-FIELD-DISTRICT': { en: 'District', tr: 'İlçe' },
   'UI-CREATE-FIELD-STREET': { en: 'Street', tr: 'Cadde/Sokak' },
@@ -161,8 +171,112 @@ export const UI = {
   'UI-PAGINATION-NEXT': { en: 'Next page', tr: 'Sonraki sayfa' },
   'UI-PAGINATION-PAGE': { en: 'Page {page}', tr: 'Sayfa {page}' },
 
-  // ---- Customer Info (mock-ui-analysis §6.4; account tab is out of scope) ----
+  // ---- Customer Info (mock-ui-analysis §6.4) ----
   'UI-DETAIL-TAB-INFO': { en: 'Customer info', tr: 'Müşteri bilgisi' },
+  'UI-DETAIL-TAB-ACCOUNT': { en: 'Customer account', tr: 'Müşteri hesabı' },
   'UI-DETAIL-TAB-ADDRESS': { en: 'Address', tr: 'Adres' },
   'UI-DETAIL-TAB-CONTACT': { en: 'Contact medium', tr: 'İletişim' },
+  'UI-DETAIL-LOADING': { en: 'Loading customer…', tr: 'Müşteri yükleniyor…' },
+  'UI-DETAIL-NOT-FOUND-TITLE': { en: 'Customer not found', tr: 'Müşteri bulunamadı' },
+  'UI-DETAIL-BACK-TO-SEARCH': { en: 'Back to search', tr: 'Aramaya dön' },
+  'UI-DETAIL-EDIT-INFO': { en: 'Edit customer info', tr: 'Müşteri bilgisini düzenle' },
+  'UI-DETAIL-DELETE-CUSTOMER': { en: 'Delete customer', tr: 'Müşteriyi sil' },
+  'UI-DETAIL-INFO-UPDATE-TITLE': {
+    en: 'Customer info update',
+    tr: 'Müşteri bilgisi güncelleme',
+  },
+  'UI-DETAIL-EDIT-CONTACT': { en: 'Edit contact medium', tr: 'İletişim bilgisini düzenle' },
+  'UI-DETAIL-CONTACT-UPDATE-TITLE': {
+    en: 'Contact medium update',
+    tr: 'İletişim bilgisi güncelleme',
+  },
+  'UI-DETAIL-CONTACT-LOADING': {
+    en: 'Loading contact info…',
+    tr: 'İletişim bilgisi yükleniyor…',
+  },
+  'UI-DETAIL-ACCOUNTS-HEADING': { en: 'Customer accounts', tr: 'Müşteri hesapları' },
+  // Product section — "Coming soon" per FE-ADR-013 §Amendment A3.
+  'UI-DETAIL-PRODUCTS-HEADING': { en: 'Products', tr: 'Ürünler' },
+  // Success toasts (mock §6.3 flash pattern; §4.3 toast contract) — PROJECT-AUTHORED.
+  'UI-DETAIL-TOAST-INFO-SAVED': {
+    en: 'Customer updated successfully.',
+    tr: 'Müşteri başarıyla güncellendi.',
+  },
+  'UI-DETAIL-TOAST-CONTACT-SAVED': {
+    en: 'Contact medium updated successfully.',
+    tr: 'İletişim bilgisi başarıyla güncellendi.',
+  },
+  'UI-DETAIL-TOAST-CUSTOMER-DELETED': {
+    en: 'Customer deleted successfully.',
+    tr: 'Müşteri başarıyla silindi.',
+  },
+  // Gender DISPLAY labels — the wire values stay "Male"/"Female" (scope §2.7);
+  // these only localize what the user sees, they never change the data.
+  'UI-GENDER-MALE': { en: 'Male', tr: 'Erkek' },
+  'UI-GENDER-FEMALE': { en: 'Female', tr: 'Kadın' },
+  'UI-CREATE-GENDER-PLACEHOLDER': { en: 'Select gender', tr: 'Cinsiyet seçin' },
+
+  // ---- Address sub-module (mock §6.3 step 2 = §6.4 Address tab, byte-identical) ----
+  'UI-ADDRESS-ADD-TITLE': { en: 'Add address', tr: 'Adres ekle' },
+  'UI-ADDRESS-EDIT-TITLE': { en: 'Edit address', tr: 'Adresi düzenle' },
+  'UI-ADDRESS-SUBMIT-EDIT': { en: 'Save changes', tr: 'Değişiklikleri kaydet' },
+  'UI-ADDRESS-PRIMARY': { en: 'Primary', tr: 'Birincil' },
+  'UI-ADDRESS-DELETE': { en: 'Delete address', tr: 'Adresi sil' },
+  'UI-ADDRESS-PRIMARY-DELETE-HINT': {
+    en: "Primary address can't be deleted",
+    tr: 'Birincil adres silinemez',
+  },
+  'UI-ADDRESS-LOADING': { en: 'Loading addresses…', tr: 'Adresler yükleniyor…' },
+  // Card summary line (mock §6.3: "{street} No: {houseNo} · {description}") —
+  // parameterized so the format string never sits hardcoded in a template.
+  'UI-ADDRESS-SUMMARY': {
+    en: '{street} No: {houseNo} · {description}',
+    tr: '{street} No: {houseNo} · {description}',
+  },
+  'UI-ADDRESS-DISTRICT-PLACEHOLDER': { en: 'Select district', tr: 'İlçe seçin' },
+  'UI-ADDRESS-CITY-PLACEHOLDER': { en: 'Select city', tr: 'İl seçin' },
+
+  // ---- Contact placeholders (mock §6.3 step 3) ----
+  'UI-CONTACT-PLACEHOLDER-EMAIL': { en: 'name@example.com', tr: 'ad@ornek.com' },
+  'UI-CONTACT-PLACEHOLDER-MOBILE': { en: '05XXXXXXXXX', tr: '05XXXXXXXXX' },
+  'UI-CONTACT-PLACEHOLDER-PHONE': { en: '0XXXXXXXXXX', tr: '0XXXXXXXXXX' },
+
+  // ---- Account section (mock §6.4 tab 2; FR-ACCT-01..04 — PROJECT-AUTHORED;
+  //      backend messageKeys live in messages.ts under their contract names) ----
+  'UI-ACCOUNT-COL-STATUS': { en: 'Account status', tr: 'Hesap durumu' },
+  'UI-ACCOUNT-COL-NUMBER': { en: 'Account number', tr: 'Hesap numarası' },
+  'UI-ACCOUNT-COL-NAME': { en: 'Account name', tr: 'Hesap adı' },
+  'UI-ACCOUNT-COL-TYPE': { en: 'Account type', tr: 'Hesap tipi' },
+  'UI-ACCOUNT-COL-ACTIONS': { en: 'Actions', tr: 'İşlemler' },
+  // Status DISPLAY labels — wire values stay "Active"/"Passive" (contract).
+  'UI-ACCOUNT-STATUS-ACTIVE': { en: 'Active', tr: 'Aktif' },
+  'UI-ACCOUNT-STATUS-PASSIVE': { en: 'Passive', tr: 'Pasif' },
+  'UI-ACCOUNT-LOADING': { en: 'Loading billing accounts…', tr: 'Fatura hesapları yükleniyor…' },
+  'UI-ACCOUNT-EMPTY-TITLE': { en: 'No billing accounts', tr: 'Fatura hesabı yok' },
+  'UI-ACCOUNT-EMPTY-BODY': {
+    en: 'Use “Create New Account” above to add the first billing account.',
+    tr: 'İlk fatura hesabını eklemek için yukarıdaki “Yeni Hesap Oluştur”u kullanın.',
+  },
+  'UI-ACCOUNT-EDIT-TITLE': { en: 'Edit account', tr: 'Hesabı düzenle' },
+  'UI-ACCOUNT-DELETE': { en: 'Delete account', tr: 'Hesabı sil' },
+  'UI-ACCOUNT-FIELD-NAME': { en: 'Account name', tr: 'Hesap adı' },
+  'UI-ACCOUNT-FIELD-ADDRESS': { en: 'Billing address', tr: 'Fatura adresi' },
+  'UI-ACCOUNT-FIELD-NUMBER': { en: 'Account number', tr: 'Hesap numarası' },
+  'UI-ACCOUNT-FIELD-TYPE': { en: 'Account type', tr: 'Hesap tipi' },
+  'UI-ACCOUNT-ADDRESS-PLACEHOLDER': { en: 'Select address', tr: 'Adres seçin' },
+  'UI-ACCOUNT-TOAST-CREATED': {
+    en: 'Billing account created successfully.',
+    tr: 'Fatura hesabı başarıyla oluşturuldu.',
+  },
+  'UI-ACCOUNT-TOAST-UPDATED': {
+    en: 'Billing account updated successfully.',
+    tr: 'Fatura hesabı başarıyla güncellendi.',
+  },
+
+  // ---- DatePicker aria labels (first consumer: demographic edit dialog) ----
+  'UI-DATE-OPEN-CALENDAR': { en: 'Open calendar', tr: 'Takvimi aç' },
+  'UI-DATE-PREV-MONTH': { en: 'Previous month', tr: 'Önceki ay' },
+  'UI-DATE-NEXT-MONTH': { en: 'Next month', tr: 'Sonraki ay' },
+  'UI-DATE-PREV-YEAR': { en: 'Previous year', tr: 'Önceki yıl' },
+  'UI-DATE-NEXT-YEAR': { en: 'Next year', tr: 'Sonraki yıl' },
 } satisfies Catalog;

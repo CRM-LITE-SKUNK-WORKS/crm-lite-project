@@ -156,12 +156,23 @@
   --breakpoint-xl: 1280px;
   --breakpoint-2xl: 1440px;
 
+  /* ===== Modal widths (mock-ui-analysis §7.2: 420 / 560 / 680; added
+     2026-07-25 for shared/patterns Modal — documented values moved into the
+     theme per the FE-ADR-011 §f process, not invented). Utilities:
+     max-w-modal-sm / max-w-modal-md / max-w-modal-lg. ===== */
+  --container-modal-sm: 420px;
+  --container-modal-md: 560px;
+  --container-modal-lg: 680px;
+
   /* ===== Animations (mock-ui-analysis §2.14/§3.7; added 2026-07-25, §4.16) =====
      eds-spin: --eds-duration-spin (900ms), linear — Spinner only; the SVG also
      carries data-eds-motion-exempt (reduced-motion contract, base layer below).
      panel-in: dropdown/datepicker panel entry — 200ms --eds-ease-enter. */
   --animate-eds-spin: eds-spin 900ms linear infinite;
   --animate-panel-in: eds-panel-in 200ms cubic-bezier(0, 0, 0.15, 1);
+  /* Toast entry (mock-ui-analysis §4.3: eds-toast-in 200ms --eds-ease-enter,
+     translateY(-8px) → 0; added 2026-07-25 for shared/patterns Toast). */
+  --animate-toast-in: eds-toast-in 200ms cubic-bezier(0, 0, 0.15, 1);
 
   @keyframes eds-spin {
     to {
@@ -172,6 +183,16 @@
     from {
       opacity: 0;
       transform: translateY(-4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes eds-toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
     }
     to {
       opacity: 1;

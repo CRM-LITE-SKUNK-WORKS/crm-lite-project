@@ -1,7 +1,12 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
+import { type Observable, tap } from 'rxjs';
 import { type ApiError, isApiError } from '../../../core/http';
 import { AccountApiService } from '../data/account-api.service';
-import { type AccountResponse } from '../model';
+import {
+  type AccountResponse,
+  type CreateAccountRequest,
+  type UpdateAccountRequest,
+} from '../model';
 
 export type RequestStatus = 'idle' | 'loading' | 'loaded' | 'error';
 
@@ -76,5 +81,40 @@ export class AccountListStore {
     this._accounts.set([]);
     this._status.set('idle');
     this._error.set(null);
+  }
+
+  // --- mutations (added with the account section, F6) -----------------------
+  // Same contract as CustomerDetailStore: the observable goes back to the
+  // calling dialog/screen (which owns busy state, field errors, closing), the
+  // store `tap`s the success to refresh its list. A reload — not a local patch
+  // — is correct for all three: create can K-8-side-effect on the server,
+  // delete leaves the row as Passive, and ORDER is the server's contract.
+
+  /** `POST /api/accounts` — the store supplies the loaded customer's number
+   *  (`customerId` is the public business number). */
+  create(body: Omit<CreateAccountRequest, 'customerId'>): Observable<AccountResponse> {
+    const request: CreateAccountRequest = { customerId: this.requireNumber(), ...body };
+    return this.api.create(request).pipe(tap(() => this.reload()));
+  }
+
+  /** `PUT /api/accounts/{accountNumber}` — `{accountName, addressId}` ONLY
+   *  (KR-11: the number travels in the path, never the body). A Passive
+   *  account answers 409 `MSG-ACCT-NOT-ACTIVE` — surfaced, never pre-checked. */
+  update(accountNumber: string, body: UpdateAccountRequest): Observable<AccountResponse> {
+    return this.api.update(accountNumber, body).pipe(tap(() => this.reload()));
+  }
+
+  /** `DELETE /api/accounts/{accountNumber}` — passivation; the reload keeps the
+   *  row visible as Passive (AC-ACCT-04-02). Guards (409) go to the caller. */
+  delete(accountNumber: string): Observable<void> {
+    return this.api.delete(accountNumber).pipe(tap(() => this.reload()));
+  }
+
+  private requireNumber(): number {
+    const customerNumber = this._customerNumber();
+    if (customerNumber === null) {
+      throw new Error('AccountListStore: no customer loaded');
+    }
+    return customerNumber;
   }
 }

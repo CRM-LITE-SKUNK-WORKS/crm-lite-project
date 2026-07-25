@@ -1,16 +1,25 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
-import { FormControl, NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
+import { Router, RouterLink } from '@angular/router';
 import { matchFieldErrors } from '../../../core/http';
 import { I18nService, TranslatePipe } from '../../../core/i18n';
-import { Button, FormField, Icon, IconButton, Select, TextInput } from '../../../shared/ui';
-import { type SelectOption } from '../../../shared/ui';
+import { Button, FormField, TextInput } from '../../../shared/ui';
+import {
+  EmptyState,
+  Pagination,
+  Skeleton,
+  Table,
+  TableCellDef,
+  Toast,
+  type TableColumn,
+} from '../../../shared/patterns';
+import { CustomerFlashService } from '../state/customer-flash.service';
 import { CustomerListStore } from '../state/customer-list.store';
 import {
-  DEFAULT_PAGE_SIZE,
   PAGE_SIZE_OPTIONS,
+  type CustomerDetailResponse,
   type CustomerSearchCriteria,
-  type PageSize,
 } from '../model';
 
 /** The five filter controls that can carry a server field error (bare-name
@@ -49,13 +58,17 @@ type FilterControlName = (typeof FILTERABLE_CONTROLS)[number];
   selector: 'app-customer-search',
   imports: [
     ReactiveFormsModule,
+    RouterLink,
     TranslatePipe,
     Button,
     FormField,
-    Icon,
-    IconButton,
-    Select,
     TextInput,
+    EmptyState,
+    Pagination,
+    Skeleton,
+    Table,
+    TableCellDef,
+    Toast,
   ],
   providers: [CustomerListStore],
   templateUrl: './customer-search.html',
@@ -64,6 +77,21 @@ export class CustomerSearch {
   private readonly fb = inject(NonNullableFormBuilder);
   private readonly i18n = inject(I18nService);
   protected readonly store = inject(CustomerListStore);
+
+  private readonly router = inject(Router);
+
+  /** One-shot flash from another customer screen (e.g. delete success) —
+   *  consumed exactly once on entry, shown as a Toast (mock §4.4 pattern). */
+  protected readonly flashKey = signal<string | null>(inject(CustomerFlashService).consume());
+
+  protected dismissFlash(): void {
+    this.flashKey.set(null);
+  }
+
+  /** Activated with the Create wizard (scope §4.20/3). */
+  protected goToCreate(): void {
+    void this.router.navigate(['/customers', 'new']);
+  }
 
   /** 7 filter fields in mock order (§6.2). The two 501 filters are disabled at
    *  the CONTROL level — our TextInput takes disabled state only from the form,
@@ -78,14 +106,9 @@ export class CustomerSearch {
     orderNumber: this.fb.control({ value: '', disabled: true }),
   });
 
-  /** Per-page selector (KR-04: size is always explicit; options per scope §2.4). */
-  protected readonly sizeControl = new FormControl<PageSize>(DEFAULT_PAGE_SIZE, {
-    nonNullable: true,
-  });
-  protected readonly pageSizeOptions: readonly SelectOption[] = PAGE_SIZE_OPTIONS.map((size) => ({
-    value: size,
-    label: String(size),
-  }));
+  /** Per-page options (KR-04: size is always explicit; values per scope §2.4).
+   *  The selector itself lives in the shared Pagination pattern now. */
+  protected readonly pageSizeOptions: readonly number[] = PAGE_SIZE_OPTIONS;
 
   /** Client-side UX validation keys (mock §6.2); cleared as the user types. */
   private readonly clientErrors = signal<Partial<Record<FilterControlName, string>>>({});
@@ -152,33 +175,50 @@ export class CustomerSearch {
     return this.i18n.translate('UI-PAGINATION-RANGE', { from, to, total });
   });
 
-  /** Mock §6.2 truncation: ≤7 pages → all; else 1 … (p-1) p (p+1) … last. */
-  protected readonly pageItems = computed<readonly (number | 'gap')[]>(() => {
-    const total = this.store.totalPages();
-    const current = this.store.page() + 1; // 1-based for display
-    if (total <= 7) {
-      return Array.from({ length: total }, (_, i) => i + 1);
-    }
-    const wanted = [...new Set([1, current - 1, current, current + 1, total])]
-      .filter((n) => n >= 1 && n <= total)
-      .sort((a, b) => a - b);
-    const items: (number | 'gap')[] = [];
-    let previous = 0;
-    for (const n of wanted) {
-      if (n - previous > 1) items.push('gap');
-      items.push(n);
-      previous = n;
-    }
-    return items;
-  });
+  /** Table columns for the shared Table pattern (mock §6.2, 6 columns).
+   *  Headers are resolved HERE — shared/ never translates (scope §4.14);
+   *  `translate` reads the language signal, so this recomputes on switch. */
+  protected readonly columns = computed<readonly TableColumn[]>(() => [
+    { id: 'customerId', header: this.i18n.translate('UI-SEARCH-COL-CUSTOMER-ID') },
+    {
+      id: 'firstName',
+      header: this.i18n.translate('UI-SEARCH-COL-FIRST-NAME'),
+      cellClass: 'text-body text-ink',
+    },
+    {
+      id: 'middleName',
+      header: this.i18n.translate('UI-SEARCH-COL-SECOND-NAME'),
+      cellClass: 'text-body text-ink',
+    },
+    {
+      id: 'lastName',
+      header: this.i18n.translate('UI-SEARCH-COL-LAST-NAME'),
+      cellClass: 'text-body text-ink',
+    },
+    {
+      id: 'role',
+      header: this.i18n.translate('UI-SEARCH-COL-ROLE'),
+      cellClass: 'text-body text-ink-soft',
+    },
+    {
+      id: 'nationalityId',
+      header: this.i18n.translate('UI-SEARCH-COL-ID-NUMBER'),
+      cellClass: 'eds-tabular-nums text-body text-ink',
+    },
+  ]);
+
+  /** Business-keyed row testid for the Table pattern (FE-ADR-009 §5). */
+  protected readonly rowTestIdFor = (customer: CustomerDetailResponse): string =>
+    `customer-search-results-row-${customer.customerNumber}`;
+
+  /** Per-page-button aria-label for the Pagination pattern — a function because
+   *  the pattern may not translate (scope §4.14) and the label is parameterized. */
+  protected readonly pageLabelFor = (page: number): string =>
+    this.i18n.translate('UI-PAGINATION-PAGE', { page });
 
   constructor() {
     // AC-CUST-01-00: the post-login list — an automatic criterion-less browse.
     this.store.browse();
-
-    this.sizeControl.valueChanges
-      .pipe(takeUntilDestroyed())
-      .subscribe((size) => this.store.setPageSize(size));
 
     // Mock §6.2: typing hides validation errors; fully clearing a field removes
     // that APPLIED filter immediately (no second Search needed).
@@ -218,8 +258,18 @@ export class CustomerSearch {
     this.store.reload();
   }
 
-  protected goToPage(oneBased: number): void {
-    this.store.goToPage(oneBased - 1);
+  /** Pagination pattern emits ZERO-based pages — the store's own convention. */
+  protected onPageChange(page: number): void {
+    this.store.goToPage(page);
+  }
+
+  /** Narrow the pattern's `number` back to the typed PageSize union; the value
+   *  always originates from PAGE_SIZE_OPTIONS, so the lookup cannot miss. */
+  protected onSizeChange(size: number): void {
+    const match = PAGE_SIZE_OPTIONS.find((option) => option === size);
+    if (match) {
+      this.store.setPageSize(match);
+    }
   }
 
   private criteriaFromForm(): CustomerSearchCriteria {

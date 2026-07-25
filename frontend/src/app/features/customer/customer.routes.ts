@@ -11,7 +11,14 @@ export const CUSTOMER_ROUTES: Routes = [
     path: '',
     loadComponent: () => import('./search/customer-search').then((m) => m.CustomerSearch),
   },
-  // Next phase (FE-ADR-013 scope):
-  // { path: 'new', loadComponent: () => import('./create/...') }
-  // { path: ':customerNumber', loadComponent: () => import('./detail/...') }
+  // 'new' MUST precede ':customerNumber' — otherwise "new" would be read as a
+  // customer number by the param route.
+  {
+    path: 'new',
+    loadComponent: () => import('./create/customer-create').then((m) => m.CustomerCreate),
+  },
+  {
+    path: ':customerNumber',
+    loadComponent: () => import('./detail/customer-detail').then((m) => m.CustomerDetail),
+  },
 ];

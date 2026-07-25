@@ -1,0 +1,308 @@
+<!-- Customer Info v2 — layout verbatim from mock-ui-analysis §6.4 (tabs over a
+     single content card). Behaviour follows the backend contract (FE-ADR-013 §e).
+     Account tab = reserved layout for F6 (no API); products = Coming soon (A3). -->
+<section class="flex min-h-0 flex-1 flex-col gap-5" data-testid="customer-detail-page">
+  @if (badParam() || store.notFound()) {
+    <!-- 404 / malformed number: the backend's answer, not an invented screen. -->
+    <div class="flex flex-1 flex-col rounded-lg border border-line bg-surface">
+      <app-empty-state
+        icon="search-x"
+        [title]="'UI-DETAIL-NOT-FOUND-TITLE' | t"
+        [body]="'MSG-CUST-NOT-FOUND' | t"
+        testId="customer-detail-not-found"
+      />
+      <div class="flex justify-center pb-10">
+        <app-button
+          variant="secondary"
+          iconLeading="arrow-left"
+          testId="customer-detail-back-button"
+          (action)="backToSearch()"
+        >
+          {{ 'UI-DETAIL-BACK-TO-SEARCH' | t }}
+        </app-button>
+      </div>
+    </div>
+  } @else if (store.detailStatus() === 'loading' || store.detailStatus() === 'idle') {
+    <div class="flex flex-1 flex-col rounded-lg border border-line bg-surface">
+      <app-skeleton [label]="'UI-DETAIL-LOADING' | t" testId="customer-detail-loading" />
+    </div>
+  } @else if (detailErrorText(); as text) {
+    <div
+      class="flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+      role="alert"
+      data-testid="customer-detail-error-banner"
+    >
+      <span class="text-body-sm text-danger-fg">{{ text }}</span>
+      <app-button
+        variant="secondary"
+        size="sm"
+        testId="customer-detail-retry-button"
+        (action)="store.reloadDetail()"
+      >
+        {{ 'UI-COMMON-RETRY' | t }}
+      </app-button>
+    </div>
+  } @else if (store.customer(); as customer) {
+    <app-tabs
+      [tabs]="tabs()"
+      [activeId]="activeTab()"
+      testId="customer-detail-tabs"
+      (tabChange)="onTab($event)"
+    />
+
+    <div
+      class="flex min-h-0 flex-col overflow-y-auto rounded-lg border border-line bg-surface"
+      role="tabpanel"
+      [id]="'customer-detail-tabs-' + activeTab() + '-panel'"
+      [attr.aria-labelledby]="'customer-detail-tabs-' + activeTab() + '-tab'"
+    >
+      @switch (activeTab()) {
+        <!-- ══════════ Tab 1: Customer info (FR-CUST-02/04/05) ══════════ -->
+        @case ('info') {
+          <div class="flex items-center gap-3 border-b border-line px-6 py-5">
+            <span
+              class="flex size-8 shrink-0 items-center justify-center rounded-full bg-inverse text-caption font-semibold tracking-label text-on-inverse"
+              aria-hidden="true"
+            >
+              {{ initials() }}
+            </span>
+            <h2
+              class="min-w-0 flex-1 truncate text-h2 font-semibold tracking-heading text-ink"
+              data-testid="customer-detail-name"
+            >
+              {{ fullName() }}
+            </h2>
+            <app-icon-button
+              icon="pencil"
+              [ariaLabel]="'UI-DETAIL-EDIT-INFO' | t"
+              testId="customer-detail-edit-info-button"
+              (action)="infoDialogOpen.set(true)"
+            />
+            <app-icon-button
+              icon="trash-2"
+              variant="danger-ghost"
+              [ariaLabel]="'UI-DETAIL-DELETE-CUSTOMER' | t"
+              testId="customer-detail-delete-customer-button"
+              (action)="askDeleteCustomer()"
+            />
+          </div>
+          <div class="grid grid-cols-2 gap-x-12 gap-y-4 p-6" data-testid="customer-detail-info-grid">
+            @for (field of infoFields(); track field.id) {
+              <div class="flex flex-col gap-0.5">
+                <span class="text-caption text-ink-muted">{{ field.label }}</span>
+                <span
+                  class="text-body font-medium text-ink"
+                  [class.eds-tabular-nums]="field.tabular"
+                  [attr.data-testid]="'customer-detail-info-value-' + field.id"
+                >
+                  {{ field.value }}
+                </span>
+              </div>
+            }
+          </div>
+        }
+
+        <!-- ══════════ Tab 2: Customer account (FR-ACCT-01..04, KR-11) ══════════
+             The account feature's exposed section (FE-ADR-003 §Consequences);
+             addresses flow DOWN as pre-resolved options, never as a
+             cross-feature type. K-8: 224 Billing Accounts only, ever. -->
+        @case ('account') {
+          <div data-testid="customer-detail-account-section">
+            <app-account-section
+              [customerNumber]="customer.customerNumber"
+              [addressOptions]="billingAddressOptions()"
+            />
+
+            <!-- Product section — "Coming soon" (FE-ADR-013 §Amendment A3):
+                 visible, inert, catalogue-labelled, testid'd; no API, no data.
+                 Mock places products inside EXPANDED account rows — the row
+                 expansion arrives with product-service (scope §4.23/2, §4.24). -->
+            <div class="p-6 pt-4">
+              <div
+                class="flex items-center gap-3 rounded-lg border border-line bg-sunken p-5"
+                aria-disabled="true"
+                data-testid="customer-detail-products-coming-soon"
+              >
+                <app-icon name="shopping-cart" [size]="20" class="text-ink-muted" />
+                <span class="text-body font-medium text-ink-soft">
+                  {{ 'UI-DETAIL-PRODUCTS-HEADING' | t }}
+                </span>
+                <span
+                  class="rounded-sm bg-surface px-2 py-0.5 text-caption font-medium text-ink-muted"
+                >
+                  {{ 'UI-COMMON-COMING-SOON' | t }}
+                </span>
+              </div>
+            </div>
+          </div>
+        }
+
+        <!-- ══════════ Tab 3: Address (FR-ADDR-01..05) ══════════ -->
+        @case ('address') {
+          <div class="flex items-center justify-between border-b border-line px-6 py-5">
+            <h2 class="text-h3 font-semibold text-ink">{{ 'UI-DETAIL-TAB-ADDRESS' | t }}</h2>
+            <!-- mock §6.4: invisible 32px placeholder keeps headers aligned -->
+            <span class="size-8" aria-hidden="true"></span>
+          </div>
+          <div class="flex flex-col gap-4 p-6">
+            @if (addressActionError(); as text) {
+              <div
+                class="flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+                role="alert"
+                data-testid="customer-detail-address-action-error"
+              >
+                <span class="text-body-sm text-danger-fg">{{ text }}</span>
+              </div>
+            }
+            @if (store.addressesStatus() === 'loading' || store.addressesStatus() === 'idle') {
+              <app-skeleton
+                [label]="'UI-ADDRESS-LOADING' | t"
+                [lines]="4"
+                testId="customer-detail-addresses-loading"
+              />
+            } @else if (addressesErrorText(); as text) {
+              <div
+                class="flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+                role="alert"
+                data-testid="customer-detail-addresses-error-banner"
+              >
+                <span class="text-body-sm text-danger-fg">{{ text }}</span>
+                <app-button
+                  variant="secondary"
+                  size="sm"
+                  testId="customer-detail-addresses-retry-button"
+                  (action)="store.reloadAddresses()"
+                >
+                  {{ 'UI-COMMON-RETRY' | t }}
+                </app-button>
+              </div>
+            } @else {
+              <app-address-cards
+                [addresses]="store.addresses()"
+                (add)="openAddAddress()"
+                (edit)="openEditAddress($event)"
+                (remove)="askDeleteAddress($event)"
+                (makePrimary)="setPrimary($event)"
+              />
+            }
+          </div>
+        }
+
+        <!-- ══════════ Tab 4: Contact medium (FR-CNTC-01/02) ══════════ -->
+        @case ('contact') {
+          <div class="flex items-center justify-between border-b border-line px-6 py-5">
+            <h2 class="text-h3 font-semibold text-ink">{{ 'UI-DETAIL-TAB-CONTACT' | t }}</h2>
+            <app-icon-button
+              icon="pencil"
+              [ariaLabel]="'UI-DETAIL-EDIT-CONTACT' | t"
+              testId="customer-detail-edit-contact-button"
+              (action)="contactDialogOpen.set(true)"
+            />
+          </div>
+          @if (store.contactStatus() === 'loading' || store.contactStatus() === 'idle') {
+            <app-skeleton
+              [label]="'UI-DETAIL-CONTACT-LOADING' | t"
+              [lines]="4"
+              testId="customer-detail-contact-loading"
+            />
+          } @else if (contactErrorText(); as text) {
+            <div
+              class="m-6 flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+              role="alert"
+              data-testid="customer-detail-contact-error-banner"
+            >
+              <span class="text-body-sm text-danger-fg">{{ text }}</span>
+              <app-button
+                variant="secondary"
+                size="sm"
+                testId="customer-detail-contact-retry-button"
+                (action)="store.reloadContact()"
+              >
+                {{ 'UI-COMMON-RETRY' | t }}
+              </app-button>
+            </div>
+          } @else {
+            <div
+              class="grid grid-cols-2 gap-x-12 gap-y-4 p-6"
+              data-testid="customer-detail-contact-grid"
+            >
+              @for (field of contactFields(); track field.id) {
+                <div class="flex flex-col gap-0.5">
+                  <span class="text-caption text-ink-muted">{{ field.label }}</span>
+                  <span
+                    class="text-body font-medium text-ink"
+                    [class.eds-tabular-nums]="field.tabular"
+                    [attr.data-testid]="'customer-detail-contact-value-' + field.id"
+                  >
+                    {{ field.value }}
+                  </span>
+                </div>
+              }
+            </div>
+          }
+        }
+      }
+    </div>
+
+    <!-- ══════════ Dialogs (state owned here; dialogs emit intents) ══════════ -->
+    <app-demographic-form-dialog
+      [open]="infoDialogOpen()"
+      [customer]="store.customer()"
+      (closed)="infoDialogOpen.set(false)"
+      (saved)="onInfoSaved()"
+    />
+    <app-contact-form-dialog
+      [open]="contactDialogOpen()"
+      [contact]="store.contact()"
+      (closed)="contactDialogOpen.set(false)"
+      (saved)="onContactSaved()"
+    />
+    <app-address-form-dialog
+      [open]="addressDialogOpen()"
+      [address]="addressDialogTarget()"
+      (closed)="onAddressDialogClosed()"
+      (saved)="onAddressSaved()"
+    />
+
+    <!-- FR-CUST-05: confirm → DELETE; a 409 (e.g. MSG-CUST-HAS-PRODUCTS) flips
+         the dialog into its mock-documented error state (backend authority). -->
+    <app-confirm-dialog
+      [open]="deleteCustomerOpen()"
+      [title]="'UI-DETAIL-DELETE-CUSTOMER' | t"
+      [message]="'MSG-CUST-DELETE-CONFIRM' | t"
+      [confirmLabel]="'LBL-YES' | t"
+      [cancelLabel]="'LBL-NO' | t"
+      [closeLabel]="'UI-COMMON-CLOSE' | t"
+      [errorText]="deleteCustomerError()"
+      [busy]="deleteCustomerBusy()"
+      testId="customer-detail-delete-dialog"
+      (confirmed)="confirmDeleteCustomer()"
+      (cancelled)="cancelDeleteCustomer()"
+    />
+
+    <!-- AC-ADDR-04-03: confirm → DELETE; guards (last/primary/in-use) surface
+         as the error state with the backend's messageKey. -->
+    <app-confirm-dialog
+      [open]="deleteAddressTarget() !== null"
+      [title]="'UI-ADDRESS-DELETE' | t"
+      [message]="'MSG-ADDR-DELETE-CONFIRM' | t"
+      [confirmLabel]="'LBL-YES' | t"
+      [cancelLabel]="'LBL-NO' | t"
+      [closeLabel]="'UI-COMMON-CLOSE' | t"
+      [errorText]="deleteAddressError()"
+      [busy]="deleteAddressBusy()"
+      testId="customer-detail-address-delete-dialog"
+      (confirmed)="confirmDeleteAddress()"
+      (cancelled)="cancelDeleteAddress()"
+    />
+
+    @if (toastKey(); as key) {
+      <app-toast
+        [message]="key | t"
+        [dismissLabel]="'UI-COMMON-DISMISS' | t"
+        testId="customer-detail-toast"
+        (dismissed)="dismissToast()"
+      />
+    }
+  }
+</section>

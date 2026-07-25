@@ -164,13 +164,12 @@
     <div class="flex min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
       <div class="flex h-16 shrink-0 items-center justify-between border-b border-line px-5">
         <h2 class="text-h3 font-semibold text-ink">{{ 'UI-SEARCH-RESULTS-HEADING' | t }}</h2>
-        <!-- Create Customer screen does not exist yet — no fake behaviour
-             (FE-ADR-013 §a): rendered disabled until the wizard ships. -->
+        <!-- ACTIVATED with the Create wizard (scope §4.20/3 as planned). -->
         <app-button
           size="sm"
           iconLeading="user-plus"
-          [disabled]="true"
           testId="customer-search-create-new-button"
+          (action)="goToCreate()"
         >
           {{ 'UI-SEARCH-CREATE-NEW' | t }}
         </app-button>
@@ -208,198 +207,96 @@
 
       <!-- State 1: first load skeleton (no rows yet). -->
       @if (initialLoading()) {
-        <div
-          class="flex flex-1 flex-col gap-3 p-5"
-          role="status"
-          aria-busy="true"
-          [attr.aria-label]="'UI-SEARCH-LOADING' | t"
-          data-testid="customer-search-loading"
-        >
-          <div class="h-4 w-full rounded-sm bg-sunken"></div>
-          <div class="h-4 w-full rounded-sm bg-sunken"></div>
-          <div class="h-4 w-3/4 rounded-sm bg-sunken"></div>
-          <div class="h-4 w-full rounded-sm bg-sunken"></div>
-          <div class="h-4 w-2/3 rounded-sm bg-sunken"></div>
-          <div class="h-4 w-full rounded-sm bg-sunken"></div>
-        </div>
+        <app-skeleton [label]="'UI-SEARCH-LOADING' | t" testId="customer-search-loading" />
       } @else if (searchEmpty()) {
         <!-- State 4: a search matched nothing → analyst copy MSG-CUST-NOT-FOUND. -->
-        <div
-          class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"
-          data-testid="customer-search-empty-state"
-        >
-          <span class="flex size-12 items-center justify-center rounded-full bg-sunken">
-            <app-icon name="search-x" [size]="24" class="text-ink-muted" />
-          </span>
-          <span class="text-body-lg font-semibold text-ink">{{ 'MSG-CUST-NOT-FOUND' | t }}</span>
-          <span class="max-w-90 text-body text-ink-soft">{{ 'UI-SEARCH-EMPTY-BODY' | t }}</span>
-        </div>
+        <app-empty-state
+          icon="search-x"
+          [title]="'MSG-CUST-NOT-FOUND' | t"
+          [body]="'UI-SEARCH-EMPTY-BODY' | t"
+          testId="customer-search-empty-state"
+        />
       } @else if (browseEmpty()) {
         <!-- State 3: browse mode, zero customers — NOT "not found" (no search ran). -->
-        <div
-          class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"
-          data-testid="customer-search-browse-empty-state"
-        >
-          <span class="flex size-12 items-center justify-center rounded-full bg-sunken">
-            <app-icon name="users" [size]="24" class="text-ink-muted" />
-          </span>
-          <span class="text-body-lg font-semibold text-ink">
-            {{ 'UI-SEARCH-BROWSE-EMPTY-TITLE' | t }}
-          </span>
-          <span class="max-w-90 text-body text-ink-soft">
-            {{ 'UI-SEARCH-BROWSE-EMPTY-BODY' | t }}
-          </span>
-        </div>
+        <app-empty-state
+          icon="users"
+          [title]="'UI-SEARCH-BROWSE-EMPTY-TITLE' | t"
+          [body]="'UI-SEARCH-BROWSE-EMPTY-BODY' | t"
+          testId="customer-search-browse-empty-state"
+        />
       } @else if (store.customers().length > 0) {
-        <!-- State 2: results table — semantic HTML (FE-ADR-011 §e), 6 mock columns. -->
+        <!-- State 2: results table — the shared Table pattern (semantic HTML,
+             FE-ADR-011 §e); 6 mock columns defined in the component, cell
+             markup provided here. Scrolling stays with the card layout. -->
         <div class="min-h-0 flex-1 overflow-auto">
-          <table class="w-full border-collapse" data-testid="customer-search-results-table">
-            <thead>
-              <tr class="bg-sunken">
-                <th
-                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
-                >
-                  {{ 'UI-SEARCH-COL-CUSTOMER-ID' | t }}
-                </th>
-                <th
-                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
-                >
-                  {{ 'UI-SEARCH-COL-FIRST-NAME' | t }}
-                </th>
-                <th
-                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
-                >
-                  {{ 'UI-SEARCH-COL-SECOND-NAME' | t }}
-                </th>
-                <th
-                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
-                >
-                  {{ 'UI-SEARCH-COL-LAST-NAME' | t }}
-                </th>
-                <th
-                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
-                >
-                  {{ 'UI-SEARCH-COL-ROLE' | t }}
-                </th>
-                <th
-                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
-                >
-                  {{ 'UI-SEARCH-COL-ID-NUMBER' | t }}
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (customer of store.customers(); track customer.customerNumber; let odd = $odd) {
-                <tr
-                  class="border-t border-line"
-                  [class.bg-page]="odd"
-                  [class.bg-surface]="!odd"
-                  [attr.data-testid]="'customer-search-results-row-' + customer.customerNumber"
-                >
-                  <td class="px-5 py-4 whitespace-nowrap">
-                    <!-- Customer Info route does not exist yet; the link is
-                         prepared but INERT (scope §2A.5 recorded suggestion). -->
-                    <span
-                      class="eds-tabular-nums cursor-default font-medium text-brand-active underline underline-offset-2"
-                      aria-disabled="true"
-                      [attr.data-testid]="
-                        'customer-search-results-row-' + customer.customerNumber + '-open-link'
-                      "
-                    >
-                      {{ customer.customerNumber }}
-                    </span>
-                  </td>
-                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink">
-                    {{ customer.firstName }}
-                  </td>
-                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink">
-                    {{ customer.middleName ?? '' }}
-                  </td>
-                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink">
-                    {{ customer.lastName }}
-                  </td>
-                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink-soft">
-                    {{ customer.role }}
-                  </td>
-                  <td class="eds-tabular-nums px-5 py-4 text-body whitespace-nowrap text-ink">
-                    {{ customer.nationalityId }}
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
+          <app-table
+            [columns]="columns()"
+            [rows]="store.customers()"
+            [rowTestId]="rowTestIdFor"
+            testId="customer-search-results-table"
+          >
+            <ng-template appTableCell="customerId" let-customer>
+              <!-- ACTIVATED with the Detail route (scope §2A.5: "Detail ile
+                   aktifleşir") — a real navigation to Customer Info. -->
+              <a
+                [routerLink]="['/customers', customer.customerNumber]"
+                class="eds-tabular-nums font-medium text-brand-active underline underline-offset-2"
+                [attr.data-testid]="
+                  'customer-search-results-row-' + customer.customerNumber + '-open-link'
+                "
+              >
+                {{ customer.customerNumber }}
+              </a>
+            </ng-template>
+            <ng-template appTableCell="firstName" let-customer>
+              {{ customer.firstName }}
+            </ng-template>
+            <ng-template appTableCell="middleName" let-customer>
+              {{ customer.middleName ?? '' }}
+            </ng-template>
+            <ng-template appTableCell="lastName" let-customer>
+              {{ customer.lastName }}
+            </ng-template>
+            <ng-template appTableCell="role" let-customer>
+              {{ customer.role }}
+            </ng-template>
+            <ng-template appTableCell="nationalityId" let-customer>
+              {{ customer.nationalityId }}
+            </ng-template>
+          </app-table>
         </div>
 
-        <!-- Pagination footer: range | ‹ pages › | per-page (mock §6.2). -->
-        <div
-          class="flex shrink-0 items-center gap-4 border-t border-line px-5 py-3"
-          data-testid="customer-search-pagination"
-        >
-          <span class="eds-tabular-nums flex-1 text-body-sm text-ink-muted">
-            {{ rangeText() }}
-          </span>
-
-          <div class="flex items-center gap-1">
-            <app-icon-button
-              icon="chevron-left"
-              [ariaLabel]="'UI-PAGINATION-PREV' | t"
-              [disabled]="store.isFirst()"
-              testId="customer-search-pagination-prev"
-              (action)="goToPage(store.page())"
-            />
-            @for (item of pageItems(); track $index) {
-              @if (item === 'gap') {
-                <span class="px-1 text-body-sm text-ink-muted select-none" aria-hidden="true">
-                  …
-                </span>
-              } @else {
-                <button
-                  type="button"
-                  class="eds-tabular-nums h-8 min-w-8 rounded-md border px-1.5 text-body-sm transition-colors duration-100 ease-standard"
-                  [class.border-brand]="item === store.page() + 1"
-                  [class.bg-selected]="item === store.page() + 1"
-                  [class.text-brand-active]="item === store.page() + 1"
-                  [class.font-semibold]="item === store.page() + 1"
-                  [class.cursor-default]="item === store.page() + 1"
-                  [class.border-line]="item !== store.page() + 1"
-                  [class.bg-surface]="item !== store.page() + 1"
-                  [class.text-ink-soft]="item !== store.page() + 1"
-                  [class.font-medium]="item !== store.page() + 1"
-                  [attr.aria-current]="item === store.page() + 1 ? 'page' : null"
-                  [attr.aria-label]="'UI-PAGINATION-PAGE' | t: { page: item }"
-                  [attr.data-testid]="'customer-search-pagination-page-' + item"
-                  (click)="goToPage(item)"
-                >
-                  {{ item }}
-                </button>
-              }
-            }
-            <app-icon-button
-              icon="chevron-right"
-              [ariaLabel]="'UI-PAGINATION-NEXT' | t"
-              [disabled]="store.isLast()"
-              testId="customer-search-pagination-next"
-              (action)="goToPage(store.page() + 2)"
-            />
-          </div>
-
-          <div class="flex flex-1 items-center justify-end gap-2">
-            <span class="text-body-sm whitespace-nowrap text-ink-soft">
-              {{ 'UI-SEARCH-PER-PAGE' | t }}
-            </span>
-            <div class="w-24">
-              <app-select
-                [formControl]="sizeControl"
-                [options]="pageSizeOptions"
-                controlId="customer-search-page-size"
-                size="sm"
-                [dropUp]="true"
-                testId="customer-search-page-size-select"
-              />
-            </div>
-          </div>
-        </div>
+        <!-- Pagination footer: the shared Pagination pattern (mock §6.2).
+             All texts resolved here; pageChange is zero-based like the store. -->
+        <app-pagination
+          [page]="store.page()"
+          [totalPages]="store.totalPages()"
+          [isFirst]="store.isFirst()"
+          [isLast]="store.isLast()"
+          [rangeText]="rangeText()"
+          [prevLabel]="'UI-PAGINATION-PREV' | t"
+          [nextLabel]="'UI-PAGINATION-NEXT' | t"
+          [pageLabelFor]="pageLabelFor"
+          [perPageLabel]="'UI-SEARCH-PER-PAGE' | t"
+          [size]="store.size()"
+          [sizeOptions]="pageSizeOptions"
+          testId="customer-search-pagination"
+          sizeSelectTestId="customer-search-page-size-select"
+          (pageChange)="onPageChange($event)"
+          (sizeChange)="onSizeChange($event)"
+        />
       }
     </div>
   </div>
+
+  <!-- One-shot flash from another customer screen (mock §6.3 eds_flash → §4.3
+       toast; e.g. "Customer deleted successfully." after FR-CUST-05). -->
+  @if (flashKey(); as key) {
+    <app-toast
+      [message]="key | t"
+      [dismissLabel]="'UI-COMMON-DISMISS' | t"
+      testId="customer-search-toast"
+      (dismissed)="dismissFlash()"
+    />
+  }
 </section>

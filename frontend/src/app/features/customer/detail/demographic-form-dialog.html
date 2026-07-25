@@ -1,0 +1,187 @@
+<!-- Customer info update — mock §6.4: 680px modal, body = Create step 1
+     verbatim (8 fields, 1fr 1fr, gap 20px 24px), footer [Cancel][✓ Save]. -->
+<app-modal
+  [open]="open()"
+  size="lg"
+  [titleText]="'UI-DETAIL-INFO-UPDATE-TITLE' | t"
+  [closeLabel]="'UI-COMMON-CLOSE' | t"
+  testId="customer-detail-info-dialog"
+  (closed)="onCancel()"
+>
+  @if (bannerText(); as text) {
+    <div
+      class="mb-4 flex flex-col gap-1 rounded-md border border-danger-border bg-danger-surface p-3 text-body-sm text-danger-fg"
+      role="alert"
+      data-testid="customer-detail-info-dialog-error-banner"
+    >
+      <span>{{ text }}</span>
+      @for (fieldError of unmatchedFieldErrors(); track fieldError.field) {
+        <span>{{ fieldError.messageKey | t }}</span>
+      }
+    </div>
+  }
+
+  <form
+    [formGroup]="form"
+    class="grid grid-cols-2 gap-x-6 gap-y-5"
+    (ngSubmit)="onSave()"
+    data-testid="customer-detail-info-dialog-form"
+  >
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-FIRST-NAME' | t"
+      controlId="customer-detail-info-first-name"
+      [required]="true"
+      [errorText]="errorTextFor('firstName')"
+      testId="customer-detail-info-dialog-first-name"
+    >
+      <app-text-input
+        formControlName="firstName"
+        controlId="customer-detail-info-first-name"
+        [error]="!!errorTextFor('firstName')"
+        describedBy="customer-detail-info-first-name-error"
+        testId="customer-detail-info-dialog-first-name-input"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-SECOND-NAME' | t"
+      controlId="customer-detail-info-second-name"
+      [optionalText]="'UI-COMMON-OPTIONAL' | t"
+      [errorText]="errorTextFor('middleName')"
+      testId="customer-detail-info-dialog-second-name"
+    >
+      <app-text-input
+        formControlName="middleName"
+        controlId="customer-detail-info-second-name"
+        [error]="!!errorTextFor('middleName')"
+        describedBy="customer-detail-info-second-name-error"
+        testId="customer-detail-info-dialog-second-name-input"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-LAST-NAME' | t"
+      controlId="customer-detail-info-last-name"
+      [required]="true"
+      [errorText]="errorTextFor('lastName')"
+      testId="customer-detail-info-dialog-last-name"
+    >
+      <app-text-input
+        formControlName="lastName"
+        controlId="customer-detail-info-last-name"
+        [error]="!!errorTextFor('lastName')"
+        describedBy="customer-detail-info-last-name-error"
+        testId="customer-detail-info-dialog-last-name-input"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-BIRTH-DATE' | t"
+      controlId="customer-detail-info-birth-date"
+      [required]="true"
+      [errorText]="errorTextFor('birthDate')"
+      testId="customer-detail-info-dialog-birth-date"
+    >
+      <app-date-picker
+        formControlName="birthDate"
+        controlId="customer-detail-info-birth-date"
+        [max]="todayIso"
+        [locale]="lang()"
+        [error]="!!errorTextFor('birthDate')"
+        [triggerAriaLabel]="'UI-DATE-OPEN-CALENDAR' | t"
+        [prevMonthAriaLabel]="'UI-DATE-PREV-MONTH' | t"
+        [nextMonthAriaLabel]="'UI-DATE-NEXT-MONTH' | t"
+        [prevYearAriaLabel]="'UI-DATE-PREV-YEAR' | t"
+        [nextYearAriaLabel]="'UI-DATE-NEXT-YEAR' | t"
+        describedBy="customer-detail-info-birth-date-error"
+        testId="customer-detail-info-dialog-birth-date-picker"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-GENDER' | t"
+      controlId="customer-detail-info-gender"
+      [required]="true"
+      [errorText]="errorTextFor('gender')"
+      testId="customer-detail-info-dialog-gender"
+    >
+      <app-select
+        formControlName="gender"
+        [options]="genderOptions()"
+        controlId="customer-detail-info-gender"
+        [placeholder]="'UI-CREATE-GENDER-PLACEHOLDER' | t"
+        [error]="!!errorTextFor('gender')"
+        testId="customer-detail-info-dialog-gender-select"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-FATHER-NAME' | t"
+      controlId="customer-detail-info-father-name"
+      [optionalText]="'UI-COMMON-OPTIONAL' | t"
+      [errorText]="errorTextFor('fatherName')"
+      testId="customer-detail-info-dialog-father-name"
+    >
+      <app-text-input
+        formControlName="fatherName"
+        controlId="customer-detail-info-father-name"
+        [error]="!!errorTextFor('fatherName')"
+        describedBy="customer-detail-info-father-name-error"
+        testId="customer-detail-info-dialog-father-name-input"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-MOTHER-NAME' | t"
+      controlId="customer-detail-info-mother-name"
+      [optionalText]="'UI-COMMON-OPTIONAL' | t"
+      [errorText]="errorTextFor('motherName')"
+      testId="customer-detail-info-dialog-mother-name"
+    >
+      <app-text-input
+        formControlName="motherName"
+        controlId="customer-detail-info-mother-name"
+        [error]="!!errorTextFor('motherName')"
+        describedBy="customer-detail-info-mother-name-error"
+        testId="customer-detail-info-dialog-mother-name-input"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-NATIONALITY-ID' | t"
+      controlId="customer-detail-info-nationality-id"
+      [required]="true"
+      [errorText]="errorTextFor('nationalityId')"
+      testId="customer-detail-info-dialog-nationality-id"
+    >
+      <app-text-input
+        formControlName="nationalityId"
+        controlId="customer-detail-info-nationality-id"
+        inputMode="numeric"
+        [maxLength]="11"
+        [error]="!!errorTextFor('nationalityId')"
+        describedBy="customer-detail-info-nationality-id-error"
+        testId="customer-detail-info-dialog-nationality-id-input"
+      />
+    </app-form-field>
+  </form>
+
+  <div appModalFooter class="flex gap-3">
+    <app-button
+      variant="secondary"
+      testId="customer-detail-info-dialog-cancel-button"
+      (action)="onCancel()"
+    >
+      {{ 'LBL-CANCEL' | t }}
+    </app-button>
+    <app-button
+      iconLeading="check"
+      [disabled]="!canSave()"
+      [loading]="busy()"
+      testId="customer-detail-info-dialog-save-button"
+      (action)="onSave()"
+    >
+      {{ 'LBL-SAVE' | t }}
+    </app-button>
+  </div>
+</app-modal>

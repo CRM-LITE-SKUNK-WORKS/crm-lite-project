@@ -1,0 +1,355 @@
+<!-- Create Customer — 3-step wizard, layout verbatim from mock-ui-analysis
+     §6.3 (h1 + stepper + wizard card; per-step footers). ONE atomic POST at
+     the end — no partial requests (customer-service.md §Atomic create). -->
+<section class="flex min-h-0 flex-1 flex-col gap-5" data-testid="customer-create-page">
+  <h1 class="text-h2 font-semibold tracking-heading text-ink">
+    {{ 'UI-CREATE-TITLE' | t }}
+  </h1>
+
+  <app-stepper [steps]="steps()" [activeIndex]="step()" testId="customer-create-stepper" />
+
+  <div class="flex min-h-0 flex-col rounded-lg border border-line bg-surface">
+    <!-- Whole-request rejections (409 dup-natid, MERNIS 400/503, immutable…)
+         + unmatched field errors — visible on EVERY step (FE-ADR-008). -->
+    @if (bannerText(); as text) {
+      <div
+        class="m-6 mb-0 flex flex-col gap-1 rounded-md border border-danger-border bg-danger-surface p-3 text-body-sm text-danger-fg"
+        role="alert"
+        data-testid="customer-create-error-banner"
+      >
+        <span>{{ text }}</span>
+        @for (fieldError of unmatchedFieldErrors(); track fieldError.field) {
+          <span>{{ fieldError.messageKey | t }}</span>
+        }
+      </div>
+    }
+
+    @switch (step()) {
+      <!-- ══════════ Step 1 — Demographic info (mock §6.3) ══════════ -->
+      @case (0) {
+        <form
+          [formGroup]="demographicForm"
+          class="grid grid-cols-2 gap-x-6 gap-y-5 p-6"
+          (ngSubmit)="nextFromDemographic()"
+          data-testid="customer-create-demographic-form"
+        >
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-FIRST-NAME' | t"
+            controlId="customer-create-first-name"
+            [required]="true"
+            [errorText]="errorTextFor('firstName')"
+            testId="customer-create-field-first-name"
+          >
+            <app-text-input
+              formControlName="firstName"
+              controlId="customer-create-first-name"
+              [error]="!!errorTextFor('firstName')"
+              describedBy="customer-create-first-name-error"
+              testId="customer-create-field-first-name-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-SECOND-NAME' | t"
+            controlId="customer-create-second-name"
+            [optionalText]="'UI-COMMON-OPTIONAL' | t"
+            [errorText]="errorTextFor('middleName')"
+            testId="customer-create-field-second-name"
+          >
+            <app-text-input
+              formControlName="middleName"
+              controlId="customer-create-second-name"
+              [error]="!!errorTextFor('middleName')"
+              describedBy="customer-create-second-name-error"
+              testId="customer-create-field-second-name-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-LAST-NAME' | t"
+            controlId="customer-create-last-name"
+            [required]="true"
+            [errorText]="errorTextFor('lastName')"
+            testId="customer-create-field-last-name"
+          >
+            <app-text-input
+              formControlName="lastName"
+              controlId="customer-create-last-name"
+              [error]="!!errorTextFor('lastName')"
+              describedBy="customer-create-last-name-error"
+              testId="customer-create-field-last-name-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-BIRTH-DATE' | t"
+            controlId="customer-create-birth-date"
+            [required]="true"
+            [errorText]="errorTextFor('birthDate')"
+            testId="customer-create-field-birth-date"
+          >
+            <app-date-picker
+              formControlName="birthDate"
+              controlId="customer-create-birth-date"
+              [max]="todayIso"
+              [locale]="lang()"
+              [error]="!!errorTextFor('birthDate')"
+              [triggerAriaLabel]="'UI-DATE-OPEN-CALENDAR' | t"
+              [prevMonthAriaLabel]="'UI-DATE-PREV-MONTH' | t"
+              [nextMonthAriaLabel]="'UI-DATE-NEXT-MONTH' | t"
+              [prevYearAriaLabel]="'UI-DATE-PREV-YEAR' | t"
+              [nextYearAriaLabel]="'UI-DATE-NEXT-YEAR' | t"
+              describedBy="customer-create-birth-date-error"
+              testId="customer-create-field-birth-date-picker"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-GENDER' | t"
+            controlId="customer-create-gender"
+            [required]="true"
+            [errorText]="errorTextFor('gender')"
+            testId="customer-create-field-gender"
+          >
+            <app-select
+              formControlName="gender"
+              [options]="genderOptions()"
+              controlId="customer-create-gender"
+              [placeholder]="'UI-CREATE-GENDER-PLACEHOLDER' | t"
+              [error]="!!errorTextFor('gender')"
+              testId="customer-create-field-gender-select"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-FATHER-NAME' | t"
+            controlId="customer-create-father-name"
+            [optionalText]="'UI-COMMON-OPTIONAL' | t"
+            [errorText]="errorTextFor('fatherName')"
+            testId="customer-create-field-father-name"
+          >
+            <app-text-input
+              formControlName="fatherName"
+              controlId="customer-create-father-name"
+              [error]="!!errorTextFor('fatherName')"
+              describedBy="customer-create-father-name-error"
+              testId="customer-create-field-father-name-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-MOTHER-NAME' | t"
+            controlId="customer-create-mother-name"
+            [optionalText]="'UI-COMMON-OPTIONAL' | t"
+            [errorText]="errorTextFor('motherName')"
+            testId="customer-create-field-mother-name"
+          >
+            <app-text-input
+              formControlName="motherName"
+              controlId="customer-create-mother-name"
+              [error]="!!errorTextFor('motherName')"
+              describedBy="customer-create-mother-name-error"
+              testId="customer-create-field-mother-name-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-NATIONALITY-ID' | t"
+            controlId="customer-create-nationality-id"
+            [required]="true"
+            [errorText]="errorTextFor('nationalityId')"
+            testId="customer-create-field-nationality-id"
+          >
+            <app-text-input
+              formControlName="nationalityId"
+              controlId="customer-create-nationality-id"
+              inputMode="numeric"
+              [maxLength]="11"
+              [placeholder]="'UI-SEARCH-PLACEHOLDER-ID-NUMBER' | t"
+              [error]="!!errorTextFor('nationalityId')"
+              describedBy="customer-create-nationality-id-error"
+              testId="customer-create-field-nationality-id-input"
+            />
+          </app-form-field>
+        </form>
+        <div class="flex items-center justify-between border-t border-line px-6 py-4">
+          <app-button
+            variant="secondary"
+            testId="customer-create-cancel-button"
+            (action)="cancel()"
+          >
+            {{ 'LBL-CANCEL' | t }}
+          </app-button>
+          <app-button
+            iconTrailing="chevron-right"
+            [disabled]="demographicIncomplete()"
+            testId="customer-create-next-button"
+            (action)="nextFromDemographic()"
+          >
+            {{ 'LBL-NEXT' | t }}
+          </app-button>
+        </div>
+      }
+
+      <!-- ══════════ Step 2 — Address info (mock §6.3; shared address/ pieces) ══════════ -->
+      @case (1) {
+        <div class="p-6">
+          <app-address-cards
+            [addresses]="draftCards()"
+            testIdBase="customer-create-address"
+            (add)="openAddAddress()"
+            (edit)="openEditAddress($event)"
+            (remove)="askDeleteDraft($event)"
+            (makePrimary)="setPrimaryDraft($event)"
+          />
+        </div>
+        <div class="flex items-center justify-between border-t border-line px-6 py-4">
+          <app-button
+            variant="secondary"
+            iconLeading="chevron-left"
+            testId="customer-create-previous-button"
+            (action)="previous()"
+          >
+            {{ 'LBL-PREVIOUS' | t }}
+          </app-button>
+          <app-button
+            iconTrailing="chevron-right"
+            [disabled]="drafts().length === 0"
+            testId="customer-create-next-button"
+            (action)="nextFromAddress()"
+          >
+            {{ 'LBL-NEXT' | t }}
+          </app-button>
+        </div>
+      }
+
+      <!-- ══════════ Step 3 — Contact info (mock §6.3 order) ══════════ -->
+      @case (2) {
+        <form
+          [formGroup]="contactForm"
+          class="grid grid-cols-2 gap-x-6 gap-y-5 p-6"
+          (ngSubmit)="onCreate()"
+          data-testid="customer-create-contact-form"
+        >
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-EMAIL' | t"
+            controlId="customer-create-email"
+            [required]="true"
+            [errorText]="errorTextFor('email')"
+            testId="customer-create-field-email"
+          >
+            <app-text-input
+              formControlName="email"
+              controlId="customer-create-email"
+              inputMode="email"
+              iconLeading="mail"
+              [placeholder]="'UI-CONTACT-PLACEHOLDER-EMAIL' | t"
+              [error]="!!errorTextFor('email')"
+              describedBy="customer-create-email-error"
+              testId="customer-create-field-email-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-MOBILE' | t"
+            controlId="customer-create-mobile"
+            [required]="true"
+            [errorText]="errorTextFor('mobilePhone')"
+            testId="customer-create-field-mobile"
+          >
+            <app-text-input
+              formControlName="mobilePhone"
+              controlId="customer-create-mobile"
+              inputMode="numeric"
+              [maxLength]="11"
+              [placeholder]="'UI-CONTACT-PLACEHOLDER-MOBILE' | t"
+              [error]="!!errorTextFor('mobilePhone')"
+              describedBy="customer-create-mobile-error"
+              testId="customer-create-field-mobile-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-HOME' | t"
+            controlId="customer-create-home"
+            [optionalText]="'UI-COMMON-OPTIONAL' | t"
+            [errorText]="errorTextFor('homePhone')"
+            testId="customer-create-field-home"
+          >
+            <app-text-input
+              formControlName="homePhone"
+              controlId="customer-create-home"
+              inputMode="numeric"
+              [maxLength]="11"
+              [placeholder]="'UI-CONTACT-PLACEHOLDER-PHONE' | t"
+              [error]="!!errorTextFor('homePhone')"
+              describedBy="customer-create-home-error"
+              testId="customer-create-field-home-input"
+            />
+          </app-form-field>
+
+          <app-form-field
+            [label]="'UI-CREATE-FIELD-FAX' | t"
+            controlId="customer-create-fax"
+            [optionalText]="'UI-COMMON-OPTIONAL' | t"
+            [errorText]="errorTextFor('fax')"
+            testId="customer-create-field-fax"
+          >
+            <app-text-input
+              formControlName="fax"
+              controlId="customer-create-fax"
+              inputMode="numeric"
+              [maxLength]="11"
+              [placeholder]="'UI-CONTACT-PLACEHOLDER-PHONE' | t"
+              [error]="!!errorTextFor('fax')"
+              describedBy="customer-create-fax-error"
+              testId="customer-create-field-fax-input"
+            />
+          </app-form-field>
+        </form>
+        <div class="flex items-center justify-between border-t border-line px-6 py-4">
+          <app-button
+            variant="secondary"
+            iconLeading="chevron-left"
+            testId="customer-create-previous-button"
+            (action)="previous()"
+          >
+            {{ 'LBL-PREVIOUS' | t }}
+          </app-button>
+          <app-button
+            iconLeading="check"
+            [disabled]="contactIncomplete()"
+            [loading]="busy()"
+            testId="customer-create-submit-button"
+            (action)="onCreate()"
+          >
+            {{ 'LBL-CREATE' | t }}
+          </app-button>
+        </div>
+      }
+    }
+  </div>
+
+  <!-- Shared address dialog in DRAFT mode: no API call before the atomic POST. -->
+  <app-address-form-dialog
+    [open]="addressDialogOpen()"
+    [address]="addressDialogTarget()"
+    [draft]="true"
+    testIdBase="customer-create-address-dialog"
+    (draftSaved)="onDraftSaved($event)"
+    (closed)="closeAddressDialog()"
+  />
+
+  <!-- Draft delete confirmation (mock §6.3) — local removal, no API. -->
+  <app-confirm-dialog
+    [open]="deleteDraftTarget() !== null"
+    [title]="'UI-ADDRESS-DELETE' | t"
+    [message]="'MSG-ADDR-DELETE-CONFIRM' | t"
+    [confirmLabel]="'LBL-YES' | t"
+    [cancelLabel]="'LBL-NO' | t"
+    [closeLabel]="'UI-COMMON-CLOSE' | t"
+    testId="customer-create-address-delete-dialog"
+    (confirmed)="confirmDeleteDraft()"
+    (cancelled)="cancelDeleteDraft()"
+  />
+</section>

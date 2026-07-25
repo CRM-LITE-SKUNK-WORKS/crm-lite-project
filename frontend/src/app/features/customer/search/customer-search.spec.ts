@@ -1,7 +1,9 @@
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { Router, provideRouter } from '@angular/router';
 import { provideCoreHttp } from '../../../core/http';
 import { I18nService } from '../../../core/i18n';
+import { CustomerFlashService } from '../state/customer-flash.service';
 import type { CustomerDetailResponse } from '../model';
 import { CustomerSearch } from './customer-search';
 
@@ -66,7 +68,7 @@ describe('CustomerSearch', () => {
       imports: [CustomerSearch],
       // The REAL core http wiring (normalize + auth interceptors) — the screen's
       // messageKey → i18n chain is part of what this spec proves (FE-ADR-008).
-      providers: [provideCoreHttp(), provideHttpClientTesting()],
+      providers: [provideCoreHttp(), provideHttpClientTesting(), provideRouter([])],
     });
     http = TestBed.inject(HttpTestingController);
   });
@@ -115,17 +117,32 @@ describe('CustomerSearch', () => {
     expect(byTestId(fixture, 'customer-search-results-row-1002')).not.toBeNull();
   });
 
-  it('renders rows business-keyed with an INERT open-link (scope §2A.5) and a null-safe middle name', () => {
+  it('renders rows business-keyed with a LIVE open-link to Customer Info (scope §2A.5 activated) and a null-safe middle name', () => {
     const fixture = render();
     lastListRequest().flush(envelope([ALI, ZEYNEP]));
     fixture.detectChanges();
     const link = byTestId(fixture, 'customer-search-results-row-1001-open-link');
-    expect(link?.getAttribute('aria-disabled')).toBe('true');
-    expect(link?.getAttribute('href')).toBeNull();
+    expect(link?.tagName).toBe('A');
+    expect(link?.getAttribute('href')).toBe('/customers/1001'); // Detail route shipped
+    expect(link?.getAttribute('aria-disabled')).toBeNull();
     const aliRow = byTestId(fixture, 'customer-search-results-row-1001');
     expect(aliRow?.textContent).not.toContain('null'); // middleName null → empty cell
     const zeynepRow = byTestId(fixture, 'customer-search-results-row-1002');
     expect(zeynepRow?.textContent).toContain('Nur');
+  });
+
+  it('shows a one-shot flash toast (e.g. after delete) and consumes it exactly once', () => {
+    TestBed.inject(CustomerFlashService).set('UI-DETAIL-TOAST-CUSTOMER-DELETED');
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+    const toast = byTestId(fixture, 'customer-search-toast');
+    expect(toast?.getAttribute('role')).toBe('status');
+    expect(toast?.textContent).toContain('Customer deleted successfully.');
+    (byTestId(fixture, 'customer-search-toast-dismiss-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(byTestId(fixture, 'customer-search-toast')).toBeNull();
+    expect(TestBed.inject(CustomerFlashService).consume()).toBeNull(); // already consumed
   });
 
   // ---- AC-CUST-01-02 + filters -------------------------------------------
@@ -377,13 +394,17 @@ describe('CustomerSearch', () => {
 
   // ---- misc contract ------------------------------------------------------
 
-  it('Create new customer is rendered DISABLED — no fake behaviour (FE-ADR-013 §a)', () => {
+  it('Create new customer is LIVE since the wizard shipped and navigates to /customers/new', () => {
     const fixture = render();
     lastListRequest().flush(envelope([ALI]));
     fixture.detectChanges();
-    expect(
-      (byTestId(fixture, 'customer-search-create-new-button') as HTMLButtonElement).disabled,
-    ).toBe(true);
+    const navigate = vi
+      .spyOn(TestBed.inject(Router), 'navigate')
+      .mockResolvedValue(true);
+    const button = byTestId(fixture, 'customer-search-create-new-button') as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    button.click();
+    expect(navigate).toHaveBeenCalledWith(['/customers', 'new']);
   });
 
   it('switches language instantly and never leaks a raw catalogue key (AC-LANG-01-02)', () => {

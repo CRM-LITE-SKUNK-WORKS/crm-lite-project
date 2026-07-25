@@ -1,0 +1,136 @@
+<!-- Add/Edit address modal — mock §6.3 layout: City/District + Street/House in
+     a 1fr-1fr grid, Description full width; footer [Cancel][✓ Add address /
+     Save changes]. Texts resolved here; the patterns never translate.
+     All ids/testids derive from testIdBase so the Info tab and the Create
+     wizard host the SAME dialog under their own testid stems (FE-ADR-009). -->
+<app-modal
+  [open]="open()"
+  size="md"
+  [titleText]="(isEdit() ? 'UI-ADDRESS-EDIT-TITLE' : 'UI-ADDRESS-ADD-TITLE') | t"
+  [closeLabel]="'UI-COMMON-CLOSE' | t"
+  [testId]="testIdBase()"
+  (closed)="onCancel()"
+>
+  @if (bannerText(); as text) {
+    <div
+      class="mb-4 flex flex-col gap-1 rounded-md border border-danger-border bg-danger-surface p-3 text-body-sm text-danger-fg"
+      role="alert"
+      [attr.data-testid]="testIdBase() + '-error-banner'"
+    >
+      <span>{{ text }}</span>
+      @for (fieldError of unmatchedFieldErrors(); track fieldError.field) {
+        <span>{{ fieldError.messageKey | t }}</span>
+      }
+    </div>
+  }
+
+  <form
+    [formGroup]="form"
+    class="grid grid-cols-2 gap-4"
+    (ngSubmit)="onSave()"
+    [attr.data-testid]="testIdBase() + '-form'"
+  >
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-CITY' | t"
+      [controlId]="testIdBase() + '-city'"
+      [required]="true"
+      [errorText]="errorTextFor('cityId')"
+      [testId]="testIdBase() + '-city'"
+    >
+      <app-select
+        formControlName="cityId"
+        [options]="cityOptions()"
+        [controlId]="testIdBase() + '-city'"
+        [placeholder]="'UI-ADDRESS-CITY-PLACEHOLDER' | t"
+        [error]="!!errorTextFor('cityId')"
+        [testId]="testIdBase() + '-city-select'"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-DISTRICT' | t"
+      [controlId]="testIdBase() + '-district'"
+      [required]="true"
+      [errorText]="errorTextFor('districtId')"
+      [testId]="testIdBase() + '-district'"
+    >
+      <app-select
+        formControlName="districtId"
+        [options]="districtOptions()"
+        [controlId]="testIdBase() + '-district'"
+        [placeholder]="'UI-ADDRESS-DISTRICT-PLACEHOLDER' | t"
+        [error]="!!errorTextFor('districtId')"
+        [testId]="testIdBase() + '-district-select'"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-STREET' | t"
+      [controlId]="testIdBase() + '-street'"
+      [required]="true"
+      [errorText]="errorTextFor('street')"
+      [testId]="testIdBase() + '-street'"
+    >
+      <app-text-input
+        formControlName="street"
+        [controlId]="testIdBase() + '-street'"
+        [error]="!!errorTextFor('street')"
+        [describedBy]="testIdBase() + '-street-error'"
+        [testId]="testIdBase() + '-street-input'"
+      />
+    </app-form-field>
+
+    <app-form-field
+      [label]="'UI-CREATE-FIELD-HOUSE-NO' | t"
+      [controlId]="testIdBase() + '-house-no'"
+      [required]="true"
+      [errorText]="errorTextFor('houseFlatNumber')"
+      [testId]="testIdBase() + '-house-no'"
+    >
+      <app-text-input
+        formControlName="houseFlatNumber"
+        [controlId]="testIdBase() + '-house-no'"
+        [error]="!!errorTextFor('houseFlatNumber')"
+        [describedBy]="testIdBase() + '-house-no-error'"
+        [testId]="testIdBase() + '-house-no-input'"
+      />
+    </app-form-field>
+
+    <div class="col-span-2">
+      <app-form-field
+        [label]="'UI-CREATE-FIELD-DESCRIPTION' | t"
+        [controlId]="testIdBase() + '-description'"
+        [required]="true"
+        [errorText]="errorTextFor('addressDescription')"
+        [testId]="testIdBase() + '-description'"
+      >
+        <app-text-input
+          formControlName="addressDescription"
+          [controlId]="testIdBase() + '-description'"
+          [error]="!!errorTextFor('addressDescription')"
+          [describedBy]="testIdBase() + '-description-error'"
+          [testId]="testIdBase() + '-description-input'"
+        />
+      </app-form-field>
+    </div>
+  </form>
+
+  <div appModalFooter class="flex gap-3">
+    <app-button
+      variant="secondary"
+      [testId]="testIdBase() + '-cancel-button'"
+      (action)="onCancel()"
+    >
+      {{ 'LBL-CANCEL' | t }}
+    </app-button>
+    <app-button
+      iconLeading="check"
+      [disabled]="!canSave()"
+      [loading]="busy()"
+      [testId]="testIdBase() + '-save-button'"
+      (action)="onSave()"
+    >
+      {{ (isEdit() ? 'UI-ADDRESS-SUBMIT-EDIT' : 'UI-ADDRESS-ADD-TITLE') | t }}
+    </app-button>
+  </div>
+</app-modal>

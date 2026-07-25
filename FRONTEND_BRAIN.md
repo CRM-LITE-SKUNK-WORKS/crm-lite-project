@@ -6,7 +6,12 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-23 (**iskelet kuruldu:** `frontend/` Angular 22.0.8
+> **Son güncelleme:** 2026-07-25 (**🎉 İLK İŞ EKRANI: Customer Search yazıldı** —
+> golden path uçtan uca canlı: browse + filtre + sayfalama + 12 durum;
+> parametreli i18n (FE-ADR-012 §h) uygulandı; placeholder kaldırıldı.
+> **169/169 test**, lint + konvansiyon + prod build yeşil. Önceki aynı gün:
+> veri katmanı (customer/account/lookup — kontratlar Swagger'la 4/4 doğrulandı)
+> ve `shared/ui` 7 EDS bileşeni. En eski: 2026-07-23 iskelet — Angular 22.0.8
 > standalone + zoneless projesi oluşturuldu; sürümler exact pinlendi; ESLint
 > (katman sınırı + quality kuralları) + Prettier; FE-ADR-003 klasör iskeleti;
 > Tailwind 4 + EDS token teması (gerçek değerler) + Inter self-hosted; runtime
@@ -37,7 +42,10 @@ yeşil**. Ekranlar/bileşenler henüz yazılmadı (bir sonraki faz).
 - **Bileşen kütüphanesi:** **YOK** — EDS bileşenleri kendimiz yazıyoruz
 - **Konum:** `frontend/` (bu repo; ayrı repo DEĞİL)
 - **Kapsam:** Customer Search + Create Customer + Customer Info
-  (demografik/adres/iletişim). Satış/hesap/ürün ekranları kapsam dışı.
+  (demografik/adres/iletişim) + **hesap bölümü (FR-ACCT — 2026-07-24'te kapsama
+  girdi; FE-ADR-013 §Amendment, `scope-and-conflicts.md` §1A)**. Satış/ürün
+  ekranları kapsam dışı; Customer Info ürün bölümü **"Coming soon"** (görünür,
+  etkileşimsiz — FE-ADR-013 §Amendment A3).
 
 **Doküman dili konvansiyonu** (bilinçli, backend'i taklit ediyor):
 `FRONTEND_BRAIN.md` ve `docs/frontend/*.md` **Türkçe** (PROJECTBRAIN ile aynı);
@@ -129,18 +137,29 @@ frontend/
         │   │   └── catalog/     # labels.ts (LBL) · messages.ts (MSG) · ui.ts (UI) · index.ts
         │   ├── [✓] auth/        # auth.service.ts (signals) · auth.guard.ts · session.model.ts
         │   ├── [✓] http/        # api-error.ts · field-errors.ts · 2 interceptor · provide-core-http.ts
-        │   └── [ ] lookup/      # cities/districts önbelleği
+        │   └── [✓] lookup/      # ✅ 2026-07-25: LookupApiService (statuses/types/cities/districts)
+        │       │                #   + LookupCacheService (signal önbellek — FE-ADR-006 §1/§6 buraya atadı)
+        │       └── lookup.model.ts · lookup-api.service.ts · lookup-cache.service.ts (+spec)
         ├── shared/              # core'a ve features'a ASLA bakmaz
-        │   ├── [ ] ui/          # EDS bileşenleri (7 adet — FE-ADR-011 §d; PasswordInput YOK)
+        │   ├── [✓] ui/          # ✅ 2026-07-25: 7 EDS bileşeni yazıldı (FE-ADR-011 §d; PasswordInput YOK)
+        │   │   ├── icon/ button/ icon-button/ form-field/
+        │   │   ├── text-input/ select/ date-picker/   # hepsi spec'li (98 test)
+        │   │   └── index.ts     # barrel; metinler ÇÖZÜLMÜŞ girer (§4.14) — bileşen çeviri yapmaz
         │   └── [ ] patterns/    # modal, toast, tabs, stepper, pagination, badge, card
         └── features/
             ├── [✓] access-denied/           # 403 rol reddi sayfası (MSG-AUTH-FORBIDDEN)
-            └── customer/
-                ├── [✓] customer.routes.ts   # lazy chunk kökü
-                ├── [✓] customer-placeholder.ts  # geçici korumalı sayfa → yerini search alacak
-                ├── [ ] search/ create/ detail/   # ekranlar (kapsam içi)
-                ├── [ ] address/ contact/          # ALT MODÜL (FE-ADR-003 §3)
-                └── [ ] data/ model/               # HTTP istemcisi + kontrat tipleri
+            ├── customer/
+            │   ├── [✓] customer.routes.ts   # lazy chunk kökü
+            │   ├── [✓] customer-placeholder.ts  # geçici korumalı sayfa → yerini search alacak
+            │   ├── [ ] search/ create/ detail/   # ekranlar (kapsam içi) — henüz yok
+            │   ├── [ ] address/ contact/          # ALT MODÜL (FE-ADR-003 §3) — henüz yok
+            │   ├── [✓] model/               # ✅ 2026-07-25: Customer/Address/Contact/Page/filter tipleri
+            │   ├── [✓] data/                # ✅ CustomerApiService (liste+filtre, CRUD, adres, iletişim) (+spec)
+            │   └── [✓] state/               # ✅ CustomerListStore (signal: filtre/sayfa/sonuç/seçili) (+spec)
+            └── [✓] account/                 # ✅ 2026-07-25: FR-ACCT veri katmanı (yeni kardeş feature)
+                ├── [✓] model/               #   AccountResponse/Create/Update — K-8: 223 YOK, KR-11 salt okunur
+                ├── [✓] data/                #   AccountApiService (/api/accounts/**, 224-only) (+spec)
+                └── [✓] state/               #   AccountListStore (signal: müşteri fatura hesapları) (+spec)
 ```
 
 **Katman lint'i doğrulandı:** `shared/`'dan `core/`'a import denemesi ESLint
@@ -233,29 +252,51 @@ Tam kontrat: `docs/api/customer-service.md`, `docs/api/authentication.md`,
 Sonraki iş kaleminin **ilk iki adımı**. İkisi de küçük, ikisi de olmadan
 Customer Search yazılamaz (`customer-search-analysis.md` §10):
 
-- [ ] **`Page` zarfının gerçek JSON şekli** (§4.4) — çalışan stack'ten tek istek;
-      alan adları (`content`/`totalElements`/`totalPages`/`number`/`size`)
-      doğrulanıp **yalnız `features/customer/data/`** içinde tiplenir
-- [ ] **Parametreli i18n** — `translate(key, params)` imzası. `"1–20 / 137"` gibi
-      metinler bugünkü düz `translate(key)` ile üretilemiyor. Onay bekliyor
+- [x] ~~**`Page` zarfının gerçek JSON şekli** (§4.4)~~ ✅ **KAPANDI (2026-07-25):**
+      çalışan stack'in Swagger'ı (customer-controller) düz `PageImpl` şeklini
+      doğruladı — metadata üst seviyede + `first/last`; tip `page.model.ts`'te
+      birebir, sunucu bayrakları kullanılıyor. ⚠ Backend'e `serialization-mode`
+      pinleme önerisi geçerli (şekil framework varsayılanı, §4.4).
+      **Ekran yazımını bloke eden madde kalmadı.**
+- [x] ~~**Parametreli i18n**~~ ✅ **UYGULANDI (2026-07-25, FE-ADR-012 §h):**
+      `translate(key, params?)` + `t` pipe argümanı; isimli yer tutucular
+      (`UI-PAGINATION-RANGE` canlı örnek), eksik parametre warn + yerinde kalır,
+      spec'te EN↔TR yer tutucu eşitliği iddiası (`scope §4.13`)
 
 ### 5.3 Bileşen katmanı → tasarım notu hazır
 📄 `docs/frontend/shared-ui-design-notes.md` — API, varyant, durum, erişilebilirlik
 ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
 
-- [ ] `Icon` → `Button` → `IconButton` → `FormField` → `TextInput` → `Select`
-      (Customer Search'ün ihtiyacı **tam olarak bu altısı**)
-- [ ] `DatePicker` — **ayrı ve sonra**; en karmaşık bileşen ve golden path'te
-      kullanılmıyor. Açık soru: native `<input type="date">` mi custom panel mi
+- [x] ~~`Icon` → `Button` → `IconButton` → `FormField` → `TextInput` → `Select`~~
+      ✅ **2026-07-25 yazıldı** — ikon verisi mock bundle'ın lucide shim'inden
+      **birebir** çıkarıldı (38 ikon); tüm metin girdileri çözülmüş string
+      (`'KEY' | t`, `scope-and-conflicts §4.14`); CVA bileşenlerinde `disabled`
+      YOK — tek kaynak `control.disable()` (FormControlDirective çakışması)
+- [x] ~~`DatePicker`~~ ✅ **2026-07-25 yazıldı** — **custom panel** kararıyla
+      (§4.15): maskeli `DD.MM.YYYY` + takvim popover; form değeri daima ISO;
+      ay/gün adları `Intl` + `locale` girdisi; roving-tabindex klavye gezinme
 - [ ] `shared/patterns/` — tablo, boş durum, sayfalama, toast, skeleton
       (Customer Search'ün ihtiyacı); modal/stepper/tabs sonraki ekranlarda
-- [ ] Her bileşen **kendi spec'iyle** gelir (render + klavye + `data-testid`)
+- [x] ~~Her bileşen kendi spec'iyle gelir~~ ✅ 7 bileşen / 7 spec — toplam
+      **98/98 test**, lint + `check:conventions` + prod build yeşil (2026-07-25)
 
 ### 5.4 Ekranlar (kapsam içi)
-- [ ] **Customer Search** — golden path 📄 `docs/frontend/customer-search-analysis.md`
-      (12 durum, filtre↔parametre eşlemesi, `data-testid` planı, açık noktalar)
+- [x] ~~**Customer Search**~~ ✅ **YAZILDI (2026-07-25)** — golden path canlı:
+      `features/customer/search/` (component + şablon + 14 testlik spec).
+      Browse modu açılışta (AC-CUST-01-00), Search boşken pasif (AC-CUST-01-02),
+      KR-01 parametre eşlemesi (istemci yeniden uygulamaz), KR-04 `size` daima
+      açık, 12 durumun tümü (skeleton/boş×2/hata bandı/yeniden yükleme çubuğu…),
+      501 filtreleri disabled. Placeholder ekran + `UI-PLACEHOLDER-*` kaldırıldı;
+      rota `''` artık Search. Satır linki Detail gelene kadar **pasif** (§2A.5),
+      "Create new customer" **disabled** (wizard gelince `routerLink`). Uygulama
+      kayıtları: `scope-and-conflicts §4.20`
 - [ ] **Create Customer** — 3 adımlı wizard + adres dialog'u (`DatePicker` burada gerekiyor)
-- [ ] **Customer Info** — 3 sekme (hesap sekmesi YOK)
+- [ ] **Customer Info** — demografik + adres + iletişim sekmeleri; **hesap
+      bölümü artık kapsam İÇİ** (`features/account/`, kontrat
+      `docs/api/account-service.md`; yalnız 224 Billing Account, KR-11 numarası
+      salt okunur, silme = pasifleştirme — FE-ADR-013 §Amendment A1); ürün
+      bölümü "Coming soon" (A3). Hesap ekranından önce 5 `MSG-ACCT-*` anahtarı
+      kataloğa eklenmeli (`scope-and-conflicts.md` §1A.6)
 
 ### 5.5 Container
 - [x] ~~`frontend/Dockerfile` (multi-stage) + `nginx.conf`~~ ✅ 2026-07-24
@@ -343,6 +384,7 @@ EDS bileşen bundle'ı incelendi).
 | `line` | `#DEDEEB` | border-default |
 | `line-strong` | `#C6C6DB` | border-input |
 | `line-hover` | `#9C9CBC` | border-hover |
+| `secondary-action` | `#313152` | action-secondary-text (eklendi 2026-07-25, §4.16) |
 | `success` / `success-fg` / `success-surface` / `success-border` | `#16A34A` / `#15803D` / `#F0FDF4` / `#BBF7D0` | feedback+status success (icon/text/bg/border) |
 | `danger` / `danger-hover` / `danger-fg` / `danger-surface` / `danger-border` | `#DC2626` / `#B91C1C` / `#B91C1C` / `#FEF2F2` / `#FECACA` | danger (icon+action / hover / text / bg / border) |
 | `warning` / `warning-fg` / `warning-surface` / `warning-border` | `#CA8A04` / `#854D0E` / `#FEFCE8` / `#FDE68A` | warning |
@@ -368,6 +410,8 @@ EDS bileşen bundle'ı incelendi).
 | **Easing** | `ease-standard enter exit` | EDS cubic-bezier'leri |
 | **z-index** | `z-sticky-header z-dropdown z-overlay z-modal z-toast z-tooltip` | 100/1000/1300/1400/1500/1600 (**sayısal literal yasak**) |
 | **Tabular rakam** | `.eds-tabular-nums` sınıfı | ID/tarih/tutar kolonları için zorunlu |
+| **Focus halkası** | `shadow-focus-ring` (form kontrolleri) / `shadow-focus-ring-offset` (buton `focus-visible`) | §2.6 gerçek değerleri; eklendi 2026-07-25 (§4.16) |
+| **Animasyon** | `animate-eds-spin` (900ms, spinner — `data-eds-motion-exempt` ile) / `animate-panel-in` (200ms ease-enter, dropdown/datepicker panel girişi) | §2.14/§3.7; eklendi 2026-07-25 (§4.16) |
 
 ---
 
@@ -442,7 +486,7 @@ her metin geçersizdir.
 | **FE-ADR-010** | Multi-stage container; compose'a **yalnız ekleme** |
 | **FE-ADR-011** | Tailwind + gerçek EDS token'ları; bileşen kütüphanesi yok |
 | **FE-ADR-012** | Runtime i18n; iki katalog, tek çatı |
-| **FE-ADR-013** | Kapsam yönetimi: mock backend'den geniş |
+| **FE-ADR-013** | Kapsam yönetimi: mock backend'den geniş. **+ Amendment (2026-07-24):** FR-ACCT kapsama girdi (account-service geldi); ürün bölümü için "Coming soon" davranış kuralı tanımlandı |
 
 **Kapsam ve çelişki kaydı:** `docs/frontend/scope-and-conflicts.md` — backend'in
 `document-delta.md` disiplininin karşılığı. Her satır bir durum etiketi taşır
@@ -553,15 +597,18 @@ Bu bölüm **teknik olmayan okuyucu** içindir: projeyi çekip çalıştırmak,
 
 | ✅ Çalışıyor | ❌ Henüz yok |
 |---|---|
-| Keycloak üzerinden **giriş** (CRM Lite temalı login sayfası) | **Müşteri Arama** ekranı |
-| Uygulama **çerçevesi**: üst bar, sol menü, kullanıcı adı, çıkış | **Müşteri Oluşturma** sihirbazı |
-| **TR/EN dil değiştirici** — anında, tercih hatırlanıyor | **Müşteri Bilgisi** ekranı |
-| **Yetki reddi** (403) ve **oturum kapatıldı** sayfaları | Ekranlarda kullanılacak arayüz bileşenleri |
+| Keycloak üzerinden **giriş** (CRM Lite temalı login sayfası) | **Müşteri Oluşturma** sihirbazı |
+| **Müşteri Arama** — giriş sonrası ana ekran: tüm müşteriler listelenir, filtrelenir, sayfalanır | **Müşteri Bilgisi** ekranı |
+| Uygulama **çerçevesi**: üst bar, sol menü, kullanıcı adı, çıkış | Hesap bölümü ekranları |
+| **TR/EN dil değiştirici** — anında, tercih hatırlanıyor | |
+| **Yetki reddi** (403) ve **oturum kapatıldı** sayfaları | |
 | Backend'e güvenli erişim (oturum + CSRF + hata çevirisi) | |
 
-> Giriş yaptıktan sonra göreceğiniz **"Oturumunuz açık"** kartı bir **yer
-> tutucudur**. Yerini Müşteri Arama ekranı alacak. Altyapının uçtan uca
-> çalıştığını göstermek için duruyor.
+> Müşteri Arama'daki **"Create new customer"** düğmesi ve satırlardaki müşteri
+> numarası bağlantısı **bilinçli olarak pasif** — hedef ekranlar (Oluşturma
+> sihirbazı, Müşteri Bilgisi) yazıldığında etkinleşecek. "Account number" ve
+> "Order number" filtreleri de hesap/sipariş arama entegrasyonu gelene kadar
+> kapalı.
 
 ### 10.2 Gereksinimler (tek seferlik)
 

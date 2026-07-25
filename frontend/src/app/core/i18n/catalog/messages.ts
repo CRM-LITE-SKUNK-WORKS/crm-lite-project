@@ -143,4 +143,30 @@ export const MESSAGES = {
     en: 'Your session needs to be refreshed. Please try again.',
     tr: 'Oturumunuzun yenilenmesi gerekiyor. Lütfen tekrar deneyin.',
   },
+
+  // ---- account-service PROJECT-AUTHORED keys (ADR-013 §6; EN/TR verbatim from
+  //      docs/architecture/account-service-decisions.md §message catalog).
+  //      Backend-returned; names are the contract and are never changed.
+  //      (MSG-ACCT-HAS-PRODUCTS / -DELETE-CONFIRM / -DELETED are analyst /
+  //      frontend-only and already defined above.) ----
+  'MSG-ACCT-NOT-FOUND': {
+    en: 'Billing account not found.',
+    tr: 'Fatura hesabı bulunamadı.',
+  },
+  'MSG-ACCT-NOT-ACTIVE': {
+    en: 'This account is passive and cannot be modified.',
+    tr: 'Bu hesap pasif durumda olduğundan üzerinde değişiklik yapılamaz.',
+  },
+  'MSG-ACCT-IMMUTABLE-FIELD': {
+    en: 'The request contains fields that cannot be set or changed.',
+    tr: 'İstek, atanamayan veya değiştirilemeyen alanlar içeriyor.',
+  },
+  'MSG-ACCT-DUP-NUMBER': {
+    en: 'An account with this account number already exists.',
+    tr: 'Bu hesap numarasına sahip bir hesap zaten mevcut.',
+  },
+  'MSG-ACCT-NUMBER-CAPACITY-EXCEEDED': {
+    en: 'Account number capacity for this segment and year is exhausted.',
+    tr: 'Bu segment ve yıl için hesap numarası kapasitesi tükendi.',
+  },
 } satisfies Catalog;

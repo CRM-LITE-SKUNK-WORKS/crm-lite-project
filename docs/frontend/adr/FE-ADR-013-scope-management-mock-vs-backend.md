@@ -4,6 +4,13 @@
 Accepted (2026-07-23). The frontend counterpart of the backend's
 `document-delta.md` discipline.
 
+**Amended 2026-07-24** — `account-service` shipped on `dev` (ADR-013/014,
+`docs/api/account-service.md`), so the FR-ACCT premise of §b ("service does not
+exist") no longer holds. See **§Amendment (2026-07-24)** at the end: FR-ACCT
+enters buildable scope, and a "Coming soon" behaviour rule supersedes §d for
+the Customer Info product section. Per ADR discipline the original wording
+below is retained and marked, never rewritten.
+
 ## Context
 The analyst mock contains **seven** screens. The backend implements the customer
 aggregate (FR-CUST, FR-ADDR, FR-CNTC) and authentication, and nothing else.
@@ -36,6 +43,13 @@ into "apparently broken" for anyone who tries it.
 
 ### (b) Currently OUT of scope
 
+> ⚠️ **Superseded in part (2026-07-24).** The FR-ACCT account-section row below
+> is superseded by §Amendment A1 (account-service now exists; the section is IN
+> scope). The FR-PROD product-section row's *behaviour* changed from "hidden"
+> to "Coming soon" per §Amendment A3. The `accountNumber` search-filter row is
+> **unchanged** — customer-service still returns `501` (follow-up PR pending).
+> The table is kept as accepted on 2026-07-23.
+
 | Item | Domain | Backend status |
 |---|---|---|
 | **Offer Selection** screen (entire) | FR-PROD + FR-SALE | Service does not exist |
@@ -63,6 +77,13 @@ frontend bug).
 - Authentication shell — session probe, login redirect, logout (FE-ADR-005)
 
 ### (d) Out-of-scope areas are hidden, not stubbed
+
+> ⚠️ **Superseded in part (2026-07-24)** for the Customer Info **product
+> section only**, which is now rendered as a visible-but-inert "Coming soon"
+> section under the rules of §Amendment A3. The account-tab consequence below
+> is moot — the account section is in scope (§Amendment A1). The rule stands
+> unchanged for the three FR-PROD/FR-SALE **screens**, which remain entirely
+> absent.
 A section with no backend is **not rendered at all**. It is not shown greyed
 out, not shown with a spinner, not shown with "coming soon" placeholder rows.
 
@@ -117,3 +138,77 @@ is precisely the value `document-delta.md` provides on the backend side.
   record is worse than none.
 - Some analyst acceptance criteria cannot be satisfied yet, by construction.
   They are listed as out of scope rather than reported as passing.
+
+---
+
+## Amendment (2026-07-24): FR-ACCT enters scope; "Coming soon" rule defined
+
+### Status
+Accepted (2026-07-24). Supersedes parts of §b and §d above (marked in place);
+everything else in this ADR — §a in particular — stands in full force.
+
+### Context
+`account-service` merged to `dev` (commit `635b9a2`): FR-ACCT-01..04 + KR-11
+are implemented per backend **ADR-013/ADR-014** with a complete, documented
+contract — five endpoints under `/api/accounts/**`
+(`docs/api/account-service.md`). FR-PROD and FR-SALE still have no backend, and
+customer-service's `accountNumber` search filter still answers `501` — its
+conversion to a real account-service call is an explicitly deferred follow-up
+PR (`docs/api/account-service.md` §Deliberate limitations).
+
+### A1. The Customer Info account section enters buildable scope
+- Implemented as the new sibling feature **`features/account/`** — exactly the
+  evolution §Consequences of FE-ADR-003 predicted for this moment.
+- The UI works **exclusively with 224 Billing Accounts**. The K-8 automatic 223
+  Customer Account is a create-time backend side effect that never appears in
+  any response (the list is 224-only; a 223's number answers 404
+  `MSG-ACCT-NOT-FOUND`). No UI surface refers to a 223, ever.
+- **The KR-11 `accountNumber` is display-only.** It is rendered as read-only
+  text and is never bound to a form control. `PUT` sends exactly
+  `{accountName, addressId}`; any extra or immutable property is rejected with
+  400 `MSG-ACCT-IMMUTABLE-FIELD` — so a "send the whole object back" update
+  form is a contract violation, not a shortcut.
+- **Delete is passivation.** After the 204 the row stays in the list as
+  Passive (AC-ACCT-04-02); ordering is fixed server-side (Active first, then
+  Passive, `accountNumber` ascending inside each group — AC-ACCT-01-04) and the
+  UI must not re-sort. The active-product delete guard is backend-enforced
+  (409 `MSG-ACCT-HAS-PRODUCTS`); the UI surfaces the 409, it never pre-computes
+  the check. The confirm prompt (`MSG-ACCT-DELETE-CONFIRM`) and the success
+  message (`MSG-ACCT-DELETED`) are frontend-only catalogue keys.
+- Tracking rows: `docs/frontend/scope-and-conflicts.md` §1A (including the
+  catalogue gap — five project-added `MSG-ACCT-*` keys are not yet in the
+  frontend catalogue and must be added before the screens are written).
+
+### A2. Still out of scope (unchanged by this amendment)
+- Customer Search `accountNumber` filter: **still rendered disabled** —
+  customer-service still returns `501`; enabling it belongs to the follow-up
+  PR, not to the frontend.
+- FR-SALE account-row actions (`Start new sale`, `Transfer`,
+  `Service address change`): not rendered; the account API deliberately
+  exposes no `Action` field (backend ADR-013 §3).
+- Offer Selection, Product Configuration and Submit Order screens: no backend,
+  not rendered — §d's rule continues to apply to whole screens.
+
+### A3. "Coming soon" behaviour rule — a defined, narrow exception to §d
+§d's "hidden, not stubbed" rule is superseded **for the Customer Info product
+section** (`Product offer`, `Campaign`, `View product`, `Deactivate product`):
+it is now rendered as a visible but inert **"Coming soon"** section.
+
+**Why §d changes here:** with the account section real, fully hiding the
+adjacent product section would misrepresent the screen's final layout to
+anyone reviewing progress against the mock. A clearly labelled, inert section
+communicates "planned, not built" honestly — which is the very goal §d's
+hiding rule served. §a's core prohibition (no fake data, no pretend behaviour)
+is untouched: an inert, truthfully labelled section cannot be mistaken for
+working software, which is what §a actually forbids.
+
+**The rule, binding wherever "Coming soon" is used:**
+1. The section is **visible but fully non-interactive** — controls disabled or
+   static, `aria-disabled` where applicable, no affordance suggesting action.
+2. **No API call is ever made** for or from the section.
+3. **No fake or sample data is shown** — no placeholder rows, no invented
+   values (§a stands in full).
+4. The section title and **every visible label come from i18n catalogue keys**
+   (FE-ADR-012 §b) — including the "Coming soon" text itself.
+5. **`data-testid` attributes are still added** (FE-ADR-009 §1), so E2E tests
+   can assert the section is present and inert.

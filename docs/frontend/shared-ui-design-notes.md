@@ -18,7 +18,7 @@ FE-ADR-012 (i18n)
 | `children` | `<ng-content>` | |
 | `value` + `onChange` | **`ControlValueAccessor`** | Ekranlar Reactive Forms kullanıyor (FE-ADR-007); ayrı bir "controlled component" mekanizması kurulmaz |
 | `className` / `style` | **taşınmaz** | Dışarıdan stil sızması FE-ADR-011'in token disiplinini deler; varyasyon `variant`/`size` ile yapılır |
-| `aria-label` string'i | **`ariaLabelKey`** (katalog anahtarı) | Metin doğrudan yazılmaz (FE-ADR-012 §b); bileşen anahtarı alır, kendi çözer |
+| `aria-label` string'i | **`ariaLabel`** (çözülmüş metin) | ~~`ariaLabelKey` — bileşen anahtarı alır, kendi çözer~~ **DEĞİŞTİ (2026-07-25, `scope-and-conflicts §4.14`):** `I18nService` `core/`'da ve FE-ADR-003 lint'i `shared→core`'u reddediyor. Bileşenler **çözülmüş metin** alır; çağıran `[ariaLabel]="'UI-…' \| t"` bağlar. Literal yazım yine yasak (FE-ADR-012 §b, `check:conventions` yakalar) |
 | — (mock'ta yok) | **`testId` input'u (zorunlu)** | Mock'ta `data-testid` **0 adet**; katman tamamen bizim (FE-ADR-009) |
 
 **`testId` sözleşmesi:** her bileşen `testId` alır ve onu **etkileşimli host
@@ -163,11 +163,11 @@ yeteneği native ile karşılanamıyor.
 | **Girdi** | `options: ReadonlyArray<{ value: T; labelKey?: string; label?: string }>`, `placeholderKey?`, `searchable = false`, `clearable = false`, `disabled`, `error`, `loading = false`, `size = 'md' \| 'sm'`, `testId` |
 | **Form** | `ControlValueAccessor` |
 
-> **`labelKey` vs `label` ikiliği bilinçli.** Sabit seçenekler (cinsiyet, sayfa
-> boyutu) katalog anahtarı taşır; **backend'den gelen** referans veriler
-> (il/ilçe — `GET /api/cities`) zaten sunucudan gelen metni taşır ve çevrilmez.
-> İkisini tek alana sıkıştırmak, backend verisini katalogda arayan bir hataya
-> davetiye çıkarırdı.
+> ~~**`labelKey` vs `label` ikiliği bilinçli.**~~ **KALKTI (2026-07-25,
+> `scope-and-conflicts §4.14`):** bileşenler artık anahtar çözmediği için tek
+> alan **`label`** kaldı. Sabit seçeneklerde çağıran anahtarı kendisi çözer
+> (`{ value, label: i18n.translate('UI-…') }` veya şablonda `| t`); backend
+> referans verisi (il/ilçe) metnini zaten çözülmüş taşır.
 
 **Erişilebilirlik (en zahmetli kısım):** `role="combobox"` + `aria-expanded` +
 `aria-controls`; panel `role="listbox"`, seçenekler `role="option"` +
@@ -210,14 +210,46 @@ etmez.
 **`data-testid`:** `{testId}` (input), `{testId}-trigger`, `{testId}-panel`,
 `{testId}-day-{yyyy-MM-dd}`.
 
-**Açık soru:** native `<input type="date">` yeterli mi? Tarayıcı takvimi
-"bedava" erişilebilirlik ve yerelleştirme verir, ama görünümü EDS token'larıyla
-**stillenemez** ve mock'un panel tasarımından farklıdır. Öneri: mock görünümü
-şart değilse native, şartsa custom. **Analist/tasarım kararı bekliyor.**
+~~**Açık soru:** native `<input type="date">` mi custom panel mi?~~
+**KAPANDI (2026-07-25, ekip talimatı — `scope-and-conflicts §4.15`): custom
+panel.** Mock'un takvim popover'ı birebir uygulanır (maskeli yazım + panel;
+hafta Pazartesi başlar). Ay/gün adları `Intl.DateTimeFormat` ile; aktif dil
+bileşene **`locale` girdisi** olarak geçer (shared, core'daki `I18nService`'i
+göremez — §4.14 ile aynı gerekçe).
 
 ---
 
-## 8. Yazım sırası (öneri)
+## 8. Yazım sırası (öneri) — ✅ UYGULANDI (2026-07-25)
+
+Yedi bileşen de `frontend/src/app/shared/ui/` altında yazıldı (her biri kendi
+spec'iyle; 98/98 test). Uygulamada nottan sapmalar — hepsi kayıtlı:
+
+- **Metin girdileri çözülmüş string** (`scope-and-conflicts §4.14`) — §0'daki
+  `ariaLabelKey` satırı güncellendi.
+- **CVA bileşenlerinde (`TextInput`/`Select`/`DatePicker`) `disabled` girdisi
+  YOK** — Angular'ın `FormControlDirective`'i aynı isimli kendi `disabled`
+  input'unu taşıdığından `[disabled]` bağlaması çakışıp uyarı üretiyor; tek
+  kaynak **form**dur (`control.disable()` / `new FormControl({value,
+  disabled: true})`). 501 filtre alanları da böyle kurulacak (FE-ADR-013 §b).
+- **Select'te `searchable`/`clearable`/`loading` yazılmadı** — kapsam içi
+  tüketicisi yok; ihtiyaç duyan ekran çıktığında eklenir (FE-ADR-011 §c bütçe
+  ilkesi). `Button`'da `ghost`/`lg`, `IconButton`'da `subtle`/40 aynı gerekçeyle
+  yok (notta zaten kayıtlıydı).
+- **FormField `hint` tooltip'i ertelendi** — Tooltip `shared/patterns/`
+  gelince eklenecek; kapsam içi ekran kullanmıyor.
+- İkon SVG verisi mock bundle'ın lucide shim'inden **birebir** çıkarıldı
+  (38 ikon, `icons.ts`); Icon'un boyutları 16/20/24 (mock'un 22'si→20,
+  FormField hata ikonu 14→16 — §1'deki yuvarlama ilkesi).
+
+**Customer Search sırasında eklenenler (2026-07-25, `scope §4.20`):**
+
+- **`Button`/`IconButton` → `action` output'u:** host `(click)`'i dinlemek hem
+  `check:conventions`'ın testid şartına takılıyor hem `loading` guard'ını
+  atlıyordu. `action` yalnız izinli aktivasyonda (disabled/loading değilken)
+  ateşlenir; tüketiciler `(action)` bağlar, host `(click)` bağlanmaz.
+- **`Select` → `dropUp` girdisi:** panel tetikleyicinin ÜSTÜNE açılır — mock
+  §6.2'nin per-page seçicisi kart içinde kalmak için bunu yapıyor
+  (`.eds-pagesize-up`).
 
 `Icon` → `Button` → `IconButton` → `FormField` → `TextInput` → `Select` → *(sonra)* `DatePicker`
 

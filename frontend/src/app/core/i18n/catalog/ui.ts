@@ -49,6 +49,7 @@ export const UI = {
   'UI-COMMON-LANGUAGE-EN': { en: 'English', tr: 'İngilizce' },
   'UI-COMMON-LANGUAGE-TR': { en: 'Turkish', tr: 'Türkçe' },
   'UI-COMMON-LOADING': { en: 'Loading…', tr: 'Yükleniyor…' },
+  'UI-COMMON-RETRY': { en: 'Try again', tr: 'Tekrar dene' },
   'UI-COMMON-LOGOUT': { en: 'Log out', tr: 'Çıkış yap' },
   'UI-COMMON-SIGN-IN': { en: 'Sign in', tr: 'Giriş yap' },
   'UI-COMMON-USER-AVATAR': { en: 'Signed in user', tr: 'Oturum açan kullanıcı' },
@@ -68,13 +69,6 @@ export const UI = {
   'UI-SIGNED-OUT-BODY': {
     en: 'Your session in this application has ended.',
     tr: 'Bu uygulamadaki oturumunuz sonlandırıldı.',
-  },
-
-  // ---- Routing skeleton placeholder (replaced by Customer Search) ----
-  'UI-PLACEHOLDER-TITLE': { en: 'You are signed in', tr: 'Oturumunuz açık' },
-  'UI-PLACEHOLDER-BODY': {
-    en: 'This protected page is a placeholder. The Customer Search screen will replace it.',
-    tr: 'Bu korumalı sayfa bir yer tutucudur. Yerini Müşteri Arama ekranı alacak.',
   },
 
   // ---- Customer Search (mock-ui-analysis §6.2) ----
@@ -101,6 +95,35 @@ export const UI = {
   },
   'UI-SEARCH-CREATE-NEW': { en: 'Create new customer', tr: 'Yeni müşteri oluştur' },
   'UI-SEARCH-PER-PAGE': { en: 'Per page', tr: 'Sayfa başına' },
+  'UI-SEARCH-SUBMIT': { en: 'Search', tr: 'Ara' },
+  'UI-SEARCH-CLEAR': { en: 'Clear', tr: 'Temizle' },
+  'UI-SEARCH-LOADING': { en: 'Loading customers…', tr: 'Müşteriler yükleniyor…' },
+  // State 3 (customer-search-analysis §6): browse mode with zero customers —
+  // deliberately DIFFERENT from MSG-CUST-NOT-FOUND, which implies a search
+  // happened. PROJECT-AUTHORED; analyst wording pending (scope §2A.3).
+  'UI-SEARCH-BROWSE-EMPTY-TITLE': { en: 'No customers yet', tr: 'Henüz müşteri yok' },
+  'UI-SEARCH-BROWSE-EMPTY-BODY': {
+    en: 'Customers will appear here once they are created.',
+    tr: 'Müşteriler oluşturuldukça burada listelenecek.',
+  },
+  // Client-side UX validation on Search (mock-ui-analysis §6.2 wording; the
+  // backend remains the authority, FE-ADR-007).
+  'UI-SEARCH-VAL-ID-LENGTH': {
+    en: 'ID number must be 11 digits.',
+    tr: 'Kimlik numarası 11 haneli olmalıdır.',
+  },
+  'UI-SEARCH-VAL-GSM-PREFIX': {
+    en: 'GSM number must start with 05.',
+    tr: 'GSM numarası 05 ile başlamalıdır.',
+  },
+  // Placeholders (mock-ui-analysis §6.2 table; name/last-name/account/order
+  // placeholders equal their labels and reuse those keys).
+  'UI-SEARCH-PLACEHOLDER-ID-NUMBER': {
+    en: '11-digit ID number',
+    tr: '11 haneli kimlik numarası',
+  },
+  'UI-SEARCH-PLACEHOLDER-CUSTOMER-ID': { en: 'e.g. 3068231', tr: 'ör. 3068231' },
+  'UI-SEARCH-PLACEHOLDER-GSM': { en: '05XX XXX XX XX', tr: '05XX XXX XX XX' },
   // Disabled account/order filters (out of scope, FE-ADR-013 §b; scope-and-conflicts §2.24 wording pending analyst).
   'UI-SEARCH-DEFERRED-HINT': {
     en: 'Available when the account/order module is released.',
@@ -130,6 +153,13 @@ export const UI = {
   'UI-CREATE-FIELD-STREET': { en: 'Street', tr: 'Cadde/Sokak' },
   'UI-CREATE-FIELD-HOUSE-NO': { en: 'House / flat number', tr: 'Bina / daire no' },
   'UI-CREATE-FIELD-DESCRIPTION': { en: 'Description', tr: 'Açıklama' },
+
+  // ---- Pagination (mock-ui-analysis §6.2 footer; parameterized per FE-ADR-012 §h:
+  //      named placeholders so TR can reorder freely; en-dash U+2013) ----
+  'UI-PAGINATION-RANGE': { en: '{from}–{to} of {total}', tr: '{total} kayıttan {from}–{to}' },
+  'UI-PAGINATION-PREV': { en: 'Previous page', tr: 'Önceki sayfa' },
+  'UI-PAGINATION-NEXT': { en: 'Next page', tr: 'Sonraki sayfa' },
+  'UI-PAGINATION-PAGE': { en: 'Page {page}', tr: 'Sayfa {page}' },
 
   // ---- Customer Info (mock-ui-analysis §6.4; account tab is out of scope) ----
   'UI-DETAIL-TAB-INFO': { en: 'Customer info', tr: 'Müşteri bilgisi' },

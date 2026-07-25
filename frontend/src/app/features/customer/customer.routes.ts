@@ -9,7 +9,7 @@ import { type Routes } from '@angular/router';
 export const CUSTOMER_ROUTES: Routes = [
   {
     path: '',
-    loadComponent: () => import('./customer-placeholder').then((m) => m.CustomerPlaceholder),
+    loadComponent: () => import('./search/customer-search').then((m) => m.CustomerSearch),
   },
   // Next phase (FE-ADR-013 scope):
   // { path: 'new', loadComponent: () => import('./create/...') }

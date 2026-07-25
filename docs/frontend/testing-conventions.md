@@ -151,7 +151,9 @@ it('renders translated copy and never leaks a catalogue key into the DOM', () =>
 });
 ```
 
-Çalışan referans: `frontend/src/app/features/customer/customer-placeholder.spec.ts`.
+Çalışan referans: `frontend/src/app/features/customer/search/customer-search.spec.ts`
+(golden path ekranının tam spec'i — durumlar, filtre parametreleri, hata zinciri;
+placeholder spec'i ekranla birlikte kaldırıldı, 2026-07-25).
 Kabuğun gerçek testid seti somut örnektir: `app-header`, `app-logo-link`,
 `app-language-switcher`, `app-language-en`, `app-language-tr`, `app-user`,
 `app-username`, `app-sidenav`, `app-nav-b2c/-b2b/-menu/-leads`,

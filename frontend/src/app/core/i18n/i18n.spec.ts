@@ -17,6 +17,16 @@ describe('i18n catalogue', () => {
     }
   });
 
+  it('EN and TR of every key use the SAME placeholder set (FE-ADR-012 §h)', () => {
+    const placeholdersOf = (text: string) =>
+      [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+    for (const [key, entry] of Object.entries(CATALOG)) {
+      expect(placeholdersOf(entry.en), `placeholder mismatch in ${key}`).toEqual(
+        placeholdersOf(entry.tr),
+      );
+    }
+  });
+
   it('includes every backend messageKey documented in the API contract', () => {
     // These are the keys the backend can return (docs/api/*.md +
     // functional-requirements.md). A key added server-side without a translation
@@ -44,6 +54,15 @@ describe('i18n catalogue', () => {
       'MSG-AUTH-UNAUTHORIZED',
       'MSG-AUTH-FORBIDDEN',
       'MSG-AUTH-CSRF-REJECTED',
+      // account-service (ADR-013 §6, account-service.md §Status/message matrix) —
+      // keys the backend can return. Frontend-only MSG-ACCT-DELETE-CONFIRM /
+      // MSG-ACCT-DELETED are deliberately not listed (never returned by backend).
+      'MSG-ACCT-HAS-PRODUCTS',
+      'MSG-ACCT-NOT-FOUND',
+      'MSG-ACCT-NOT-ACTIVE',
+      'MSG-ACCT-IMMUTABLE-FIELD',
+      'MSG-ACCT-DUP-NUMBER',
+      'MSG-ACCT-NUMBER-CAPACITY-EXCEEDED',
     ];
     for (const key of backendKeys) {
       expect(Object.prototype.hasOwnProperty.call(CATALOG, key), `missing ${key}`).toBe(true);
@@ -69,6 +88,25 @@ describe('I18nService', () => {
     expect(i18n.lang()).toBe('tr');
     expect(i18n.translate('LBL-SEARCH')).toBe('Ara');
     expect(localStorage.getItem(LANGUAGE_STORAGE_KEY)).toBe('tr');
+  });
+
+  it('interpolates named placeholders, TR reordering freely (FE-ADR-012 §h)', () => {
+    const i18n = TestBed.inject(I18nService);
+    expect(i18n.translate('UI-PAGINATION-RANGE', { from: 1, to: 20, total: 137 })).toBe(
+      '1–20 of 137',
+    );
+    i18n.setLanguage('tr');
+    expect(i18n.translate('UI-PAGINATION-RANGE', { from: 1, to: 20, total: 137 })).toBe(
+      '137 kayıttan 1–20',
+    );
+  });
+
+  it('leaves a missing placeholder as-is and warns (never degrades the whole string)', () => {
+    const i18n = TestBed.inject(I18nService);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    expect(i18n.translate('UI-PAGINATION-RANGE', { from: 1, to: 20 })).toBe('1–20 of {total}');
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it('falls back to generic text and warns on an unknown key', () => {

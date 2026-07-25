@@ -23,7 +23,10 @@ const FORBID_FEATURES = {
     'FE-ADR-003: core/ and shared/ must not import from features/. Move the shared piece into shared/ or invert the dependency.',
 };
 const FORBID_CORE = {
-  group: ['**/core/*', '**/core/**', '@core/*', '@core/**'],
+  // The negations exempt the npm package `@angular/core` (and its deep entry
+  // points like `@angular/core/testing`), which the `**/core/**` glob would
+  // otherwise match — the rule targets OUR src/app/core layer only.
+  group: ['**/core/*', '**/core/**', '@core/*', '@core/**', '!@angular/core', '!@angular/core/**'],
   message:
     'FE-ADR-003: shared/ must not import from core/. shared/ stays feature- and app-agnostic.',
 };

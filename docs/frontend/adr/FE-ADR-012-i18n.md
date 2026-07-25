@@ -139,6 +139,31 @@ drift impossible. Keeping the analyst catalogues in one file each mirrors the
 source document's table layout, so reconciling against a future revision of the
 `.docx` is a diff rather than an audit.
 
+### (h) Addendum (2026-07-24): parameterized translation — approved
+
+Texts like the pagination range (`"1–20 / 137"`) cannot be produced by a plain
+`translate(key)`. Approved by the team on 2026-07-24, deliberately narrow:
+
+1. **Signature:** `translate(key, params?: Record<string, string | number>)`;
+   the pipe accepts the same optional argument
+   (`{{ 'UI-SEARCH-RANGE' | t: rangeParams }}`). The pipe is already impure, so
+   language-change reactivity is unchanged.
+2. **Named placeholders only** — catalogue text carries `{from}`, `{to}`,
+   `{total}`; positional forms (`%s`, `{0}`) are forbidden. TR and EN word
+   order differs ("1–20 of 137" vs "137 kayıttan 1–20"), and only named
+   placeholders let each translation reorder freely.
+3. **No ICU / plural engine** — every known need is pure interpolation, and
+   Turkish plural forms do not vary by count ("1 kayıt", "5 kayıt"). Same
+   dependency-budget reasoning as §a; if a real plural/select need arrives,
+   that is a new decision, not an npm install.
+4. **Missing parameter → the placeholder is left as-is + `console.warn`**
+   (the FE-ADR-008 §3 stance: visible to developers, never silently swallowed,
+   less harmful to users than degrading the whole string to a generic).
+5. **Catalogue shape is unchanged** (`key → { en, tr }`) — no migration. The
+   integrity test gains one assertion: the EN and TR texts of a key must use
+   the **same placeholder set**, so `{total}` present in EN but missing in TR
+   turns the suite red.
+
 ## Consequences
 - The UI is fully translatable without a single backend change — the outcome
   `functional-requirements.md` designed for.

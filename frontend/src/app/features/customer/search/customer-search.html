@@ -1,0 +1,405 @@
+<!-- Customer Search — golden path. Layout/values verbatim from
+     mock-ui-analysis §6.2 (filter card 320px + results card, 24px gap); only
+     EDS tokens / shared-ui components (FE-ADR-011). Backend contract governs
+     behaviour (FE-ADR-013 §e). -->
+<section class="flex min-h-0 flex-1 flex-col gap-5" data-testid="customer-search-page">
+  <h1 class="text-h2 font-semibold tracking-heading text-ink">
+    {{ 'UI-SEARCH-TITLE' | t }}
+  </h1>
+
+  <div class="flex min-h-0 flex-1 items-stretch gap-6">
+    <!-- ══════════ SEARCH FILTER (320px card) ══════════ -->
+    <form
+      class="flex w-80 shrink-0 flex-col rounded-lg border border-line bg-surface"
+      (ngSubmit)="onSearch()"
+      [formGroup]="form"
+      data-testid="customer-search-filter-form"
+    >
+      <div class="flex h-16 shrink-0 items-center border-b border-line px-5">
+        <h2 class="text-h3 font-semibold text-ink">{{ 'UI-SEARCH-FILTER-HEADING' | t }}</h2>
+      </div>
+
+      <!-- body: padding 20px, gap 6px (§6.2) -->
+      <div class="flex flex-1 flex-col gap-1.5 overflow-y-auto p-5">
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-ID-NUMBER' | t"
+          controlId="customer-search-natid"
+          [errorText]="errorTextFor('nationalityId')"
+          testId="customer-search-filter-id-number"
+        >
+          <app-text-input
+            formControlName="nationalityId"
+            controlId="customer-search-natid"
+            inputMode="numeric"
+            [maxLength]="11"
+            [placeholder]="'UI-SEARCH-PLACEHOLDER-ID-NUMBER' | t"
+            [error]="!!errorTextFor('nationalityId')"
+            describedBy="customer-search-natid-error"
+            testId="customer-search-filter-id-number-input"
+          />
+        </app-form-field>
+
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-CUSTOMER-ID' | t"
+          controlId="customer-search-customer-id"
+          [errorText]="errorTextFor('customerId')"
+          testId="customer-search-filter-customer-id"
+        >
+          <app-text-input
+            formControlName="customerId"
+            controlId="customer-search-customer-id"
+            inputMode="numeric"
+            [placeholder]="'UI-SEARCH-PLACEHOLDER-CUSTOMER-ID' | t"
+            [error]="!!errorTextFor('customerId')"
+            describedBy="customer-search-customer-id-error"
+            testId="customer-search-filter-customer-id-input"
+          />
+        </app-form-field>
+
+        <!-- 501 filter: rendered but DISABLED at the control level; never sent
+             (FE-ADR-013 §b). Hint wording: scope §2.24 (asked to analyst). -->
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-ACCOUNT-NUMBER' | t"
+          controlId="customer-search-account-number"
+          [helperText]="'UI-SEARCH-DEFERRED-HINT' | t"
+          testId="customer-search-filter-account-number"
+        >
+          <app-text-input
+            formControlName="accountNumber"
+            controlId="customer-search-account-number"
+            inputMode="numeric"
+            [placeholder]="'UI-SEARCH-FILTER-ACCOUNT-NUMBER' | t"
+            testId="customer-search-filter-account-number-input"
+          />
+        </app-form-field>
+
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-GSM-NUMBER' | t"
+          controlId="customer-search-gsm"
+          [errorText]="errorTextFor('gsmNumber')"
+          testId="customer-search-filter-gsm-number"
+        >
+          <app-text-input
+            formControlName="gsmNumber"
+            controlId="customer-search-gsm"
+            inputMode="numeric"
+            [maxLength]="11"
+            [placeholder]="'UI-SEARCH-PLACEHOLDER-GSM' | t"
+            [error]="!!errorTextFor('gsmNumber')"
+            describedBy="customer-search-gsm-error"
+            testId="customer-search-filter-gsm-number-input"
+          />
+        </app-form-field>
+
+        <!-- Single "Name" box → firstName param (word-start over First+Middle,
+             KR-01); decided in scope §2.1. -->
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-NAME' | t"
+          controlId="customer-search-name"
+          [errorText]="errorTextFor('firstName')"
+          testId="customer-search-filter-name"
+        >
+          <app-text-input
+            formControlName="firstName"
+            controlId="customer-search-name"
+            [placeholder]="'UI-SEARCH-FILTER-NAME' | t"
+            [error]="!!errorTextFor('firstName')"
+            describedBy="customer-search-name-error"
+            testId="customer-search-filter-name-input"
+          />
+        </app-form-field>
+
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-LAST-NAME' | t"
+          controlId="customer-search-last-name"
+          [errorText]="errorTextFor('lastName')"
+          testId="customer-search-filter-last-name"
+        >
+          <app-text-input
+            formControlName="lastName"
+            controlId="customer-search-last-name"
+            [placeholder]="'UI-SEARCH-FILTER-LAST-NAME' | t"
+            [error]="!!errorTextFor('lastName')"
+            describedBy="customer-search-last-name-error"
+            testId="customer-search-filter-last-name-input"
+          />
+        </app-form-field>
+
+        <app-form-field
+          [label]="'UI-SEARCH-FILTER-ORDER-NUMBER' | t"
+          controlId="customer-search-order-number"
+          [helperText]="'UI-SEARCH-DEFERRED-HINT' | t"
+          testId="customer-search-filter-order-number"
+        >
+          <app-text-input
+            formControlName="orderNumber"
+            controlId="customer-search-order-number"
+            inputMode="numeric"
+            [placeholder]="'UI-SEARCH-FILTER-ORDER-NUMBER' | t"
+            testId="customer-search-filter-order-number-input"
+          />
+        </app-form-field>
+      </div>
+
+      <!-- footer: 16px 20px, top border, gap 12px; Clear auto + Search fullWidth -->
+      <div class="flex shrink-0 gap-3 border-t border-line px-5 py-4">
+        <app-button variant="secondary" testId="customer-search-clear-button" (action)="onClear()">
+          {{ 'UI-SEARCH-CLEAR' | t }}
+        </app-button>
+        <div class="flex-1">
+          <app-button
+            type="submit"
+            iconLeading="search"
+            [fullWidth]="true"
+            [disabled]="allEmpty()"
+            testId="customer-search-submit-button"
+          >
+            {{ 'UI-SEARCH-SUBMIT' | t }}
+          </app-button>
+        </div>
+      </div>
+    </form>
+
+    <!-- ══════════ SEARCH RESULTS ══════════ -->
+    <div class="flex min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
+      <div class="flex h-16 shrink-0 items-center justify-between border-b border-line px-5">
+        <h2 class="text-h3 font-semibold text-ink">{{ 'UI-SEARCH-RESULTS-HEADING' | t }}</h2>
+        <!-- Create Customer screen does not exist yet — no fake behaviour
+             (FE-ADR-013 §a): rendered disabled until the wizard ships. -->
+        <app-button
+          size="sm"
+          iconLeading="user-plus"
+          [disabled]="true"
+          testId="customer-search-create-new-button"
+        >
+          {{ 'UI-SEARCH-CREATE-NEW' | t }}
+        </app-button>
+      </div>
+
+      <!-- State 5: reloading keeps the table; a thin brand bar signals activity. -->
+      @if (reloading()) {
+        <div class="h-0.5 w-full shrink-0 bg-brand" aria-hidden="true"></div>
+      }
+
+      <!-- States 11/12 (+ unmatched 400 errors): in-context banner; the table
+           below keeps its last good data. messageKey → i18n only (FE-ADR-008). -->
+      @if (bannerText(); as text) {
+        <div
+          class="m-5 mb-0 flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+          role="alert"
+          data-testid="customer-search-error-banner"
+        >
+          <div class="flex min-w-0 flex-col gap-1 text-body-sm text-danger-fg">
+            <span>{{ text }}</span>
+            @for (fieldError of unmatchedFieldErrors(); track fieldError.field) {
+              <span>{{ fieldError.messageKey | t }}</span>
+            }
+          </div>
+          <app-button
+            variant="secondary"
+            size="sm"
+            testId="customer-search-retry-button"
+            (action)="retry()"
+          >
+            {{ 'UI-COMMON-RETRY' | t }}
+          </app-button>
+        </div>
+      }
+
+      <!-- State 1: first load skeleton (no rows yet). -->
+      @if (initialLoading()) {
+        <div
+          class="flex flex-1 flex-col gap-3 p-5"
+          role="status"
+          aria-busy="true"
+          [attr.aria-label]="'UI-SEARCH-LOADING' | t"
+          data-testid="customer-search-loading"
+        >
+          <div class="h-4 w-full rounded-sm bg-sunken"></div>
+          <div class="h-4 w-full rounded-sm bg-sunken"></div>
+          <div class="h-4 w-3/4 rounded-sm bg-sunken"></div>
+          <div class="h-4 w-full rounded-sm bg-sunken"></div>
+          <div class="h-4 w-2/3 rounded-sm bg-sunken"></div>
+          <div class="h-4 w-full rounded-sm bg-sunken"></div>
+        </div>
+      } @else if (searchEmpty()) {
+        <!-- State 4: a search matched nothing → analyst copy MSG-CUST-NOT-FOUND. -->
+        <div
+          class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+          data-testid="customer-search-empty-state"
+        >
+          <span class="flex size-12 items-center justify-center rounded-full bg-sunken">
+            <app-icon name="search-x" [size]="24" class="text-ink-muted" />
+          </span>
+          <span class="text-body-lg font-semibold text-ink">{{ 'MSG-CUST-NOT-FOUND' | t }}</span>
+          <span class="max-w-90 text-body text-ink-soft">{{ 'UI-SEARCH-EMPTY-BODY' | t }}</span>
+        </div>
+      } @else if (browseEmpty()) {
+        <!-- State 3: browse mode, zero customers — NOT "not found" (no search ran). -->
+        <div
+          class="flex flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+          data-testid="customer-search-browse-empty-state"
+        >
+          <span class="flex size-12 items-center justify-center rounded-full bg-sunken">
+            <app-icon name="users" [size]="24" class="text-ink-muted" />
+          </span>
+          <span class="text-body-lg font-semibold text-ink">
+            {{ 'UI-SEARCH-BROWSE-EMPTY-TITLE' | t }}
+          </span>
+          <span class="max-w-90 text-body text-ink-soft">
+            {{ 'UI-SEARCH-BROWSE-EMPTY-BODY' | t }}
+          </span>
+        </div>
+      } @else if (store.customers().length > 0) {
+        <!-- State 2: results table — semantic HTML (FE-ADR-011 §e), 6 mock columns. -->
+        <div class="min-h-0 flex-1 overflow-auto">
+          <table class="w-full border-collapse" data-testid="customer-search-results-table">
+            <thead>
+              <tr class="bg-sunken">
+                <th
+                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
+                >
+                  {{ 'UI-SEARCH-COL-CUSTOMER-ID' | t }}
+                </th>
+                <th
+                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
+                >
+                  {{ 'UI-SEARCH-COL-FIRST-NAME' | t }}
+                </th>
+                <th
+                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
+                >
+                  {{ 'UI-SEARCH-COL-SECOND-NAME' | t }}
+                </th>
+                <th
+                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
+                >
+                  {{ 'UI-SEARCH-COL-LAST-NAME' | t }}
+                </th>
+                <th
+                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
+                >
+                  {{ 'UI-SEARCH-COL-ROLE' | t }}
+                </th>
+                <th
+                  class="px-5 py-3 text-left text-body-sm font-semibold tracking-label whitespace-nowrap text-ink-soft"
+                >
+                  {{ 'UI-SEARCH-COL-ID-NUMBER' | t }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (customer of store.customers(); track customer.customerNumber; let odd = $odd) {
+                <tr
+                  class="border-t border-line"
+                  [class.bg-page]="odd"
+                  [class.bg-surface]="!odd"
+                  [attr.data-testid]="'customer-search-results-row-' + customer.customerNumber"
+                >
+                  <td class="px-5 py-4 whitespace-nowrap">
+                    <!-- Customer Info route does not exist yet; the link is
+                         prepared but INERT (scope §2A.5 recorded suggestion). -->
+                    <span
+                      class="eds-tabular-nums cursor-default font-medium text-brand-active underline underline-offset-2"
+                      aria-disabled="true"
+                      [attr.data-testid]="
+                        'customer-search-results-row-' + customer.customerNumber + '-open-link'
+                      "
+                    >
+                      {{ customer.customerNumber }}
+                    </span>
+                  </td>
+                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink">
+                    {{ customer.firstName }}
+                  </td>
+                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink">
+                    {{ customer.middleName ?? '' }}
+                  </td>
+                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink">
+                    {{ customer.lastName }}
+                  </td>
+                  <td class="px-5 py-4 text-body whitespace-nowrap text-ink-soft">
+                    {{ customer.role }}
+                  </td>
+                  <td class="eds-tabular-nums px-5 py-4 text-body whitespace-nowrap text-ink">
+                    {{ customer.nationalityId }}
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination footer: range | ‹ pages › | per-page (mock §6.2). -->
+        <div
+          class="flex shrink-0 items-center gap-4 border-t border-line px-5 py-3"
+          data-testid="customer-search-pagination"
+        >
+          <span class="eds-tabular-nums flex-1 text-body-sm text-ink-muted">
+            {{ rangeText() }}
+          </span>
+
+          <div class="flex items-center gap-1">
+            <app-icon-button
+              icon="chevron-left"
+              [ariaLabel]="'UI-PAGINATION-PREV' | t"
+              [disabled]="store.isFirst()"
+              testId="customer-search-pagination-prev"
+              (action)="goToPage(store.page())"
+            />
+            @for (item of pageItems(); track $index) {
+              @if (item === 'gap') {
+                <span class="px-1 text-body-sm text-ink-muted select-none" aria-hidden="true">
+                  …
+                </span>
+              } @else {
+                <button
+                  type="button"
+                  class="eds-tabular-nums h-8 min-w-8 rounded-md border px-1.5 text-body-sm transition-colors duration-100 ease-standard"
+                  [class.border-brand]="item === store.page() + 1"
+                  [class.bg-selected]="item === store.page() + 1"
+                  [class.text-brand-active]="item === store.page() + 1"
+                  [class.font-semibold]="item === store.page() + 1"
+                  [class.cursor-default]="item === store.page() + 1"
+                  [class.border-line]="item !== store.page() + 1"
+                  [class.bg-surface]="item !== store.page() + 1"
+                  [class.text-ink-soft]="item !== store.page() + 1"
+                  [class.font-medium]="item !== store.page() + 1"
+                  [attr.aria-current]="item === store.page() + 1 ? 'page' : null"
+                  [attr.aria-label]="'UI-PAGINATION-PAGE' | t: { page: item }"
+                  [attr.data-testid]="'customer-search-pagination-page-' + item"
+                  (click)="goToPage(item)"
+                >
+                  {{ item }}
+                </button>
+              }
+            }
+            <app-icon-button
+              icon="chevron-right"
+              [ariaLabel]="'UI-PAGINATION-NEXT' | t"
+              [disabled]="store.isLast()"
+              testId="customer-search-pagination-next"
+              (action)="goToPage(store.page() + 2)"
+            />
+          </div>
+
+          <div class="flex flex-1 items-center justify-end gap-2">
+            <span class="text-body-sm whitespace-nowrap text-ink-soft">
+              {{ 'UI-SEARCH-PER-PAGE' | t }}
+            </span>
+            <div class="w-24">
+              <app-select
+                [formControl]="sizeControl"
+                [options]="pageSizeOptions"
+                controlId="customer-search-page-size"
+                size="sm"
+                [dropUp]="true"
+                testId="customer-search-page-size-select"
+              />
+            </div>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</section>

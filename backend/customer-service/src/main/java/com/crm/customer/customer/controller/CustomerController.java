@@ -3,6 +3,7 @@ package com.crm.customer.customer.controller;
 import com.crm.customer.customer.dto.request.CustomerCreateRequest;
 import com.crm.customer.customer.dto.request.CustomerUpdateRequest;
 import com.crm.customer.customer.dto.response.CustomerDetailResponse;
+import com.crm.customer.customer.dto.response.NationalityIdAvailabilityResponse;
 import com.crm.customer.customer.service.CustomerService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
@@ -67,6 +68,26 @@ public class CustomerController {
         Page<CustomerDetailResponse> result = customerService.search(
                 firstName, lastName, nationalityId, customerId, gsmNumber, accountNumber, orderNumber, pageable);
         return ResponseEntity.ok(result);
+    }
+
+    /**
+     * ADR-005 §Addendum (2026-07-29): read-only Nationality-ID availability probe.
+     *
+     * NOT a list/filter alias — it returns no customer data at all, only whether the
+     * ID is still free. It exists because the ADR-003 rule covers SOFT-DELETED
+     * holders while every read endpoint here is active-only by design, so the create
+     * screen had no way to tell the user before the POST failed with 409.
+     *
+     * The literal path segment is more specific than {@code /{customerNumber}}, so
+     * Spring routes it here and the detail endpoint is untouched (asserted by IT
+     * {@code nationalityIdAvailabilityDoesNotShadowDetail}).
+     *
+     * Advisory only: {@code POST /api/customers} stays the authority.
+     */
+    @GetMapping("/nationality-id-availability")
+    public ResponseEntity<NationalityIdAvailabilityResponse> checkNationalityIdAvailability(
+            @RequestParam @Pattern(regexp = NUMERIC_REGEX, message = NUMERIC_ONLY_MESSAGE) String nationalityId) {
+        return ResponseEntity.ok(customerService.checkNationalityIdAvailability(nationalityId));
     }
 
     @GetMapping("/{customerNumber}")

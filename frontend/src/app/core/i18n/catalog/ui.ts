@@ -71,6 +71,11 @@ export const UI = {
   'UI-SEARCH-TITLE': { en: 'Search customer', tr: 'Müşteri ara' },
   'UI-SEARCH-FILTER-HEADING': { en: 'Search filter', tr: 'Arama filtresi' },
   'UI-SEARCH-RESULTS-HEADING': { en: 'Search results', tr: 'Arama sonuçları' },
+  // Browse mode (ADR-005 criterion-less list, AC-CUST-01-00): the card holds
+  // EVERY active customer, not the result of a search — so it must not claim
+  // to be one. PROJECT-AUTHORED heading; analyst wording may replace the text
+  // without touching code (scope §4.26).
+  'UI-SEARCH-BROWSE-HEADING': { en: 'All customers', tr: 'Tüm müşteriler' },
   'UI-SEARCH-FILTER-ID-NUMBER': { en: 'ID number', tr: 'Kimlik numarası' },
   'UI-SEARCH-FILTER-CUSTOMER-ID': { en: 'Customer ID', tr: 'Müşteri no' },
   'UI-SEARCH-FILTER-ACCOUNT-NUMBER': { en: 'Account number', tr: 'Hesap numarası' },

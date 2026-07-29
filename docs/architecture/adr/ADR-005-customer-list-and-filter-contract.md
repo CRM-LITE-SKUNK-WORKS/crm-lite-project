@@ -78,6 +78,46 @@ accepts any positive `size`. If the analysts want the API default itself to be 1
 that is a one-line change; the open question is tracked in
 `docs/requirements/traceability-matrix.md` and PROJECTBRAIN "Open conflicts".
 
+## Addendum (2026-07-29) — Nationality-ID availability probe
+
+**Status:** Accepted. Does not amend any decision above; it closes a gap they left.
+
+**Context.** Decision §2 makes every read here **active-only**, while ADR-003 makes
+Nationality-ID uniqueness **global and permanent** — a soft-deleted customer keeps its
+ID reserved forever. The two are individually right and jointly leave a hole: the create
+screen has no way to ask "is this ID free?". `GET /api/customers?nationalityId=` answers
+"nothing found" for a soft-deleted holder, then `POST /api/customers` answers 409
+`MSG-CUST-DUP-NATID`. Observed cost: the user fills three wizard steps and only then
+learns the ID was never usable.
+
+**Decision.** Add one read-only endpoint,
+`GET /api/customers/nationality-id-availability?nationalityId={id}` → `{"available": bool}`.
+
+1. **This is not a second list/filter endpoint and not a `/search` revival.** §1 stands.
+   It returns no customer data, accepts no paging or sorting, and cannot enumerate
+   anything: one ID in, one boolean out.
+2. **It reports the ADR-003 rule, not the list's view of it.** It calls the very method
+   the create path uses (`CustomerBusinessRules.isNationalityIdAvailableForCreate`), so
+   probe and authority are the same predicate over the same rows — soft-deleted and
+   passive included. They cannot drift.
+3. **Advisory, never a reservation.** `true` is a snapshot. The create-time check and the
+   DB UNIQUE constraint remain the authority; clients keep handling 409.
+4. **Minimal disclosure.** The response carries `available` and nothing else — no
+   customer number, no name, not even an echo of the queried ID. Since the rule covers
+   deleted people, any richer answer would make this an existence-mining endpoint.
+   Access is the standard `crm-user` requirement (ADR-009); it is not public.
+5. **Routing.** The literal segment outranks `/{customerNumber}`; the detail endpoint is
+   unchanged (asserted by an integration test).
+
+**Consequences.**
+- The create screen can refuse a taken ID at step 1, including the soft-deleted case,
+  instead of after the whole wizard.
+- One more public surface to keep in step with ADR-003 — mitigated by §2: there is only
+  one implementation of the rule.
+- A missing required query parameter now answers 400 instead of 500 service-wide
+  (`MissingServletRequestParameterException` handler added alongside), matching how
+  type-mismatched parameters were already handled.
+
 ## Consequences
 - Frontend can implement AC-CUST-01-00 (post-login all-customer list) directly.
 - One DTO to maintain for customer reads; list and detail can never drift apart.

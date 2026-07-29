@@ -145,7 +145,60 @@ describe('CustomerSearch', () => {
     expect(TestBed.inject(CustomerFlashService).consume()).toBeNull(); // already consumed
   });
 
+  // ---- browse vs. search heading (ADR-005 modes) --------------------------
+
+  it('names the card "All customers" while browsing and "Search results" only after a filter is applied', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    const heading = () => byTestId(fixture, 'customer-search-results-heading')?.textContent?.trim();
+    expect(heading()).toBe('All customers'); // browse mode: nothing was searched
+    type(fixture, 'customer-search-filter-name-input', 'Nur');
+    clickSearch(fixture);
+    lastListRequest().flush(envelope([ZEYNEP]));
+    fixture.detectChanges();
+    expect(heading()).toBe('Search results');
+    // Clearing the filter returns to browse mode — and to the browse heading.
+    type(fixture, 'customer-search-filter-name-input', '');
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    expect(heading()).toBe('All customers');
+  });
+
+  it('translates the browse heading (TR) — no leaked catalogue key', () => {
+    TestBed.inject(I18nService).setLanguage('tr');
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+    expect(byTestId(fixture, 'customer-search-results-heading')?.textContent?.trim()).toBe(
+      'Tüm müşteriler',
+    );
+  });
+
   // ---- AC-CUST-01-02 + filters -------------------------------------------
+
+  it('the three numeric filters accept digits ONLY — letters and symbols never enter the field or the request', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+    const numericFilters = [
+      'customer-search-filter-id-number-input',
+      'customer-search-filter-customer-id-input',
+      'customer-search-filter-gsm-number-input',
+    ];
+    for (const testId of numericFilters) {
+      type(fixture, testId, 'a1b2-c3');
+      expect((byTestId(fixture, testId) as HTMLInputElement).value).toBe('123');
+    }
+    // and the sanitized value is what the request carries
+    type(fixture, 'customer-search-filter-customer-id-input', '');
+    type(fixture, 'customer-search-filter-gsm-number-input', '');
+    type(fixture, 'customer-search-filter-id-number-input', '1234x5678901');
+    clickSearch(fixture);
+    const req = lastListRequest();
+    expect(req.request.params.get('nationalityId')).toBe('12345678901');
+    req.flush(envelope([ALI]));
+  });
 
   it('Search is disabled while every filter is empty, enabled once one is filled', () => {
     const fixture = render();

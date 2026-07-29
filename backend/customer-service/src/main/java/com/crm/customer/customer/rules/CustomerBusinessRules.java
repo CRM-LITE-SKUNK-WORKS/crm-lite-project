@@ -48,10 +48,25 @@ public class CustomerBusinessRules {
         return customer;
     }
 
+    /**
+     * ADR-003 uniqueness as a QUERY: is this Nationality ID still free for a create?
+     * Same rows and same semantics as {@link #checkNationalityIdIsUniqueForCreate} —
+     * ALL ind rows, soft-deleted and passive included — it just answers instead of
+     * throwing. Deliberately the single source of the rule so the pre-check exposed
+     * by the API can never drift away from the create-time authority.
+     *
+     * Advisory by nature: a create between the probe and the POST still loses to the
+     * 409 (and, in a race, to the DB UNIQUE constraint). Callers must not treat a
+     * `true` here as a reservation.
+     */
+    public boolean isNationalityIdAvailableForCreate(String nationalityId) {
+        return !individualRepository.existsByNationalityId(nationalityId);
+    }
+
     // ADR-003: global, permanent uniqueness — checks ALL ind rows including
     // soft-deleted/passive ones. The DB UNIQUE constraint is the racing-insert backstop.
     public void checkNationalityIdIsUniqueForCreate(String nationalityId) {
-        if (individualRepository.existsByNationalityId(nationalityId)) {
+        if (!isNationalityIdAvailableForCreate(nationalityId)) {
             throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.CUST_DUP_NATID,
                     "A customer already exists with this Nationality ID");
         }

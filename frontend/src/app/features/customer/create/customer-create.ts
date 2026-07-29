@@ -80,6 +80,11 @@ interface AddressDraft extends AddressRequest {
  * backend's 409 `MSG-CUST-DUP-NATID` (globally unique incl. soft-deleted,
  * ADR-003) and the MERNIS pipeline.
  *
+ * Duplicate NAT ID is checked TWICE, on purpose (scope §4.26/§4.28): early on
+ * step 1 `Next` against the availability endpoint — which reports the ADR-003
+ * rule INCLUDING soft-deleted holders (ADR-005 §Addendum) — and finally by the
+ * POST itself, which stays the authority for the race between the two.
+ *
  * No account fields: the atomic create is customer-service's scope only;
  * billing accounts are the separate F6 flow (and the mock's create steps
  * carry no account field either — verified, no conflict to record).
@@ -198,6 +203,8 @@ export class CustomerCreate {
 
   // --- submit / errors ------------------------------------------------------
   protected readonly busy = signal(false);
+  /** In-flight early duplicate-NATID probe (step 1 Next). */
+  protected readonly natIdChecking = signal(false);
   private readonly serverError = signal<ApiError | null>(null);
   private readonly clientErrors = signal<Partial<Record<DemographicField | ContactField, string>>>(
     {},
@@ -250,9 +257,10 @@ export class CustomerCreate {
     this.step.update((current) => (current === 2 ? 1 : 0));
   }
 
-  /** Step 1 → 2: the mock's submit-time checks (UX only, FE-ADR-007). */
+  /** Step 1 → 2: the mock's submit-time checks (UX only, FE-ADR-007), then the
+   *  early duplicate-NATID probe (see {@link checkDuplicateNatId}). */
   protected nextFromDemographic(): void {
-    if (this.demographicIncomplete()) return;
+    if (this.demographicIncomplete() || this.natIdChecking()) return;
     const raw = this.demographicForm.getRawValue();
     const errors: Partial<Record<DemographicField, string>> = {};
     if (!NAME_RE.test(raw.firstName.trim())) errors.firstName = 'MSG-VAL-NAME';
@@ -265,7 +273,39 @@ export class CustomerCreate {
     if (raw.nationalityId.trim().length !== 11) errors.nationalityId = 'MSG-VAL-NATID';
     this.clientErrors.set(errors);
     if (Object.keys(errors).length > 0) return;
-    this.step.set(1);
+    this.checkDuplicateNatId(raw.nationalityId.trim());
+  }
+
+  /**
+   * DOUBLE CHECK, first half: tell the user at step 1 — not after three steps
+   * of typing — that this Nationality ID is taken. Asks the dedicated
+   * availability endpoint (ADR-005 §Addendum), which reports the ADR-003 rule
+   * in full, SOFT-DELETED holders included; a hit shows `MSG-CUST-DUP-NATID`
+   * under the field and keeps the wizard on step 1.
+   *
+   * The second half — the POST's own 409 — is deliberately NOT removed. The
+   * probe is advisory, not a reservation: another operator can take the ID
+   * between this call and Create, and the backend is the authority regardless
+   * (FE-ADR-007 §3). If the probe itself fails (5xx, offline) we let the user
+   * CONTINUE: a broken convenience check must not block a flow the backend can
+   * still complete correctly.
+   */
+  private checkDuplicateNatId(nationalityId: string): void {
+    this.natIdChecking.set(true);
+    this.api.nationalityIdIsTaken(nationalityId).subscribe({
+      next: (taken) => {
+        this.natIdChecking.set(false);
+        if (taken) {
+          this.clientErrors.set({ nationalityId: 'MSG-CUST-DUP-NATID' });
+          return;
+        }
+        this.step.set(1);
+      },
+      error: () => {
+        this.natIdChecking.set(false);
+        this.step.set(1);
+      },
+    });
   }
 
   protected nextFromAddress(): void {

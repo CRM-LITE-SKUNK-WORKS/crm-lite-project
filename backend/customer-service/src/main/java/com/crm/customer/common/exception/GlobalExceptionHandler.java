@@ -19,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -92,6 +93,28 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex, HttpServletRequest request) {
         Map<String, String> validationErrors = new LinkedHashMap<>();
         validationErrors.put(ex.getName(), "must contain digits only");
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.BAD_REQUEST.value())
+                .error(HttpStatus.BAD_REQUEST.getReasonPhrase())
+                .messageKey(MessageKeys.VALIDATION_ERROR)
+                .message("Request validation failed")
+                .path(request.getRequestURI())
+                .validationErrors(validationErrors)
+                .build();
+        return ResponseEntity.badRequest().body(body);
+    }
+
+    // A REQUIRED query parameter that was not sent is a client mistake, not a server
+    // fault — same reasoning as the type-mismatch handler above: Spring rejects the
+    // request before the method body runs, so without this it fell through to the
+    // generic Exception handler and answered 500. The offending parameter name is
+    // reported in validationErrors, like every other field-level rejection.
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ErrorResponse> handleMissingParameter(MissingServletRequestParameterException ex,
+                                                                HttpServletRequest request) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        validationErrors.put(ex.getParameterName(), "is required");
         ErrorResponse body = ErrorResponse.builder()
                 .timestamp(Instant.now())
                 .status(HttpStatus.BAD_REQUEST.value())

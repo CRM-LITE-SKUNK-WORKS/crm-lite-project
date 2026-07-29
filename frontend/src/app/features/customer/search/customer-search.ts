@@ -71,6 +71,14 @@ type FilterControlName = (typeof FILTERABLE_CONTROLS)[number];
     Toast,
   ],
   providers: [CustomerListStore],
+  // The screen's own element is a flex CHILD of the shell's <main>, so it must
+  // carry the flex chain itself: without this the host defaults to auto height,
+  // the template's `flex-1 / min-h-0` chain has no bounded ancestor and the
+  // results card grows with the row count — pushing the scroll onto the whole
+  // page instead of the table (bug A3, page size 50/100). The scrolling
+  // container stays in this screen: `Table` is deliberately scroll-agnostic
+  // (shared/patterns/table §contract), so the fix does NOT belong in the pattern.
+  host: { class: 'flex min-h-0 flex-1 flex-col' },
   templateUrl: './customer-search.html',
 })
 export class CustomerSearch {
@@ -148,6 +156,16 @@ export class CustomerSearch {
   // --- view-state helpers ----------------------------------------------------
   protected readonly hasAppliedCriteria = computed(
     () => Object.keys(this.store.criteria()).length > 0,
+  );
+  /** The results card names what it actually shows. In BROWSE mode (ADR-005
+   *  criterion-less list, AC-CUST-01-00) nothing was searched yet, so calling it
+   *  "Search results" would be untrue; the heading switches only once a filter
+   *  is applied. Same distinction the empty states already draw
+   *  (`browseEmpty` vs `searchEmpty`). */
+  protected readonly resultsHeading = computed(() =>
+    this.i18n.translate(
+      this.hasAppliedCriteria() ? 'UI-SEARCH-RESULTS-HEADING' : 'UI-SEARCH-BROWSE-HEADING',
+    ),
   );
   /** State 1: first load — no rows yet, skeleton replaces the table. */
   protected readonly initialLoading = computed(

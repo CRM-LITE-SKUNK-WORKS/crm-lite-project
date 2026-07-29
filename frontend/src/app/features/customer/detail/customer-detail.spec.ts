@@ -258,6 +258,11 @@ describe('CustomerDetail', () => {
     const error = byTestId(fixture, 'customer-detail-address-delete-dialog-error');
     expect(error?.textContent).toContain('linked to an active billing account');
     expect(error?.textContent).not.toContain('raw');
+    // AC-ADDR-04-04: the address survives a refused delete — no optimistic
+    // removal, and no client-side "is it in use?" guess (the backend check is
+    // still a customer-service no-op today; scope §5.9 / §4.27).
+    expect(byTestId(fixture, 'customer-detail-address-2')).not.toBeNull();
+    expect(http.match((r) => r.url === '/api/customers/1001/addresses').length).toBe(0);
   });
 
   it('add-address opens the dialog, loads the city cascade and disables save until complete', () => {

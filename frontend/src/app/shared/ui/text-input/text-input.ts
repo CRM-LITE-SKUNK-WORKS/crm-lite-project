@@ -74,6 +74,19 @@ export class TextInput implements ControlValueAccessor {
   readonly placeholder = input<string | undefined>(undefined);
   /** `numeric` for the Nationality-ID / phone fields (digit keypad + intent). */
   readonly inputMode = input<'numeric' | 'tel' | 'email' | 'text' | undefined>(undefined);
+  /**
+   * ENFORCES digits-only, as opposed to `inputMode="numeric"` which is a mere
+   * keyboard HINT that a physical keyboard, a paste or autofill ignores.
+   * Non-digits are stripped from both the model and the DOM as they arrive, so
+   * a letter can never be typed or pasted into the field (mock §6.2/§6.3
+   * "sadece rakam" rule for ID number / Customer ID / GSM / Nationality ID).
+   *
+   * This stays presentation-level input hygiene, not validation: the field's
+   * VALIDITY is still decided by the caller and, ultimately, by the backend
+   * (FE-ADR-007 §3) — the component only refuses characters the field can
+   * never legitimately hold.
+   */
+  readonly digitsOnly = input<boolean>(false);
   readonly maxLength = input<number | undefined>(undefined);
   readonly showCount = input<boolean>(false);
   readonly clearable = input<boolean>(false);
@@ -128,7 +141,14 @@ export class TextInput implements ControlValueAccessor {
   });
 
   protected onInput(event: Event): void {
-    const next = (event.target as HTMLInputElement).value;
+    const element = event.target as HTMLInputElement;
+    const next = this.digitsOnly() ? element.value.replace(/\D/g, '') : element.value;
+    // Write the sanitized text straight back: the `[value]` binding alone would
+    // not repaint when `value()` did not change (typing "a" into "123"), which
+    // would leave the rejected character visible on screen.
+    if (element.value !== next) {
+      element.value = next;
+    }
     this.value.set(next);
     this.onChange(next);
   }

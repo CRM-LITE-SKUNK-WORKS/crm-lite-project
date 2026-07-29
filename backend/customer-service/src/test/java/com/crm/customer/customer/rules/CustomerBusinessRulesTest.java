@@ -111,6 +111,23 @@ class CustomerBusinessRulesTest {
     }
 
     @Test
+    void nationalityIdAvailability_reportsTheSameRuleAsTheCreateCheck() {
+        // The availability probe (ADR-005 §Addendum) must answer from the SAME rows as
+        // the create-time authority — soft-deleted holders included (ADR-003) — or the
+        // create screen would clear an ID the POST then rejects.
+        when(individualRepository.existsByNationalityId("34567890123")).thenReturn(true);
+        when(individualRepository.existsByNationalityId("99988877766")).thenReturn(false);
+
+        assertThat(rules.isNationalityIdAvailableForCreate("34567890123")).isFalse();
+        assertThat(rules.isNationalityIdAvailableForCreate("99988877766")).isTrue();
+
+        // and the throwing check agrees with it, field for field
+        assertThatThrownBy(() -> rules.checkNationalityIdIsUniqueForCreate("34567890123"))
+                .isInstanceOf(BusinessException.class);
+        rules.checkNationalityIdIsUniqueForCreate("99988877766");
+    }
+
+    @Test
     void nationalityIdUniqueness_updateExcludesOnlyOwnRecord() {
         when(individualRepository.existsByNationalityIdAndIdNot("12345678901", 5L)).thenReturn(true);
 

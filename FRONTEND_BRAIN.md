@@ -6,7 +6,35 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-25 (**🏁 KAPSAM-İÇİ EKRANLARIN TAMAMI BİTTİ:
+> **Son güncelleme:** 2026-07-29 (**🐞 HATA DÜZELTME TURU** — 6 bulgunun 4'ü
+> düzeltildi, 2'si backend bağımlılığı olarak kayda geçti. Düzeltilenler:
+> Customer Search'ün sonuç başlığı artık browse modunda **"All customers"**
+> (yeni anahtar `UI-SEARCH-BROWSE-HEADING`; arama yapılınca "Search results");
+> adres kartları ile "Add new address" döşemesi `auto-rows-fr` ile **birebir
+> aynı yükseklikte**; müşteri listesi **kendi iç scroll'una** kavuştu (kopan
+> halka ekranın host flex zinciriydi — `Table` deseni bilinçle scroll'suz,
+> desende değil ekranda çözüldü); `shared/ui/TextInput`'a **`digitsOnly`**
+> girdisi eklendi (fiili rakam kısıtı; `inputMode` yalnız klavye ipucuydu) ve
+> Search'ün ID number / Customer ID / GSM ile Create'in Nationality ID alanına
+> bağlandı; **mükerrer NAT ID artık adım 1'de** `LBL-NEXT`'te
+> `GET /api/customers?nationalityId=` ile sorulup alan altında
+> `MSG-CUST-DUP-NATID` ile engelleniyor — create sonundaki 409 **emniyet olarak
+> duruyor** (yarış koşulu için). ⚡ **Bu tur backend'e de dokunuldu (ekip
+> onayıyla, CLAUDE.md'nin "frontend görevinde backend'e dokunma" kuralının açık
+> istisnası):** soft-deleted bir müşterinin NAT ID'si hiçbir okuma ucundan
+> görünmediği için erken kontrol o vakayı kaçırıyordu; **ADR-005 §Addendum** ile
+> `GET /api/customers/nationality-id-availability` eklendi — kuralı create
+> yolunun kullandığı metotla yanıtlıyor, tek alan (`available`) döndürüyor,
+> advisory. Artık **silinmiş müşterinin kimlik numarası da adım 1'de**
+> yakalanıyor. Backend'e bağımlı kalanlar: **AC-ADDR-04-04 `MSG-ADDR-IN-USE`**
+> kontrolü customer-service'te hâlâ **no-op** (scope §5.9 — FE hata-gösterme
+> yolu hazır ve testli, istemci taklidi yazılmadı) ve **Account Description**
+> alanı account-service kontratında **yok** (scope §1A.7 — fazladan alan 400
+> `MSG-ACCT-IMMUTABLE-FIELD` ile reddediliyor). **FE 276/276 + BE 65/65 test**
+> (origin/dev'in auth/logout PR'ı #17 merge edildikten sonraki sayı), lint +
+> konvansiyon + prod build yeşil; kayıtlar: scope §4.26/§4.27, §5.9,
+> §5.10 (kapandı), §1A.7 + ADR-005 §Addendum.
+> Önceki: 2026-07-25 (**🏁 KAPSAM-İÇİ EKRANLARIN TAMAMI BİTTİ:
 > Create Customer wizard yazıldı (FR-CUST-03, KR-10)** — 3 adımlı wizard
 > (`/customers/new`): demografik + yerel adres taslakları (paylaşılan adres
 > dialog'u `draft` modunda) + iletişim → **tek atomik POST**; MERNIS backend'de

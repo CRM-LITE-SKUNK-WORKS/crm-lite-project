@@ -6,6 +6,7 @@ export type {
   DemographicRequest,
   CreateCustomerRequest,
   UpdateCustomerRequest,
+  NationalityIdAvailabilityResponse,
 } from './customer.model';
 export type { AddressRequest, AddressResponse } from './address.model';
 export type { ContactMediumRequest, ContactMediumResponse } from './contact.model';

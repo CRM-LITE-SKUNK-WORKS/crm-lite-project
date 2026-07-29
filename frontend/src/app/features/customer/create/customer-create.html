@@ -164,6 +164,7 @@
               formControlName="nationalityId"
               controlId="customer-create-nationality-id"
               inputMode="numeric"
+              [digitsOnly]="true"
               [maxLength]="11"
               [placeholder]="'UI-SEARCH-PLACEHOLDER-ID-NUMBER' | t"
               [error]="!!errorTextFor('nationalityId')"
@@ -180,9 +181,12 @@
           >
             {{ 'LBL-CANCEL' | t }}
           </app-button>
+          <!-- Next also runs the early duplicate-NATID probe (scope §4.26);
+               `loading` covers that round-trip. -->
           <app-button
             iconTrailing="chevron-right"
             [disabled]="demographicIncomplete()"
+            [loading]="natIdChecking()"
             testId="customer-create-next-button"
             (action)="nextFromDemographic()"
           >

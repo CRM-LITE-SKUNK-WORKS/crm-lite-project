@@ -22,11 +22,18 @@ import { type AddressResponse } from '../model';
  *
  * Metric roundings onto the token scale (FE-ADR-011 §f, §2.18 precedent):
  * card min-height 146→144px (`min-h-36`), radio 18→16px (`size-4`).
+ *
+ * Height parity (mock §6.3: the add tile has the SAME `min-height` as a card):
+ * `min-h-36` alone only guaranteed the FLOOR — a card whose summary line wraps
+ * grew past it while the add tile stayed at 144px, and `items-start` stopped
+ * the grid from evening them out. `auto-rows-fr` + the default stretch make
+ * every tile (cards AND the add tile) exactly as tall as the tallest one, with
+ * no pixel value invented (FE-ADR-011 §f).
  */
 @Component({
   selector: 'app-address-cards',
   imports: [Icon, IconButton, TranslatePipe],
-  host: { class: 'grid grid-cols-2 items-start gap-4' },
+  host: { class: 'grid auto-rows-fr grid-cols-2 gap-4' },
   template: `
     @for (address of addresses(); track address.addressId) {
       <div

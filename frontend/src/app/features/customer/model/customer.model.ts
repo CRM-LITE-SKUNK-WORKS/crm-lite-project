@@ -63,6 +63,17 @@ export interface DemographicRequest {
 
 /** Atomic create body (`POST /api/customers`) — single transaction: demographic
  *  + ≥1 address + contact (customer-service.md §Atomic create). */
+/**
+ * Answer of `GET /api/customers/nationality-id-availability` (ADR-005 §Addendum).
+ *
+ * ONE field on purpose: the rule it reports covers soft-deleted customers, so the
+ * endpoint deliberately says whether the ID is free and never who holds it. Do not
+ * expect a customer number here — its absence is the contract.
+ */
+export interface NationalityIdAvailabilityResponse {
+  readonly available: boolean;
+}
+
 export interface CreateCustomerRequest {
   readonly demographic: DemographicRequest;
   readonly addresses: readonly import('./address.model').AddressRequest[];

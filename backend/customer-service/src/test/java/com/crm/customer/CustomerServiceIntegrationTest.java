@@ -361,6 +361,43 @@ class CustomerServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("availability probe reports the ADR-003 rule, soft-deleted holders included")
+    void nationalityIdAvailabilityCoversSoftDeletedHolders() {
+        // The reason this endpoint exists: 34567890123 belongs to soft-deleted customer
+        // 1003, so the list endpoint cannot see it (active-only) while create still
+        // rejects it. The probe must agree with create, not with the list.
+        assertThat(searchResultNumbers("nationalityId=34567890123")).isEmpty();
+
+        ResponseEntity<Map> softDeleted = get("/api/customers/nationality-id-availability?nationalityId=34567890123");
+        assertThat(softDeleted.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(softDeleted.getBody().get("available")).isEqualTo(false);
+
+        ResponseEntity<Map> activeHolder = get("/api/customers/nationality-id-availability?nationalityId=12345678901");
+        assertThat(activeHolder.getBody().get("available")).isEqualTo(false);
+
+        ResponseEntity<Map> free = get("/api/customers/nationality-id-availability?nationalityId=99988877766");
+        assertThat(free.getBody().get("available")).isEqualTo(true);
+
+        // Yes/no only: never leaks WHO holds the id (a soft-deleted person included).
+        assertThat(softDeleted.getBody().keySet()).containsExactly("available");
+    }
+
+    @Test
+    @DisplayName("availability probe: numeric-only guard, and it does not shadow /{customerNumber}")
+    void nationalityIdAvailabilityDoesNotShadowDetail() {
+        ResponseEntity<Map> nonNumeric = get("/api/customers/nationality-id-availability?nationalityId=abc");
+        assertThat(nonNumeric.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        ResponseEntity<Map> missing = get("/api/customers/nationality-id-availability");
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+
+        // The literal segment wins over the path variable; detail keeps working.
+        ResponseEntity<Map> detail = get("/api/customers/1001");
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(detail.getBody().get("customerNumber")).isEqualTo(1001);
+    }
+
+    @Test
     @DisplayName("multiple primary addresses in one create request -> 400")
     void multiplePrimaryAddressesRejected() {
         String body = """

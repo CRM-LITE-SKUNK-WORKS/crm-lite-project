@@ -31,6 +31,7 @@
             formControlName="nationalityId"
             controlId="customer-search-natid"
             inputMode="numeric"
+            [digitsOnly]="true"
             [maxLength]="11"
             [placeholder]="'UI-SEARCH-PLACEHOLDER-ID-NUMBER' | t"
             [error]="!!errorTextFor('nationalityId')"
@@ -49,6 +50,7 @@
             formControlName="customerId"
             controlId="customer-search-customer-id"
             inputMode="numeric"
+            [digitsOnly]="true"
             [placeholder]="'UI-SEARCH-PLACEHOLDER-CUSTOMER-ID' | t"
             [error]="!!errorTextFor('customerId')"
             describedBy="customer-search-customer-id-error"
@@ -83,6 +85,7 @@
             formControlName="gsmNumber"
             controlId="customer-search-gsm"
             inputMode="numeric"
+            [digitsOnly]="true"
             [maxLength]="11"
             [placeholder]="'UI-SEARCH-PLACEHOLDER-GSM' | t"
             [error]="!!errorTextFor('gsmNumber')"
@@ -163,7 +166,11 @@
     <!-- ══════════ SEARCH RESULTS ══════════ -->
     <div class="flex min-w-0 flex-1 flex-col rounded-lg border border-line bg-surface">
       <div class="flex h-16 shrink-0 items-center justify-between border-b border-line px-5">
-        <h2 class="text-h3 font-semibold text-ink">{{ 'UI-SEARCH-RESULTS-HEADING' | t }}</h2>
+        <!-- Browse mode says "All customers"; only an applied filter makes this
+             card a SEARCH result (ADR-005 browse vs filter). -->
+        <h2 class="text-h3 font-semibold text-ink" data-testid="customer-search-results-heading">
+          {{ resultsHeading() }}
+        </h2>
         <!-- ACTIVATED with the Create wizard (scope §4.20/3 as planned). -->
         <app-button
           size="sm"

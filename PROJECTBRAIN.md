@@ -303,7 +303,11 @@ crm-lite-project-dev/
 - **Endpoint'ler:** liste+filtre TEK kanonik endpoint `GET /api/customers` (ADR-005) —
   **`/api/customers/search` alias'ı KALDIRILDI** (yayınlanmış tüketici yok). + detay/create/update/
   delete, `/addresses` CRUD + `PATCH .../primary`, `/contact-medium` GET/PUT,
-  `GET /api/cities(/{id}/districts)`. Tam liste: docs/api/customer-service.md.
+  `GET /api/cities(/{id}/districts)`, ve **`GET /api/customers/nationality-id-availability`**
+  (29.07.2026, ADR-005 §Addendum — NAT ID müsaitlik sorgusu; liste alias'ı DEĞİL: müşteri
+  verisi döndürmez, tek alan `{"available": bool}`, **soft-deleted sahipleri de** raporlar
+  çünkü ADR-003 kuralını create yolunun metoduyla yanıtlar; advisory — POST'un 409'u otorite).
+  Tam liste: docs/api/customer-service.md.
 - **Liste + filtre (ADR-005, 16.07.2026 revizyonu — AC-CUST-01-00):** kritersiz istek artık
   **browse modu**: TÜM aktif müşteriler, sunucu taraflı sayfalı (varsayılan page=0, size=20),
   firstName→lastName→customerNumber A-Z. Zorunlu-kriter kuralı

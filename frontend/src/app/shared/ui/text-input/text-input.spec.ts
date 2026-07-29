@@ -11,6 +11,7 @@ import { TextInput } from './text-input';
       controlId="spec-input"
       [placeholder]="placeholder()"
       [inputMode]="inputMode()"
+      [digitsOnly]="digitsOnly()"
       [maxLength]="maxLength()"
       [showCount]="showCount()"
       [clearable]="clearable()"
@@ -27,6 +28,7 @@ class Host {
   readonly control = new FormControl('', { nonNullable: true });
   readonly placeholder = input<string | undefined>(undefined);
   readonly inputMode = input<'numeric' | 'tel' | 'email' | 'text' | undefined>(undefined);
+  readonly digitsOnly = input<boolean>(false);
   readonly maxLength = input<number | undefined>(undefined);
   readonly showCount = input<boolean>(false);
   readonly clearable = input<boolean>(false);
@@ -74,6 +76,22 @@ describe('TextInput', () => {
   it('supports inputmode="numeric" for identity-number fields', () => {
     expect(inputEl(render({ inputMode: 'numeric' })).getAttribute('inputmode')).toBe('numeric');
     expect(inputEl(render()).getAttribute('inputmode')).toBeNull();
+  });
+
+  it('digitsOnly strips non-digits from BOTH the form value and the visible field', () => {
+    const fixture = render({ digitsOnly: true });
+    type(fixture, 'a1b2!3');
+    expect(fixture.componentInstance.control.value).toBe('123');
+    expect(inputEl(fixture).value).toBe('123'); // the rejected characters never linger
+    // a pasted mixed string lands sanitized too (paste raises `input`)
+    type(fixture, '0532 111 22 33');
+    expect(fixture.componentInstance.control.value).toBe('05321112233');
+  });
+
+  it('digitsOnly is OFF by default — inputMode alone is only a keyboard hint', () => {
+    const fixture = render({ inputMode: 'numeric' });
+    type(fixture, 'a1b2');
+    expect(fixture.componentInstance.control.value).toBe('a1b2');
   });
 
   it('propagates typed text into the FormControl (CVA → form)', () => {

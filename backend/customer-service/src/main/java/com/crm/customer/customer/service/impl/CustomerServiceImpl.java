@@ -15,6 +15,7 @@ import com.crm.customer.customer.dto.request.CustomerCreateRequest;
 import com.crm.customer.customer.dto.request.CustomerUpdateRequest;
 import com.crm.customer.customer.dto.request.DemographicRequest;
 import com.crm.customer.customer.dto.response.CustomerDetailResponse;
+import com.crm.customer.customer.dto.response.NationalityIdAvailabilityResponse;
 import com.crm.customer.customer.entity.Customer;
 import com.crm.customer.customer.entity.Individual;
 import com.crm.customer.customer.entity.Party;
@@ -85,6 +86,18 @@ public class CustomerServiceImpl implements CustomerService {
     public CustomerDetailResponse getByCustomerNumber(Long customerNumber) {
         Customer customer = businessRules.checkCustomerExistsAndActive(customerNumber);
         return customerMapper.toDetailResponse(customer);
+    }
+
+    /**
+     * ADR-005 §Addendum. Not a search: it asks the ADR-003 rule itself (through the
+     * SAME business-rules method the create path uses), so it sees the soft-deleted
+     * holders that {@link #search} filters out by design. Advisory — the create is
+     * still the authority and can answer 409 after a `true` here.
+     */
+    @Override
+    public NationalityIdAvailabilityResponse checkNationalityIdAvailability(String nationalityId) {
+        return new NationalityIdAvailabilityResponse(
+                businessRules.isNationalityIdAvailableForCreate(nationalityId));
     }
 
     /**

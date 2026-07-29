@@ -13,6 +13,7 @@ start at 1001). The internal database id is never exposed.
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/customers` | **Canonical list + filter endpoint (ADR-005).** No parameters ⇒ browse all active customers; with parameters ⇒ filter. The old `/api/customers/search` alias stays removed. |
+| GET | `/api/customers/nationality-id-availability?nationalityId={id}` | **Availability probe** — is this Nationality ID still free for a create? Reports the ADR-003 rule in full (**soft-deleted holders included**), unlike every other read here |
 | GET | `/api/customers/{customerNumber}` | Detail (active customers only; else 404 `MSG-CUST-NOT-FOUND`) |
 | POST | `/api/customers` | Atomic create (demographic + addresses + contact) |
 | PUT | `/api/customers/{customerNumber}` | Demographic update |
@@ -65,6 +66,36 @@ exactly the same fields as `GET /api/customers/{customerNumber}`:
 
 > KR-04 note: the UI default Per Page is **15** (options 15/30/50) — the API default
 > is 20 and the frontend passes `size` explicitly. Recorded as an open item in ADR-005.
+
+## Nationality-ID availability (`GET /api/customers/nationality-id-availability`)
+
+Added 2026-07-29 — **ADR-005 §Addendum**. Exists for one reason: ADR-003 uniqueness is
+global and permanent, so a **soft-deleted** customer still reserves its Nationality ID,
+but every other read endpoint here is active-only by design (`GET /api/customers`
+filters `status_id = ACTV AND deleted_date IS NULL`). Without this probe the create
+screen could not tell the user before the POST answered 409.
+
+```bash
+curl -sS "http://localhost:8080/api/customers/nationality-id-availability?nationalityId=34567890123"
+# {"available": false}   <- held by soft-deleted customer 1003; the list endpoint shows nothing
+curl -sS "http://localhost:8080/api/customers/nationality-id-availability?nationalityId=99988877766"
+# {"available": true}
+```
+
+- Answers **exactly one field**, `available`. It never says *who* holds the ID — a name
+  or customer number here would turn a yes/no check into a way of mining deleted people.
+- Same rule, same rows as create: both go through
+  `CustomerBusinessRules.isNationalityIdAvailableForCreate`, so the probe and the
+  create-time authority cannot drift apart.
+- **Advisory, not a reservation.** `available: true` is a snapshot; a create landing in
+  between still gets 409 `MSG-CUST-DUP-NATID` (and, in a race, the DB UNIQUE
+  constraint). Clients must keep handling that 409.
+- `nationalityId` is **required** and numeric-only: missing ⇒ 400 `MSG-VALIDATION-ERROR`
+  (`validationErrors: {nationalityId: "is required"}`), non-numeric ⇒ 400 with
+  `"must contain digits only"`.
+- Not a list/filter alias (ADR-005 §1 stands): it returns no customer data and takes no
+  paging/sorting parameters. The literal path segment takes precedence over
+  `/{customerNumber}`, which is unchanged.
 
 ## Atomic create (`POST /api/customers`)
 

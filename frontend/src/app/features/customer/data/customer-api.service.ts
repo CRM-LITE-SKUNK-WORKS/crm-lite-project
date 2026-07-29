@@ -9,6 +9,7 @@ import {
   type CreateCustomerRequest,
   type CustomerDetailResponse,
   type CustomerSearchCriteria,
+  type NationalityIdAvailabilityResponse,
   type PageRequest,
   type PageResult,
   type SpringPage,
@@ -51,6 +52,31 @@ export class CustomerApiService {
     return this.http
       .get<SpringPage<CustomerDetailResponse>>(CustomerApiService.BASE, { params })
       .pipe(map(toPageResult));
+  }
+
+  /**
+   * `GET /api/customers/nationality-id-availability?nationalityId=` — the
+   * duplicate-NAT-ID pre-check for the Create wizard's step 1 (ADR-005
+   * §Addendum, added 2026-07-29 for exactly this call).
+   *
+   * Why NOT the list endpoint: it is active-only by design, while the ADR-003
+   * uniqueness rule also covers SOFT-DELETED holders — a customer created,
+   * deleted, then re-entered by the same ID. This endpoint asks the rule itself
+   * (the very method the create path uses), so it sees those too and the screen
+   * can refuse the ID before the user walks the whole wizard.
+   *
+   * Still ADVISORY, not a reservation (FE-ADR-007 §3): a create landing between
+   * the probe and the POST is answered by the 409, which the wizard keeps
+   * handling. Returns `false` when the ID is free.
+   */
+  nationalityIdIsTaken(nationalityId: string): Observable<boolean> {
+    const params = new HttpParams().set('nationalityId', nationalityId);
+    return this.http
+      .get<NationalityIdAvailabilityResponse>(
+        `${CustomerApiService.BASE}/nationality-id-availability`,
+        { params },
+      )
+      .pipe(map((response) => !response.available));
   }
 
   /** `GET /api/customers/{customerNumber}` — active customers only (else 404). */

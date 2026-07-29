@@ -66,6 +66,20 @@ describe('CustomerCreate', () => {
     type(fixture, 'customer-create-field-nationality-id-input', '10000000004');
   }
 
+  const AVAILABILITY_URL = '/api/customers/nationality-id-availability';
+
+  /** Step 1 `Next`: the early duplicate-NATID probe asks the availability
+   *  endpoint (ADR-005 §Addendum) before the wizard advances. */
+  function clickNextFromDemographic(
+    fixture: ComponentFixture<CustomerCreate>,
+    available = true,
+  ): void {
+    click(fixture, 'customer-create-next-button');
+    http.expectOne((r) => r.url === AVAILABILITY_URL).flush({ available });
+    fixture.detectChanges();
+    fixture.detectChanges();
+  }
+
   /** Step 2: one draft address through the SHARED dialog (lookup cascade only).
    *  `expectLookups=false` on repeat calls — the root lookup cache never
    *  re-fetches (FE-ADR-006 §6), so no request leaves the second time. */
@@ -91,7 +105,7 @@ describe('CustomerCreate', () => {
 
   function goToContact(fixture: ComponentFixture<CustomerCreate>): void {
     fillDemographic(fixture);
-    click(fixture, 'customer-create-next-button');
+    clickNextFromDemographic(fixture);
     addDraftAddress(fixture);
     click(fixture, 'customer-create-next-button');
     type(fixture, 'customer-create-field-email-input', 'velihan@example.com');
@@ -162,14 +176,72 @@ describe('CustomerCreate', () => {
     );
     type(fixture, 'customer-create-field-nationality-id-input', '10000000004'); // typing clears
     expect(byTestId(fixture, 'customer-create-field-nationality-id-error')?.textContent?.trim()).toBe('');
-    click(fixture, 'customer-create-next-button');
+    clickNextFromDemographic(fixture);
     expect(activeStep(fixture)).toBe('customer-create-stepper-step-address');
+  });
+
+  it('the Nationality ID field accepts digits ONLY, capped at 11 (VR-NATID)', () => {
+    const fixture = render();
+    const natId = () =>
+      byTestId(fixture, 'customer-create-field-nationality-id-input') as HTMLInputElement;
+    type(fixture, 'customer-create-field-nationality-id-input', '1a2b-3c');
+    expect(natId().value).toBe('123');
+    expect(natId().getAttribute('maxlength')).toBe('11');
+  });
+
+  // ---- C1: early duplicate-NATID check on step 1 (double check, scope §4.26)
+
+  it('Next asks the availability endpoint and blocks step 1 when the NAT ID is taken', () => {
+    const fixture = render();
+    fillDemographic(fixture);
+    click(fixture, 'customer-create-next-button');
+    const probe = http.expectOne((r) => r.url === AVAILABILITY_URL);
+    expect(probe.request.method).toBe('GET');
+    expect(probe.request.params.get('nationalityId')).toBe('10000000004');
+    probe.flush({ available: false });
+    fixture.detectChanges();
+    expect(activeStep(fixture)).toBe('customer-create-stepper-step-demographic'); // did NOT advance
+    expect(byTestId(fixture, 'customer-create-field-nationality-id-error')?.textContent).toContain(
+      'already exists',
+    );
+    // typing clears it, and a free ID lets the wizard through
+    type(fixture, 'customer-create-field-nationality-id-input', '10000000005');
+    clickNextFromDemographic(fixture);
+    expect(activeStep(fixture)).toBe('customer-create-stepper-step-address');
+  });
+
+  it('a SOFT-DELETED holder is caught on step 1 too — the endpoint reports ADR-003 in full', () => {
+    // The whole point of the endpoint: the customer was created, then deleted;
+    // the ID stays reserved forever, and the list endpoint could never show it.
+    const fixture = render();
+    fillDemographic(fixture);
+    click(fixture, 'customer-create-next-button');
+    http.expectOne((r) => r.url === AVAILABILITY_URL).flush({ available: false });
+    fixture.detectChanges();
+    expect(activeStep(fixture)).toBe('customer-create-stepper-step-demographic');
+    expect(byTestId(fixture, 'customer-create-field-nationality-id-error')?.textContent).toContain(
+      'already exists',
+    );
+    // the user never reaches the address/contact steps, and nothing is created
+    expect(http.match((r) => r.method === 'POST').length).toBe(0);
+  });
+
+  it('a failing probe never blocks the user — the POST 409 remains the authority', () => {
+    const fixture = render();
+    fillDemographic(fixture);
+    click(fixture, 'customer-create-next-button');
+    const outage = apiError(503, 'MSG-SERVICE-UNAVAILABLE');
+    http.expectOne((r) => r.url === AVAILABILITY_URL).flush(outage.body, outage.opts);
+    fixture.detectChanges();
+    fixture.detectChanges();
+    expect(activeStep(fixture)).toBe('customer-create-stepper-step-address'); // advanced anyway
+    expect(byTestId(fixture, 'customer-create-error-banner')).toBeNull(); // no scary banner either
   });
 
   it('step 2 requires ≥1 address; drafts are collected via the SHARED dialog with NO address API call', () => {
     const fixture = render();
     fillDemographic(fixture);
-    click(fixture, 'customer-create-next-button');
+    clickNextFromDemographic(fixture);
     const next = byTestId(fixture, 'customer-create-next-button') as HTMLButtonElement;
     expect(next.disabled).toBe(true); // no address yet
     addDraftAddress(fixture);
@@ -184,7 +256,7 @@ describe('CustomerCreate', () => {
   it('keeps EXACTLY one primary across drafts and deletes a draft locally after confirmation', () => {
     const fixture = render();
     fillDemographic(fixture);
-    click(fixture, 'customer-create-next-button');
+    clickNextFromDemographic(fixture);
     addDraftAddress(fixture);
     addDraftAddress(fixture, false); // second draft — cascade cached, no new requests
     expect(byTestId(fixture, 'customer-create-address-2-set-primary')).not.toBeNull();

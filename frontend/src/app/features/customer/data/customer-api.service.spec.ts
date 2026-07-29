@@ -129,6 +129,26 @@ describe('CustomerApiService', () => {
     req.flush(CUSTOMER);
   });
 
+  it('nationalityIdIsTaken asks the availability endpoint and inverts its answer', () => {
+    // ADR-005 §Addendum. NOT the list endpoint: only this one reports the
+    // ADR-003 rule with soft-deleted holders included.
+    const taken: boolean[] = [];
+    service.nationalityIdIsTaken('34567890123').subscribe((value) => taken.push(value));
+    const req = http.expectOne(
+      (r) => r.url === '/api/customers/nationality-id-availability',
+    );
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.get('nationalityId')).toBe('34567890123');
+    req.flush({ available: false });
+    expect(taken).toEqual([true]);
+
+    service.nationalityIdIsTaken('99988877766').subscribe((value) => taken.push(value));
+    http
+      .expectOne((r) => r.url === '/api/customers/nationality-id-availability')
+      .flush({ available: true });
+    expect(taken).toEqual([true, false]);
+  });
+
   it('create POSTs the atomic body and returns the detail payload', () => {
     const body: CreateCustomerRequest = {
       demographic: {

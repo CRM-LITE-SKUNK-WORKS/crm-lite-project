@@ -8,9 +8,9 @@ const CRM_USER_ROLE = 'crm-user';
 /**
  * UI-side authentication gate (FE-ADR-005 §2).
  *
- * Reads the AuthService SIGNAL and nothing else — it issues no HTTP call. The
- * session was already loaded once by the app initializer (§1), so this is a
- * synchronous state check, not a probe.
+ * Reads AuthService state and nothing else — it issues no HTTP call. The session
+ * was already loaded once by the app initializer (§1), so this is a synchronous
+ * state check, not a probe.
  *
  * Deliberately SEPARATE from the API-401 path in
  * `core/http/auth-error.interceptor.ts`: that one reacts to a request that has
@@ -27,7 +27,10 @@ export const authGuard: CanActivateFn = () => {
   if (auth.isAuthenticated()) {
     return true;
   }
-  // Full-page redirect to Keycloak; cancel this navigation, the browser is leaving.
+  // Full-page redirect to Keycloak; cancel this navigation, the browser is
+  // leaving. There is no in-app alternative to land on: signing out already ends
+  // on Keycloak's form, so every route out of "no session" leads to the same
+  // place and the user never has to click through an interstitial to get there.
   auth.login();
   return false;
 };

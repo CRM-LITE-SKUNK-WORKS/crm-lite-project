@@ -55,7 +55,6 @@ export const UI = {
   'UI-COMMON-COMING-SOON': { en: 'Coming soon', tr: 'Çok yakında' },
   'UI-COMMON-DISMISS': { en: 'Dismiss notification', tr: 'Bildirimi kapat' },
   'UI-COMMON-LOGOUT': { en: 'Log out', tr: 'Çıkış yap' },
-  'UI-COMMON-SIGN-IN': { en: 'Sign in', tr: 'Giriş yap' },
   'UI-COMMON-USER-AVATAR': { en: 'Signed in user', tr: 'Oturum açan kullanıcı' },
 
   // ---- Sidenav (mock-ui-analysis §4.2; only B2C is active — decision 2.21) ----
@@ -67,13 +66,6 @@ export const UI = {
 
   // ---- Access denied (403 role denial; body text reuses MSG-AUTH-FORBIDDEN) ----
   'UI-ACCESS-DENIED-TITLE': { en: 'Access denied', tr: 'Erişim reddedildi' },
-
-  // ---- Signed out (guard-free landing after logout) ----
-  'UI-SIGNED-OUT-TITLE': { en: 'You have been signed out', tr: 'Oturumunuz kapatıldı' },
-  'UI-SIGNED-OUT-BODY': {
-    en: 'Your session in this application has ended.',
-    tr: 'Bu uygulamadaki oturumunuz sonlandırıldı.',
-  },
 
   // ---- Customer Search (mock-ui-analysis §6.2) ----
   'UI-SEARCH-TITLE': { en: 'Search customer', tr: 'Müşteri ara' },

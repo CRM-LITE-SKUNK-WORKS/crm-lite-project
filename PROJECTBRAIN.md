@@ -901,19 +901,25 @@ Header'sız aynı istek `403` + `MSG-AUTH-CSRF-REJECTED` (`Invalid CSRF Token 'n
 delete → 404 doğrulama); *create*'ten önce `nationalityId`'yi taze, hiç kullanılmamış bir
 11 haneli değere çevir (ADR-003 — silinen id'ler bile sonsuza dek rezerve).
 
-**B.7 — Logout.** `09` → *Logout* isteği `followRedirects: false` ile gelir (yalnız hedef
-URL'i doğrular, gerçekten ziyaret etmez) — bu yüzden **gateway oturumunu** (JSESSIONID) bitirir
-ama **Keycloak SSO cookie'sine dokunmaz**. `302` + Keycloak `end_session` URL'i beklenir; eğer
-Location Keycloak yerine `http://localhost:8080/` çıkarsa, oturum zaten geçersiz/anonimdi (ör.
-bu istek daha önce bir kez çalıştırılmış) — B.1'den tazele.
+**B.7 — Logout.** `09` → *Logout* isteği (2026-07-27'den beri, scope-and-conflicts.md §5.7
+seçenek (a)) artık `200` + `{"logoutUrl": "..."}` JSON döner — `302`/`Location` değil, çünkü bir
+XHR/Postman isteği Keycloak `end_session`'a giden cross-origin redirect zincirini güvenilir
+şekilde süremiyordu (askıda kalabiliyordu), bu da **Keycloak SSO cookie'sine hiç dokunulmamasına**
+yol açıyordu. Bu isteğin kendisi **gateway oturumunu** (JSESSIONID) senkron olarak bitirir; SSO'yu
+gerçekten bitirmek `logoutUrl`'e (Postman'da `GET` ile) ayrıca gidilmesini gerektirir. Eğer
+`logoutUrl` Keycloak `end_session` yerine doğrudan `.../oauth2/authorization/keycloak` çıkarsa,
+oturum zaten geçersiz/anonimdi (ör. bu istek daha önce bir kez çalıştırılmış) — B.1'den tazele.
 
 Postman'dan logout attıktan sonra tarayıcıda `/api/session/me` `401` döner (uygulama oturumu
-gerçekten bitti — aynı JSESSIONID paylaşılıyor), ama `/oauth2/authorization/keycloak`'a
-gidersen **şifre sormadan geri giriş yaptırır** — Keycloak SSO tarayıcıda hâlâ canlı, beklenen
-davranış. Tarayıcıdan tam logout (uygulama + SSO) şu an gerçek bir Angular shell olmadığı için
-sadece tam-sayfa navigasyonla mümkün; DevTools console'dan `fetch('/logout', ...)` sadece
-uygulama oturumunu bitirir (SSO hayatta kalır — bkz. `docs/runbooks/auth-testing.md` §4.1
-"Trap 2"), tam temiz başlangıç için incognito pencereyi kapat.
+gerçekten bitti — aynı JSESSIONID paylaşılıyor); `logoutUrl`'e ayrıca gidilmezse
+`/oauth2/authorization/keycloak`'a giderken **şifre sormadan geri giriş yaptırır** — Keycloak SSO
+tarayıcıda hâlâ canlı. Gerçek Angular shell (`frontend/src/app/core/auth/auth.service.ts`)
+— kullanıcı sidenav'daki çıkış onay pop-up'ında *Evet* dedikten sonra — `logoutUrl`'i alıp
+`window.location.replace` ile tam-sayfa gezinme yaparak bunu otomatik yapar ve kullanıcıyı
+doğrudan Keycloak giriş formuna bırakır (araya bir "çıkış yapıldı" sayfası girmez);
+DevTools console'dan yalnız `fetch('/logout', ...)` çalıştırıp `logoutUrl`'e gitmemek de aynı
+eksik senaryoyu üretir (bkz. `docs/runbooks/auth-testing.md` §4.1 "Trap 2"), tam temiz başlangıç
+için incognito pencereyi kapat.
 
 **B.8 — Sık hatalar**
 

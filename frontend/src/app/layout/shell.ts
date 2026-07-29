@@ -1,7 +1,8 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../core/auth';
 import { I18nService, LANGUAGES, TranslatePipe, type Language } from '../core/i18n';
+import { ConfirmDialog } from '../shared/patterns';
 
 /**
  * The application chrome shared by every screen — header + sidenav + main
@@ -19,7 +20,7 @@ import { I18nService, LANGUAGES, TranslatePipe, type Language } from '../core/i1
  */
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, TranslatePipe],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, TranslatePipe, ConfirmDialog],
   templateUrl: './shell.html',
 })
 export class Shell {
@@ -33,11 +34,39 @@ export class Shell {
   readonly lang = this.i18n.lang;
   readonly languages = LANGUAGES;
 
+  private readonly _logoutConfirmOpen = signal(false);
+  private readonly _logoutBusy = signal(false);
+
+  /** Visibility and busy state of the sign-out confirmation (ConfirmDialog
+   *  leaves both to the caller — it never closes itself). */
+  readonly logoutConfirmOpen = this._logoutConfirmOpen.asReadonly();
+  readonly logoutBusy = this._logoutBusy.asReadonly();
+
   setLanguage(lang: Language): void {
     this.i18n.setLanguage(lang);
   }
 
-  logout(): void {
+  /** The sidenav button only asks. Nothing is signed out yet. */
+  requestLogout(): void {
+    this._logoutConfirmOpen.set(true);
+  }
+
+  /**
+   * Confirmed: THIS is where the session actually ends — the CSRF-protected
+   * POST, the gateway session, the Keycloak SSO session and the cookies.
+   *
+   * The dialog is deliberately left open and busy: `AuthService.logout()` ends
+   * in a full-page navigation to Keycloak, so closing it would only flash the
+   * chrome back for the moment before the browser leaves. On the failure path
+   * `logout()` navigates too (a reload of `/`), so there is likewise nothing
+   * here to reset.
+   */
+  confirmLogout(): void {
+    this._logoutBusy.set(true);
     this.auth.logout();
+  }
+
+  cancelLogout(): void {
+    this._logoutConfirmOpen.set(false);
   }
 }

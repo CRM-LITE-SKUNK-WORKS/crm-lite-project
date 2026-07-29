@@ -56,6 +56,7 @@ class GatewayBffIntegrationTest {
 
     private static final String REALM = "crm-lite";
     private static final Pattern FORM_ACTION = Pattern.compile("action=\"([^\"]+)\"");
+    private static final Pattern LOGOUT_URL = Pattern.compile("\"logoutUrl\":\"([^\"]+)\"");
 
     /** Downstream recording sink standing in for customer-service. */
     private static HttpServer sink;
@@ -248,6 +249,14 @@ class GatewayBffIntegrationTest {
         return matcher.group(1).replace("&amp;", "&");
     }
 
+    private static String extractLogoutUrl(String json) {
+        Matcher matcher = LOGOUT_URL.matcher(json);
+        if (!matcher.find()) {
+            throw new IllegalStateException("No logoutUrl found in logout response: " + json);
+        }
+        return matcher.group(1).replace("\\/", "/");
+    }
+
     private static String decodeJwtPayload(String jwt) {
         String[] parts = jwt.split("\\.");
         assertThat(parts).hasSize(3); // header.payload.signature — a real signed JWT
@@ -378,6 +387,25 @@ class GatewayBffIntegrationTest {
     }
 
     @Test
+    @DisplayName("replayed callback (browser Back) returns to the app, never to a generated /login?error page")
+    void replayedCallbackRedirectsToApplication() throws Exception {
+        Browser browser = login("ayilmaz", "crm-dev");
+
+        // The Back button re-issues the callback whose code and state the original
+        // login already consumed; a stale state reproduces that exactly, since the
+        // authorization request is removed from the session on first use.
+        HttpResponse<String> replay = browser.get(GATEWAY + "/login/oauth2/code/keycloak?code=stale&state=stale");
+
+        assertThat(replay.statusCode()).isEqualTo(302);
+        String target = replay.headers().firstValue("Location").orElseThrow();
+        // FE-ADR-005 P1: no second login surface. "Invalid credentials" on Spring's
+        // generated page is also a lie here — the session is still valid.
+        assertThat(target).doesNotContain("/login").doesNotContain("error").endsWith("/");
+        assertThat(browser.get(GATEWAY + "/api/session/me", "Accept", "application/json").statusCode())
+                .isEqualTo(200);
+    }
+
+    @Test
     @DisplayName("logout: CSRF-protected POST kills the session and hits Keycloak's end_session endpoint")
     void logoutEndsLocalAndKeycloakSession() throws Exception {
         Browser browser = login("ayilmaz", "crm-dev");
@@ -388,10 +416,18 @@ class GatewayBffIntegrationTest {
 
         String xsrf = browser.cookieValue("XSRF-TOKEN");
         HttpResponse<String> logout = browser.post(GATEWAY + "/logout", "", "X-XSRF-TOKEN", xsrf);
-        assertThat(logout.statusCode()).isEqualTo(302);
-        String target = logout.headers().firstValue("Location").orElseThrow();
-        // RP-initiated logout: browser is sent to Keycloak's end_session endpoint.
+        assertThat(logout.statusCode()).isEqualTo(200);
+        assertThat(logout.headers().firstValue("Content-Type").orElseThrow()).startsWith("application/json");
+        String target = extractLogoutUrl(logout.body());
+        // RP-initiated logout: the response tells the browser where to go to reach
+        // Keycloak's end_session endpoint (a real client-driven navigation, since an
+        // XHR cannot reliably drive Keycloak's own cross-origin redirect chain).
         assertThat(target).contains("/protocol/openid-connect/logout").contains("id_token_hint=");
+        // Post-logout the browser goes to the authorization endpoint, not to an
+        // application page: the sign-out was already confirmed in the UI, so the
+        // user lands directly on Keycloak's sign-in form (no interstitial screen).
+        assertThat(target).contains(URLEncoder.encode(GATEWAY + "/oauth2/authorization/keycloak",
+                StandardCharsets.UTF_8));
         browser.get(target); // complete the Keycloak logout
 
         // Back-button / direct access after logout: session is gone -> 401.

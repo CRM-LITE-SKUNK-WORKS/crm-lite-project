@@ -2162,19 +2162,16 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('403 without CSRF/session, 302 to Keycloak end_session with both', function () {",
-                  "    pm.expect([302, 403]).to.include(pm.response.code);",
-                  "    if (pm.response.code === 302) {",
-                  "        pm.expect(pm.response.headers.get('Location')).to.include('/protocol/openid-connect/logout');",
+                  "pm.test('403 without CSRF/session, 200 with logoutUrl to Keycloak end_session with both', function () {",
+                  "    pm.expect([200, 403]).to.include(pm.response.code);",
+                  "    if (pm.response.code === 200) {",
+                  "        pm.expect(pm.response.json().logoutUrl).to.include('/protocol/openid-connect/logout');",
                   "    }",
                   "});"
                 ]
               }
             }
           ],
-          "protocolProfileBehavior": {
-            "followRedirects": false
-          },
           "request": {
             "method": "POST",
             "header": [
@@ -2192,7 +2189,7 @@
                 "logout"
               ]
             },
-            "description": "RP-initiated logout (ADR-007/008): kills the gateway session AND redirects through Keycloak end_session. Requires the session cookies plus xsrfToken set from the XSRF-TOKEN cookie."
+            "description": "RP-initiated logout (ADR-007/008): kills the gateway session synchronously and returns 200 with {logoutUrl} — Keycloak's end_session endpoint. A GET to logoutUrl completes the Keycloak SSO logout and lands on Keycloak's sign-in form, since post_logout_redirect_uri is the gateway's /oauth2/authorization/keycloak (the app does this via window.location.replace, after the user confirms the sign-out dialog; this request alone only ends the gateway session). Requires the session cookies plus xsrfToken set from the XSRF-TOKEN cookie."
           }
         }
       ]

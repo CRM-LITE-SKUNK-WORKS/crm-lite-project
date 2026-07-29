@@ -215,6 +215,20 @@ html, body { height: 100%; }
 .eds-input__control.has-trail { padding-right: 40px; }
 .eds-input__control:disabled { color: var(--eds-disabled-text); }
 
+/* Browsers inject their OWN password affordances inside the field: Edge/IE render
+   a reveal eye (::-ms-reveal) plus a clear "x" (::-ms-clear), and Safari overlays
+   its keychain buttons. AC-01-08 is served by our own .eds-input__toggle below, so
+   the built-ins are suppressed — otherwise the field shows two eye icons side by
+   side. Chrome and Firefox render none of these, so nothing changes there. */
+.eds-input__control::-ms-reveal,
+.eds-input__control::-ms-clear {
+  display: none;
+}
+.eds-input__control::-webkit-credentials-auto-fill-button,
+.eds-input__control::-webkit-strong-password-auto-fill-button {
+  display: none !important;
+}
+
 .eds-input__toggle {
   position: absolute;
   right: 6px;

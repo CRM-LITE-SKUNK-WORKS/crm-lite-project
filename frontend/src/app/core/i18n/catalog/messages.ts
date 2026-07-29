@@ -143,6 +143,12 @@ export const MESSAGES = {
     en: 'Your session needs to be refreshed. Please try again.',
     tr: 'Oturumunuzun yenilenmesi gerekiyor. Lütfen tekrar deneyin.',
   },
+  // Phrased like the analyst's other confirmations (MSG-CUST-DELETE-CONFIRM,
+  // MSG-ADDR-DELETE-CONFIRM) so every Yes/No dialog in the app reads the same.
+  'MSG-AUTH-LOGOUT-CONFIRM': {
+    en: 'Are you sure you want to log out?',
+    tr: 'Çıkış yapmak istediğinize emin misiniz?',
+  },
 
   // ---- account-service PROJECT-AUTHORED keys (ADR-013 §6; EN/TR verbatim from
   //      docs/architecture/account-service-decisions.md §message catalog).

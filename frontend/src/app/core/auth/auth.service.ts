@@ -1,6 +1,6 @@
 import { HttpClient, HttpContext } from '@angular/common/http';
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { type Observable, catchError, finalize, of, tap, timeout } from 'rxjs';
+import { type Observable, catchError, of, tap, timeout } from 'rxjs';
 import { SKIP_AUTH_REDIRECT } from '../http/http-context';
 import type { SessionResponse } from './session.model';
 
@@ -9,12 +9,18 @@ import type { SessionResponse } from './session.model';
 const SESSION_ME_URL = '/api/session/me';
 const LOGIN_URL = '/oauth2/authorization/keycloak';
 const LOGOUT_URL = '/logout';
-/** Guard-free landing page for a completed sign-out (see `logout`). */
-const SIGNED_OUT_URL = '/signed-out';
+/** Where a sign-out that could not reach the gateway lands (see `logout`). */
+const HOME_URL = '/';
 
 /** Upper bound on how long sign-out waits for the logout response before
- *  navigating anyway. See `logout` for why waiting can never be unbounded. */
+ *  falling back to a local-only sign-out. See `logout` for why. */
 const LOGOUT_TIMEOUT_MS = 3000;
+
+/** Body of `POST /logout` (see `logout`): the URL to navigate the browser to
+ *  (top-level) to finish RP-initiated logout at Keycloak. */
+interface LogoutResponse {
+  readonly logoutUrl: string;
+}
 
 /**
  * The single source of authentication state (FE-ADR-005 §1). Exposes reactive
@@ -72,6 +78,12 @@ export class AuthService {
    * Start login as a FULL-PAGE redirect (FE-ADR-005 §2) — not an XHR. Guarded so
    * a burst of 401s cannot fire multiple navigations. Credentials are typed only
    * on Keycloak's page; the frontend has no login form (§P1).
+   *
+   * `replace`, not `assign`: the entry being left is a page the user could not
+   * see anyway (the guard just refused it, or an API call just 401'd on it).
+   * Replacing it keeps that dead entry out of the history stack, so Back from
+   * Keycloak's login form leaves the application instead of bouncing off a
+   * screen that will only redirect again.
    */
   login(): void {
     if (this.redirecting) {
@@ -79,7 +91,7 @@ export class AuthService {
     }
     this.redirecting = true;
     this.markSignedOut();
-    window.location.assign(LOGIN_URL);
+    window.location.replace(LOGIN_URL);
   }
 
   /**
@@ -87,36 +99,41 @@ export class AuthService {
    * attaches `X-XSRF-TOKEN` (the raw cookie value) — the ONLY form the gateway's
    * `SpaCsrfTokenRequestHandler` accepts, because its `_csrf` parameter path
    * XOR-decodes a value the browser never holds. A navigational form-POST
-   * therefore cannot carry a valid token, so logout is an `HttpClient` POST.
+   * therefore cannot carry a valid token, so the request itself is an
+   * `HttpClient` POST (an XHR).
    *
-   * ⚠️ Two consequences of that, both observed on the running stack (2026-07-24)
-   * and recorded in docs/frontend/scope-and-conflicts.md §5.7:
+   * Called only after the user confirms the dialog in `Shell` — by the time this
+   * runs, ending the session is a decision already taken.
    *
-   * 1. The gateway answers `302` to Keycloak `end_session`. An XHR cannot drive
-   *    that cross-origin navigation and can **stall** while following it — the
-   *    request then neither completes nor errors. Sign-out must therefore never
-   *    depend on the response settling, hence the timeout: by the time the
-   *    gateway emits its redirect the session is already invalidated, so
-   *    abandoning the wait loses nothing.
-   * 2. Keycloak's SSO session is NOT reliably terminated this way. Landing on
-   *    `/` would hit the guard, bounce to Keycloak, be silently re-authenticated
-   *    by the surviving SSO session and return to the app — making sign-out look
-   *    like it did nothing. So we land on the guard-free `/signed-out` page,
-   *    which states the outcome and offers an explicit sign-in link.
+   * The gateway invalidates the local session synchronously and responds with
+   * `{ logoutUrl }` — Keycloak's `end_session` endpoint (RP-initiated logout).
+   * Navigating to that `logoutUrl` (see {@link leaveForSignOut}) is this file's
+   * one deliberate exception to the "no host, ever" convention (FE-ADR-004 §1):
+   * the URL is server-supplied and inherently cross-origin (Keycloak), not
+   * something frontend code constructs. A real top-level navigation is needed —
+   * an XHR cannot drive Keycloak's own redirect chain and clear its SSO cookie
+   * (see docs/frontend/scope-and-conflicts.md §5.7) — after which Keycloak
+   * redirects the browser onto its own sign-in form.
    *
-   * Fully terminating SSO needs the backend affordance in §5.7 (a).
+   * The timeout is a defensive fallback only, for a genuine network hang. It
+   * reloads `/` rather than claiming success: if the POST never landed, the
+   * gateway session may well be alive, and a page announcing a sign-out that did
+   * not happen is worse than showing the truth. A reload re-probes and either
+   * lands on Keycloak (session gone, via the guard) or back in the app with the
+   * sign-out button still there to retry.
    */
   logout(): void {
     this.http
-      .post(LOGOUT_URL, null, { observe: 'response', responseType: 'text' })
+      .post<LogoutResponse>(LOGOUT_URL, null)
       .pipe(
         timeout(LOGOUT_TIMEOUT_MS),
-        finalize(() => {
-          this.markSignedOut();
-          window.location.assign(SIGNED_OUT_URL);
+        tap((response) => this.leaveForSignOut(response.logoutUrl)),
+        catchError(() => {
+          this.leaveForSignOut(HOME_URL);
+          return of(null);
         }),
       )
-      .subscribe({ error: () => undefined });
+      .subscribe();
   }
 
   /** Clear cached auth state. Public so the interceptors can mark sign-out. */
@@ -128,5 +145,21 @@ export class AuthService {
     return this.http.get<SessionResponse>(SESSION_ME_URL, {
       context: new HttpContext().set(SKIP_AUTH_REDIRECT, true),
     });
+  }
+
+  /**
+   * The last thing this document does before the browser leaves for sign-out.
+   *
+   * `replace`, not `assign`, is the point: `assign` PUSHES, leaving the fully
+   * rendered customer screen behind as the previous history entry. Pressing Back
+   * later restores it from the back/forward cache — a bfcache restore re-runs no
+   * initializer, no guard and no HTTP call, so real customer data reappears on
+   * screen for a user who has signed out. `replace` overwrites that entry, so it
+   * is not in the history stack to return to. (The remaining, older entries are
+   * covered by `provideSessionRestoreCheck` and `authGuard`.)
+   */
+  private leaveForSignOut(target: string): void {
+    this.markSignedOut();
+    window.location.replace(target);
   }
 }

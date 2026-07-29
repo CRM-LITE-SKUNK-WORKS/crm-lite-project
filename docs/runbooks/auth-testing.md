@@ -144,21 +144,34 @@ application problem.
 `POST /logout` is CSRF-protected, so typing `/logout` in the address bar does
 nothing (correctly). Two ways to trigger it:
 
-**What the application does (and what an Angular shell must do): a full-page
-POST** carrying the CSRF token — this is the only variant that also ends the
-**Keycloak SSO** session, because the browser actually follows the redirect
-chain through Keycloak's `end_session` endpoint. Angular's `HttpClient` attaches
-`X-XSRF-TOKEN` automatically for same-origin requests; for a plain HTML form the
-server-rendered `_csrf` value must be used (not the raw cookie — see Trap 1).
+**What the application does (and what the Angular shell does):** the sidenav's
+sign-out button first opens a Yes/No confirmation dialog — nothing is sent
+until the user answers Yes. On confirmation: an XHR POST carrying the CSRF
+token, whose `200` JSON response is `{"logoutUrl": "..."}` — Keycloak's
+`end_session` endpoint. The app then does `window.location.replace(logoutUrl)`,
+a **real top-level navigation**, which is what actually ends the **Keycloak
+SSO** session (an XHR cannot reliably drive that cross-origin redirect chain
+itself). `replace` rather than `assign`, so the signed-in screen is not left in
+the history for the Back button to restore from the bfcache. Keycloak then
+sends the browser to `/oauth2/authorization/keycloak`, which starts a fresh
+authorization request and — the SSO session now gone — lands **directly on the
+sign-in form**; there is no intermediate application page. Angular's
+`HttpClient` attaches `X-XSRF-TOKEN` automatically for same-origin requests;
+for a plain HTML form the server-rendered `_csrf` value must be used (not the
+raw cookie — see Trap 1).
 
-**What you can do from the DevTools console — header-based `fetch`** (ends the
-application session; the Keycloak SSO session survives, see Trap 2):
+**What you can do from the DevTools console — header-based `fetch`, then a
+manual navigation to complete SSO logout too:**
 
 ```javascript
 fetch('/logout', {method:'POST', headers:{'X-XSRF-TOKEN':
   document.cookie.split('; ').find(c=>c.startsWith('XSRF-TOKEN=')).split('=')[1]}})
-  .then(r=>console.log('status', r.status)).catch(e=>console.log('redirect blocked (expected)', e.message));
+  .then(r=>r.json())
+  .then(({logoutUrl})=>{console.log('navigating to', logoutUrl); window.location.replace(logoutUrl);});
 ```
+
+Skipping the final `window.location.replace` (just running the `fetch`, as in
+older versions of this snippet) ends only the application session — see Trap 2.
 
 > **Trap 1 — the `_csrf` form parameter does not accept the raw cookie value.**
 > The gateway uses the SPA CSRF handler: a token arriving in the **`X-XSRF-TOKEN`
@@ -167,15 +180,15 @@ fetch('/logout', {method:'POST', headers:{'X-XSRF-TOKEN':
 > cookie value as `_csrf` therefore fails with
 > `403 MSG-AUTH-CSRF-REJECTED — Invalid CSRF Token 'null'`. Always use the header.
 
-> **Trap 2 — a `fetch` logout ends the application session but not the Keycloak
-> SSO session.** The gateway correctly answers with a 302 to Keycloak's
-> `end_session` endpoint, but `fetch` cannot follow that cross-origin redirect
-> (CORS blocks it), so the browser never actually visits Keycloak. Symptom:
-> `/api/session/me` returns 401 (local logout worked), yet re-entering
-> `/oauth2/authorization/keycloak` logs you straight back in **without a password
-> prompt**. This is expected for the console workaround — real logout is a
-> full-page navigation. To force a clean slate for testing, close the incognito
-> window.
+> **Trap 2 — a bare `fetch` logout ends the application session but not the
+> Keycloak SSO session.** The gateway's `200` JSON response carries `logoutUrl`
+> but doesn't navigate anywhere by itself — nothing about a plain `fetch()`
+> call visits Keycloak. Symptom: `/api/session/me` returns 401 (local logout
+> worked), yet re-entering `/oauth2/authorization/keycloak` logs you straight
+> back in **without a password prompt**. Fix: follow up with
+> `window.location.replace(logoutUrl)` as shown above (this is exactly what the
+> real app does). To force a clean slate for testing without that, close the
+> incognito window.
 
 > **Note — the `id_token_hint` in the logout redirect.** That redirect URL
 > contains an **ID token** (`eyJ...`). This does not violate "no tokens in the

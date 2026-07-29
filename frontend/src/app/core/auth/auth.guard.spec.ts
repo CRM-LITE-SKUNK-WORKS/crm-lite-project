@@ -51,6 +51,12 @@ describe('auth guards', () => {
     // it reads the signal, it does not call /api/session/me.
   });
 
+  /**
+   * Signed out for ANY reason — never signed in, expired, or having just
+   * confirmed the sign-out dialog — goes to Keycloak. There is no in-app landing
+   * page to route to any more: sign-out itself ends on Keycloak's form, so this
+   * is the only destination and the Back button cannot produce a different one.
+   */
   it('starts a full-page login redirect and cancels navigation when signed out', () => {
     const result = TestBed.runInInjectionContext(() => authGuard(ROUTE, STATE));
     expect(result).toBe(false); // navigation cancelled; browser is leaving

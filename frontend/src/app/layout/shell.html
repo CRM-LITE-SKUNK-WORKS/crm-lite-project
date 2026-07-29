@@ -168,12 +168,14 @@
 
       <span class="flex-1"></span>
 
-      <!-- Logout lives at the bottom of the sidenav, as in the mock. It is a
-           CSRF-protected POST, never a form and never a link (FE-ADR-005 §3). -->
+      <!-- Logout lives at the bottom of the sidenav, as in the mock. The button
+           only ASKS — signing out destroys a session, so it goes through the
+           confirmation dialog at the bottom of this file. The sign-out itself is
+           a CSRF-protected POST, never a form and never a link (FE-ADR-005 §3). -->
       <button
         type="button"
         class="flex h-14 flex-col items-center justify-center rounded-md border border-transparent text-ink-soft transition-colors duration-100 hover:bg-sunken"
-        (click)="logout()"
+        (click)="requestLogout()"
         [attr.aria-label]="'UI-COMMON-LOGOUT' | t"
         [attr.title]="'UI-COMMON-LOGOUT' | t"
         data-testid="app-logout-button"
@@ -201,3 +203,23 @@
     </main>
   </div>
 </div>
+
+<!-- Sign-out confirmation. Nothing is destroyed until Yes: the POST that ends
+     the gateway session and Keycloak's SSO session is fired by confirmLogout(),
+     not by the sidenav button. Rendered by the shared ConfirmDialog, so it is
+     centred, focus-trapped and Escape-closable like every other confirm in the
+     app. `busy` keeps the spinner up during the request — the browser leaves the
+     page on success, so nothing here has to close the dialog. -->
+<app-confirm-dialog
+  [open]="logoutConfirmOpen()"
+  icon="log-out"
+  [title]="'UI-COMMON-LOGOUT' | t"
+  [message]="'MSG-AUTH-LOGOUT-CONFIRM' | t"
+  [confirmLabel]="'LBL-YES' | t"
+  [cancelLabel]="'LBL-NO' | t"
+  [closeLabel]="'UI-COMMON-CLOSE' | t"
+  [busy]="logoutBusy()"
+  testId="app-logout-dialog"
+  (confirmed)="confirmLogout()"
+  (cancelled)="cancelLogout()"
+/>

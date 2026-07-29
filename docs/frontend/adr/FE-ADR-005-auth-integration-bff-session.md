@@ -36,18 +36,42 @@ cached flag, not from a successful unrelated request.
 
 ### 2. Login is a full-page redirect the frontend merely triggers
 ```
-window.location.assign('/oauth2/authorization/keycloak')
+window.location.replace('/oauth2/authorization/keycloak')
 ```
-It is **not** an `HttpClient` call and **not** an XHR. The gateway redirects to
+It is **not** an `HttpClient` call and **not** an XHR. `replace` rather than
+`assign`: the entry being left is one the guard has just refused (or on which a
+request has just 401'd), so keeping it in the history would only give the Back
+button a screen that immediately redirects again. The gateway redirects to
 Keycloak, Keycloak authenticates, Keycloak redirects to
 `/login/oauth2/code/keycloak` — **a gateway-owned path**. Angular never sees the
 authorization code, never handles the callback, and has no route for it.
 
-### 3. Logout is a CSRF-protected POST followed by redirects
-`POST /logout` with the `X-XSRF-TOKEN` header and no body, performed as a
-full-page navigation so the browser follows the gateway → Keycloak
-`end_session` → application redirect chain. A `fetch`/`HttpClient` call cannot
-follow that chain correctly.
+### 3. Logout is confirmed, then a CSRF-protected POST and a client-driven redirect
+The sidenav's sign-out button only **asks**: it opens the shared
+`ConfirmDialog` (`MSG-AUTH-LOGOUT-CONFIRM`, Yes/No). Nothing is destroyed until
+the user answers Yes — the request below is not sent before that.
+
+On confirmation: `POST /logout` with the `X-XSRF-TOKEN` header and no body, as
+an `HttpClient` call (an XHR — the only way to attach the header; a
+navigational form-POST cannot carry a valid CSRF token here, see §5). The
+gateway invalidates the session synchronously and responds `200` with
+`{"logoutUrl": "..."}` — Keycloak's `end_session` endpoint. The frontend then
+does `window.location.replace(logoutUrl)`: a real top-level navigation, because
+an XHR cannot reliably drive that cross-origin redirect chain to actually clear
+Keycloak's SSO cookie (it can stall, neither completing nor erroring).
+`replace`, not `assign`, because the entry being left renders customer data —
+pushed, it would stay in the history and come back from the browser's
+back/forward cache on Back.
+
+Keycloak then redirects to the gateway's `/oauth2/authorization/keycloak`,
+which starts a fresh authorization request and — the SSO session now gone —
+lands the user **directly on Keycloak's sign-in form**. There is deliberately
+no application-side "you have been signed out" page: the user already
+confirmed the intent, so an interstitial would add a click and nothing else.
+
+If the POST never answers (a bounded 3 s timeout), the frontend reloads `/`
+rather than claiming a sign-out it cannot confirm: the gateway session may
+still be alive, and the reload shows whichever is true.
 
 ### 4. 401 / 403 are distinguished by `messageKey`, never by status alone
 | Status | `messageKey` | Frontend behaviour |

@@ -5,9 +5,12 @@ import { Shell } from './layout/shell';
 /**
  * Root routing table (FE-ADR-003 §1, FE-ADR-005 §2/§4).
  *
- * Everything the user can reach sits under the `Shell` layout and behind
- * `authGuard`, so the chrome never renders for an anonymous visitor and an
- * unauthenticated navigation turns into a full-page redirect to Keycloak.
+ * EVERY route sits under the `Shell` layout and behind `authGuard`: the chrome
+ * never renders for an anonymous visitor, and an unauthenticated navigation
+ * turns into a full-page redirect to Keycloak. There is deliberately no
+ * signed-out landing page — sign-out is confirmed in a dialog before it happens
+ * and ends on Keycloak's own sign-in form, so an application page saying "you
+ * have been signed out" would be an extra click and nothing else.
  *
  * `access-denied` is guarded by `authGuard` but NOT by `crmUserGuard` — a role
  * denial must have somewhere to land that does not re-trigger the guard that
@@ -16,12 +19,6 @@ import { Shell } from './layout/shell';
  * The Shell itself is eager (it is on every page); features are lazy.
  */
 export const routes: Routes = [
-  // FIRST, and outside both the Shell and authGuard: a signed-out visitor must be
-  // able to land somewhere that does NOT bounce them straight back to Keycloak.
-  {
-    path: 'signed-out',
-    loadComponent: () => import('./features/signed-out/signed-out').then((m) => m.SignedOut),
-  },
   {
     path: '',
     component: Shell,

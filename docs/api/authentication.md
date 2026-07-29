@@ -63,10 +63,30 @@ application session is created.
 
 ## Logout
 
-**`POST /logout`** with the `X-XSRF-TOKEN` header (no body). The gateway
-invalidates the session, deletes cookies, and 302-redirects through Keycloak's
-`end_session` endpoint (RP-initiated logout — the SSO session dies too), then
-back to the application. Follow the redirects with a full-page navigation.
+**`POST /logout`** with the `X-XSRF-TOKEN` header (no body) → `200`:
+
+```json
+{"logoutUrl": "http://localhost:8180/realms/crm-lite/protocol/openid-connect/logout?id_token_hint=...&post_logout_redirect_uri=..."}
+```
+
+The gateway invalidates the session and deletes cookies synchronously, then
+returns Keycloak's `end_session` endpoint (RP-initiated logout) as `logoutUrl`
+instead of redirecting there itself — an XHR/`fetch` cannot reliably drive a
+cross-origin redirect chain (it can stall without completing or erroring), so
+Keycloak's own SSO cookie would never actually clear. The caller must perform
+a **real top-level navigation** to `logoutUrl` (`window.location.replace` —
+`replace`, not `assign`, so the signed-in screen it leaves is not left in the
+history to be restored from the browser's back/forward cache), which lets the
+browser actually visit Keycloak and clear its SSO session.
+
+`post_logout_redirect_uri` is the gateway's own
+`/oauth2/authorization/keycloak`, not an application page: Keycloak clears the
+SSO cookie, redirects there, and that endpoint starts a fresh authorization
+request which — with the SSO session now gone — renders the sign-in form. The
+user therefore lands **directly on the login page**; there is no intermediate
+"you have been signed out" screen, because the sign-out was already confirmed
+in the UI before the POST was sent. No loop is possible: the session that could
+have completed that authorization request silently is the one just destroyed.
 
 After logout (or the browser back button): any API call returns `401`
 (AC-AUTH-02-02) — navigate to login.

@@ -53,7 +53,7 @@ function envelope(rows: CustomerDetailResponse[], over: EnvelopeOverrides = {}) 
     totalElements: over.totalElements ?? rows.length,
     totalPages,
     number,
-    size: over.size ?? 20,
+    size: over.size ?? 15,
     first: over.first ?? number === 0,
     last: over.last ?? number >= totalPages - 1,
   };
@@ -110,7 +110,7 @@ describe('CustomerSearch', () => {
     const req = lastListRequest();
     expect(req.request.params.keys().sort()).toEqual(['page', 'size']);
     expect(req.request.params.get('page')).toBe('0');
-    expect(req.request.params.get('size')).toBe('20');
+    expect(req.request.params.get('size')).toBe('15');
     req.flush(envelope([ALI, ZEYNEP]));
     fixture.detectChanges();
     expect(byTestId(fixture, 'customer-search-results-row-1001')).not.toBeNull();
@@ -382,19 +382,19 @@ describe('CustomerSearch', () => {
   it('next page keeps criteria, sends the new page, and shows the range text', () => {
     const fixture = render();
     lastListRequest().flush(
-      envelope([ALI], { totalElements: 137, totalPages: 7, number: 0, last: false }),
+      envelope([ALI], { totalElements: 137, totalPages: 10, number: 0, last: false }),
     );
     fixture.detectChanges();
-    expect(byTestId(fixture, 'customer-search-pagination')?.textContent).toContain('1–20 of 137');
+    expect(byTestId(fixture, 'customer-search-pagination')?.textContent).toContain('1–15 of 137');
 
     (byTestId(fixture, 'customer-search-pagination-next') as HTMLButtonElement).click();
     fixture.detectChanges();
     const req = lastListRequest();
     expect(req.request.params.get('page')).toBe('1');
-    expect(req.request.params.get('size')).toBe('20');
-    req.flush(envelope([ZEYNEP], { totalElements: 137, totalPages: 7, number: 1, last: false }));
+    expect(req.request.params.get('size')).toBe('15');
+    req.flush(envelope([ZEYNEP], { totalElements: 137, totalPages: 10, number: 1, last: false }));
     fixture.detectChanges();
-    expect(byTestId(fixture, 'customer-search-pagination')?.textContent).toContain('21–40 of 137');
+    expect(byTestId(fixture, 'customer-search-pagination')?.textContent).toContain('16–30 of 137');
   });
 
   it('truncates page buttons per the mock rule (1 … around current … last)', () => {

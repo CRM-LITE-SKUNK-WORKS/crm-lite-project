@@ -29,16 +29,20 @@ export interface CustomerSearchCriteria {
 }
 
 /**
- * Per-page options (scope §2.4 — decided **20 / 50 / 100, default 20**). The
- * mock's 15/25/50 and the analyst's 15/30/50 were both superseded; the API
- * accepts any positive `size`, so 50/100 need no backend change.
+ * Per-page options — **15 / 30 / 50, default 15** (KR-04, scope §2.3/§2.4 as
+ * revised 2026-07-29). The earlier 20/50/100 decision rested on the API accepting
+ * any positive `size`; the analysts closed that open conflict the other way, so
+ * `GET /api/customers` now defaults to 15 and **rejects anything outside this
+ * list with 400** (ADR-005 §Amendment). Sending 20 or 100 is no longer a UX
+ * choice, it is a contract violation — this list and the backend whitelist must
+ * stay identical.
  *
- * KR-04: `size` is ALWAYS sent explicitly (never relying on the API's own
- * default of 20), so UI and server can never disagree on page size.
+ * KR-04: `size` is ALWAYS sent explicitly, so UI and server can never disagree
+ * on page size even if the API default moves again.
  */
-export const PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
+export const PAGE_SIZE_OPTIONS = [15, 30, 50] as const;
 export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
-export const DEFAULT_PAGE_SIZE: PageSize = 20;
+export const DEFAULT_PAGE_SIZE: PageSize = 15;
 
 /** Pagination request, kept separate from the filter criteria. */
 export interface PageRequest {

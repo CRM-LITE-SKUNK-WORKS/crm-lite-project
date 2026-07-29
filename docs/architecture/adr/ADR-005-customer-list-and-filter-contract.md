@@ -1,7 +1,8 @@
 # ADR-005: Customer List and Filter Contract (GET /api/customers)
 
 ## Status
-Accepted (2026-07-16) — implements the FR/AC v8 Final revision of 16.07.2026
+Accepted (2026-07-16), **amended 2026-07-29** (page-size contract — see
+§Amendment) — implements the FR/AC v8 Final revision of 16.07.2026
 (AC-CUST-01-00, KR-04, message catalog update). Extends, does not replace, the
 KR-01 search semantics already recorded in ADR-001..003-era documentation.
 
@@ -69,7 +70,7 @@ Two contract problems followed:
 - The singular detail endpoint `GET /api/customers/{customerNumber}` is byte-for-byte
   unchanged.
 
-## Recorded discrepancy — KR-04 default page size
+## Recorded discrepancy — KR-04 default page size (SUPERSEDED, see Amendment below)
 KR-04 (v8 Final, 16.07.2026) describes the **UI**: default Per Page **15**, options
 15/30/50, changeable under the results table. The API default chosen here is
 **20** (team decision for this backend contract iteration). This is not silently
@@ -77,6 +78,48 @@ reconciled: the frontend must pass `size=15|30|50` explicitly per KR-04, and the
 accepts any positive `size`. If the analysts want the API default itself to be 15,
 that is a one-line change; the open question is tracked in
 `docs/requirements/traceability-matrix.md` and PROJECTBRAIN "Open conflicts".
+
+## Amendment (2026-07-29) — the API adopts KR-04 verbatim
+The open question above is **closed in favour of KR-04**. The analysts filed it as
+five defects against the API contract (BUG-API-CUST-01-14, -16, -17, -18, -19), which
+is the decision this ADR asked for. `GET /api/customers` now:
+
+- defaults `size` to **15** (was 20);
+- accepts **only 15, 30 and 50**; every other value — 17, 999999, 0 — is
+  **400 `MSG-VALIDATION-ERROR`** with `validationErrors.size`. The previous
+  "the API accepts any positive `size`" sentence is **withdrawn**;
+- rejects a negative `page` with the same 400 shape (`validationErrors.page`).
+
+Rationale for rejecting rather than clamping: the analysts specified 400 explicitly,
+and a silently clamped size makes a client's pagination arithmetic wrong without
+telling it.
+
+`size=0` and `page=-1` previously reached `PageRequest.of`, which throws
+`IllegalArgumentException` for both and surfaced as **500** through the generic
+handler — a presentation-layer validation failure reported as a server fault. The
+whitelist and `@Min(0)` stop them at the controller boundary, so no
+`IllegalArgumentException` handler is needed (a blanket one would also mask genuine
+internal faults as 400s).
+
+The whitelist lives in `common/validation/AllowedPageSize`, which is the single
+source of truth: the same constant array drives the check, the violation message and
+the controller's `defaultValue`, so the default can never fall outside the whitelist.
+
+**`page` deliberately keeps no upper bound.** A page past the end stays a normal
+200 with empty content (Spring Data semantics); KR-04 constrains page *size* only.
+
+### Consequences of the amendment
+- **Breaking for the frontend**, which sent `size=20` on every list call: the
+  per-page options moved from 20/50/100 to **15/30/50, default 15**
+  (`PAGE_SIZE_OPTIONS`). The 100-row option is gone — it is no longer expressible.
+  Backend and frontend therefore ship together; a backend-only merge would 400 every
+  Customer Search request.
+- `docs/frontend/scope-and-conflicts.md` §2.3, §2.4 and §3.1 recorded the superseded
+  "default 20 / options 20-50-100" decision and are revised accordingly, as is
+  `mock-ui-analysis.md` §6.2/§9.
+- No new message key: the existing project-added `MSG-VALIDATION-ERROR` already
+  carries `@RequestParam` constraint failures, so nothing is owed by the analyst
+  catalog.
 
 ## Addendum (2026-07-29) — Nationality-ID availability probe
 

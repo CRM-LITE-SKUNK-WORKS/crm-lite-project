@@ -321,7 +321,11 @@ crm-lite-project-dev/
   kelime-başı; ikisi doluysa AND. `gsmNumber` = mobile_phone **prefix**; `nationalityId`/`customerId`
   birebir. Dolu kriter grupları OR'lanır; yalnız aktif müşteriler; sonuçlar müşteri bazlı distinct
   (tüm join'ler to-one). `accountNumber`/`orderNumber` → hâlâ 501 (account/order domain'leri yok).
-  KR-04 notu: UI varsayılanı 15 (15/30/50 Per Page) — API varsayılanı 20; açık kayıtlı fark, ADR-005.
+  KR-04 sayfalama (ADR-005 §Amendment, 29.07.2026): `size` varsayılanı **15**, kabul edilen tek
+  değerler **15/30/50** — başka her değer (17, 999999, 0) 400 `MSG-VALIDATION-ERROR`; negatif `page`
+  de aynı şekilde 400 (0 ve -1 daha önce `PageRequest.of` üzerinden 500 dönüyordu). `page`'in üst
+  sınırı YOK: aralık dışı sayfa normal 200 + boş içerik. Whitelist tek kaynak:
+  `common/validation/AllowedPageSize`.
 - **Atomik create (AC-CUST-03-21 + KR-10):** tek istek `{demographic, addresses[], contactMedium}` →
   tek `@Transactional` içinde: bean validation (VR-NAME/NATID/EMAIL/PHONE/MOBILE) → iş kuralları
   (yaş/doğum tarihi/NATID tekilliği/primary normalizasyonu/city-district) → **merkezi katalog çözümü**
@@ -1053,9 +1057,10 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
    **aktif** bir müşteri" diyor; FR AC-CUST-03-12 (nitelik yok) + ADR-003 (kalıcı global tekillik)
    geçerli. 16.07.2026 revizyonu bu çelişkiyi temizlemedi — analist tarafında açık.
 2. **draw.io FR-CUST-01 "içinde-geçen" notu:** KR-01 kelime-başı eşleşmeyle çelişiyor; KR-01 geçerli.
-3. **KR-04 varsayılan sayfa boyutu:** analist UI varsayılanı 15 (15/30/50); API varsayılanı 20
-   (ADR-005 ekip kararı). Frontend `size` parametresini açıkça gönderecek; analistler API
-   varsayılanının da 15 olmasını isterse tek satırlık değişiklik.
+3. ~~**KR-04 varsayılan sayfa boyutu:**~~ ✅ **KAPANDI (29.07.2026), KR-04 lehine.** Analistler
+   bunu beş API bug'ı olarak açtı (BUG-API-CUST-01-14/-16/-17/-18/-19): API varsayılanı 15,
+   yalnız 15/30/50 kabul, gerisi 400. ADR-005 §Amendment. Frontend Per Page seçenekleri
+   20/50/100 → **15/30/50** oldu (100 seçeneği kalktı; `scope-and-conflicts` §2.3/§2.4 revize).
 4. **Use-case FR-CUST-03'te iki adet "Adım 4.5"** — kaynak dokümanda editoryal hata; analiste
    bildirilecek.
 5. **Workbook USERS tablosu (username/password_hash) vs Keycloak (ADR-011):** uygulama tarafında

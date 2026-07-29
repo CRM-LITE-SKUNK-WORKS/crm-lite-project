@@ -108,5 +108,6 @@ search-criteria rule (ADR-005); no endpoint uses it anymore.
   and ADR-003 govern.
 - The draw.io FR-CUST-01 page still carries the old "içinde-geçen" (contains) match
   note — KR-01 word-start matching governs.
-- KR-04 default page size: UI default 15 (options 15/30/50) vs API default 20 —
-  open item recorded in ADR-005.
+- ~~KR-04 default page size: UI default 15 (options 15/30/50) vs API default 20~~ —
+  **closed 2026-07-29** (BUG-API-CUST-01-14/-16/-17/-18/-19): the API adopts KR-04
+  verbatim — default 15, only 15/30/50 accepted, anything else 400. ADR-005 §Amendment.

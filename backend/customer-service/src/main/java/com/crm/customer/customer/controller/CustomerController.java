@@ -1,11 +1,13 @@
 package com.crm.customer.customer.controller;
 
+import com.crm.customer.common.validation.AllowedPageSize;
 import com.crm.customer.customer.dto.request.CustomerCreateRequest;
 import com.crm.customer.customer.dto.request.CustomerUpdateRequest;
 import com.crm.customer.customer.dto.response.CustomerDetailResponse;
 import com.crm.customer.customer.dto.response.NationalityIdAvailabilityResponse;
 import com.crm.customer.customer.service.CustomerService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -32,6 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
  * no released consumers. All public identifiers ({customerNumber} path variables and
  * the customerId query parameter) are the business customer number, never the internal
  * database id.
+ *
+ * <p>Pagination follows KR-04: default size 15, and only 15/30/50 are accepted
+ * (ADR-005 §Amendment 2026-07-29 — the earlier "API default 20, any positive size"
+ * contract is withdrawn).
  */
 @RestController
 @RequestMapping("/api/customers")
@@ -55,8 +61,10 @@ public class CustomerController {
             @RequestParam(required = false) @Pattern(regexp = NUMERIC_REGEX, message = NUMERIC_ONLY_MESSAGE) String accountNumber,
             @RequestParam(required = false) @Pattern(regexp = NUMERIC_REGEX, message = NUMERIC_ONLY_MESSAGE) String gsmNumber,
             @RequestParam(required = false) @Pattern(regexp = NUMERIC_REGEX, message = NUMERIC_ONLY_MESSAGE) String orderNumber,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            // KR-04: a negative page and a non-whitelisted size both used to reach
+            // PageRequest.of and surface as 500s; they are plain 400s now.
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "must not be negative") int page,
+            @RequestParam(defaultValue = AllowedPageSize.DEFAULT_AS_STRING) @AllowedPageSize int size) {
 
         // KR-04 / AC-CUST-01-00: firstName ASC, then lastName ASC (A-Z); customerNumber
         // as a stable tiebreak so server-side pages never shuffle equal names.

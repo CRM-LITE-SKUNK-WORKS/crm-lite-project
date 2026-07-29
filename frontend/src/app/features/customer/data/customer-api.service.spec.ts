@@ -24,7 +24,7 @@ const CUSTOMER: CustomerDetailResponse = {
 };
 
 function pageOf(rows: CustomerDetailResponse[]): SpringPage<CustomerDetailResponse> {
-  return { content: rows, totalElements: rows.length, totalPages: 1, number: 0, size: 20 };
+  return { content: rows, totalElements: rows.length, totalPages: 1, number: 0, size: 15 };
 }
 
 describe('CustomerApiService', () => {
@@ -42,18 +42,18 @@ describe('CustomerApiService', () => {
   afterEach(() => http.verify());
 
   it('browse mode: no criteria still sends page + size explicitly (KR-04)', () => {
-    service.list({}, { page: 0, size: 20 }).subscribe();
+    service.list({}, { page: 0, size: 15 }).subscribe();
     const req = http.expectOne((r) => r.url === '/api/customers');
     expect(req.request.method).toBe('GET');
     expect(req.request.params.get('page')).toBe('0');
-    expect(req.request.params.get('size')).toBe('20');
+    expect(req.request.params.get('size')).toBe('15');
     expect(req.request.params.keys().sort()).toEqual(['page', 'size']);
     req.flush(pageOf([CUSTOMER]));
   });
 
   it('normalizes the FULL verified wire envelope (flat PageImpl, Swagger 2026-07-25), ignoring the noise', () => {
     let result: unknown;
-    service.list({}, { page: 1, size: 20 }).subscribe((r) => (result = r));
+    service.list({}, { page: 1, size: 15 }).subscribe((r) => (result = r));
     // Verbatim shape from the customer-controller Swagger schema: metadata at
     // the top level + pageable/sort/numberOfElements/empty extras we ignore.
     http
@@ -61,10 +61,10 @@ describe('CustomerApiService', () => {
       .flush({
         totalElements: 42,
         totalPages: 3,
-        size: 20,
+        size: 15,
         content: [CUSTOMER],
         number: 2,
-        pageable: { offset: 40, paged: true, pageNumber: 2, pageSize: 20 },
+        pageable: { offset: 40, paged: true, pageNumber: 2, pageSize: 15 },
         sort: { empty: true, sorted: false, unsorted: true },
         numberOfElements: 1,
         first: false,
@@ -74,7 +74,7 @@ describe('CustomerApiService', () => {
     expect(result).toEqual({
       items: [CUSTOMER],
       page: 2,
-      size: 20,
+      size: 15,
       totalElements: 42,
       totalPages: 3,
       isFirst: false,
@@ -84,14 +84,14 @@ describe('CustomerApiService', () => {
 
   it('normalizes the Page envelope into a PageResult in one place', () => {
     let result: unknown;
-    service.list({}, { page: 0, size: 20 }).subscribe((r) => (result = r));
+    service.list({}, { page: 0, size: 15 }).subscribe((r) => (result = r));
     http
       .expectOne((r) => r.url === '/api/customers')
-      .flush({ content: [CUSTOMER], totalElements: 42, totalPages: 3, number: 1, size: 20 });
+      .flush({ content: [CUSTOMER], totalElements: 42, totalPages: 3, number: 1, size: 15 });
     expect(result).toEqual({
       items: [CUSTOMER],
       page: 1,
-      size: 20,
+      size: 15,
       totalElements: 42,
       totalPages: 3,
       isFirst: false,
@@ -116,7 +116,7 @@ describe('CustomerApiService', () => {
   });
 
   it('maps customerId criterion to the customerId query param (name kept, scope §2.11)', () => {
-    service.list({ customerId: '1001' }, { page: 0, size: 20 }).subscribe();
+    service.list({ customerId: '1001' }, { page: 0, size: 15 }).subscribe();
     const req = http.expectOne((r) => r.url === '/api/customers');
     expect(req.request.params.get('customerId')).toBe('1001');
     req.flush(pageOf([CUSTOMER]));
@@ -272,7 +272,7 @@ describe('CustomerApiService', () => {
   });
 
   it('every request uses a relative /api path (FE-ADR-004 §1)', () => {
-    service.list({}, { page: 0, size: 20 }).subscribe();
+    service.list({}, { page: 0, size: 15 }).subscribe();
     service.getByNumber(1001).subscribe();
     for (const req of http.match(() => true)) {
       expect(req.request.url.startsWith('/api/')).toBe(true);

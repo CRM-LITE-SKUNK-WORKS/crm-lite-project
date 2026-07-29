@@ -709,7 +709,7 @@ Kaynaklar: `docs/api/customer-service.md`, ADR-005,
 | 3 | "Role" | **Filtre YOK, filtreleme yapılmayacak.** `role` yalnız **tablo kolonu** (response'ta `role` alanı, `"Customer"`) |
 | 4 | Kriter birleşimi | Backend doğru: **isim grubu içi AND, dolu kriter grupları arası OR**. Mock zaten aynı. Değişiklik yok |
 | 5 | `accountNumber` / `orderNumber` | Backend'de henüz geliştirme yok → **501 `MSG-FEATURE-NOT-IMPLEMENTED`**. İki filtre alanı UI'da render edilir ama **disabled** ve "yakında" ipucu taşır; hiçbir zaman istek gönderilmez (bkz. §9 madde 10) |
-| 6 | Sayfa boyutu | **Varsayılan 20** (§6.2 ve §9 madde 3) |
+| 6 | Sayfa boyutu | **Varsayılan 15, seçenekler 15/30/50** (§6.2 ve §9 madde 3 — 29.07.2026 revizyonu; eski "varsayılan 20 / 20-50-100" kararı geçersiz) |
 | 17 | Türkçe karakterler | **Backend'e göre: diakritik-DUYARLI.** Backend `lower()` + `LIKE` kullanıyor, diakritik katlaması **yok** (`CustomerSpecifications.wordStart`). `yilmaz` → `Yılmaz`'ı **bulmaz**; `Yılmaz` → bulur. **Frontend katlama YAPMAYACAK** — mock'un `ş→s, ç→c, ğ→g, ı→i, ü→u, ö→o` fold'u Angular'a taşınmayacak, kullanıcı girdisi ham gönderilecek. Kullanıcının Türkçe klavyeyle doğru yazması beklenir; arama kutusuna Türkçe karakter girişi engellenmeyecek ve `input`'lar UTF-8 olarak gönderilecek |
 
 > 🐞 **Backend hatası — ÖLÇÜLDÜ, teorik değil (§9 madde 11).**
@@ -945,11 +945,14 @@ temizlenirse** o filtre anında kaldırılır (yeniden Search gerekmez).
     `1 … (page-1) page (page+1) … son`, `…` `text-tertiary` ve tıklanamaz
 - **Sağ:** `Per page` etiketi (body-sm, `text-secondary`) + `Select size="sm"`
   (`width: 84px`), mock'ta seçenekler **15 / 25 / 50**, varsayılan **15**
-  - 🟢 **KARAR (23.07.2026): seçenekler `20 / 50 / 100`, varsayılan `20`.**
-    Mock'un 15/25/50'si ve KR-04'ün 15/30/50'si geçersiz; backend
-    `GET /api/customers` varsayılanı esas alınıyor (ADR-005). 50 ve 100 için
-    backend'de ek hazırlık gerekmiyor — `size` **pozitif her değeri** kabul
-    ediyor. Select genişliği 84px'ten 3 haneli değere göre ayarlanır.
+  - 🟢 **KARAR (29.07.2026, 23.07.2026 kararının yerine): seçenekler
+    `15 / 30 / 50`, varsayılan `15` — KR-04 ile birebir.** Analistler eski
+    kararın dayanağını beş API bug'ıyla kaldırdı
+    (BUG-API-CUST-01-14/-16/-17/-18/-19): `GET /api/customers` artık **yalnız
+    15/30/50** kabul ediyor, başka her `size` 400 dönüyor (ADR-005 §Amendment).
+    ~~`20 / 50 / 100`~~ ve "`size` pozitif her değeri kabul ediyor" ifadesi
+    geçersiz; **100 seçeneği kalktı**. Mock'un 15/25/50'sinden tek fark 25→30.
+    Değerler iki haneli kaldığı için Select genişliği 84px'te kalabilir.
   - Panel **yukarı açılır** (`.eds-pagesize-up .eds-select-panel { top:auto;
     bottom: calc(100% + 4px) }`) — kart içinde kalması için
 
@@ -1520,11 +1523,13 @@ Ayrıca `aria-current="page"` (aktif sayfa), `role="status"` (toast),
    (23.07.2026):** backend parametreleri **tanıyor** ama henüz geliştirilmedi →
    501 `MSG-FEATURE-NOT-IMPLEMENTED`. Alanlar UI'da **disabled** render edilir.
    Bkz. §5A.2 madde 5 ve aşağıdaki madde 10.
-3. ~~**Per page değerleri**~~ → ✅ **KARARA BAĞLANDI (23.07.2026):**
-   liste **pageable, varsayılan sayfa boyutu 20**. Mock'un 15/25/50 (varsayılan
-   15) değerleri ve KR-04'ün 15/30/50'si geçersiz; backend `GET /api/customers`
-   varsayılanı (ADR-005) esas alınıyor. Kalan işi: per-page seçicisinde 20
-   seçeneği yok — seçenek listesi 20'yi içerecek şekilde yeniden kurulacak.
+3. ~~**Per page değerleri**~~ → ✅ **YENİDEN KARARA BAĞLANDI (29.07.2026):**
+   liste **pageable, varsayılan sayfa boyutu 15, seçenekler 15/30/50** — KR-04
+   birebir uygulanıyor. 23.07.2026'daki "varsayılan 20, seçenekler 20/50/100"
+   kararı **geçersiz**: dayanağı olan "API pozitif her `size` değerini kabul
+   ediyor" davranışı analist bug'larıyla kaldırıldı, API artık whitelist dışı
+   her değere 400 dönüyor (ADR-005 §Amendment). `PAGE_SIZE_OPTIONS` ile backend
+   whitelist'i birebir aynı tutulmalı — aksi halde liste ekranı 400 alır.
 4. **Customer Info "Customer account" sekmesi:** ilgili servisler gelene kadar
    sekme **hiç gösterilmeyecek** mi, yoksa disabled/"yakında" durumunda mı
    duracak?

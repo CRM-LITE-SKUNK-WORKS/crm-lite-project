@@ -518,23 +518,56 @@ class CustomerServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("ADR-005: browse stays server-side paginated (default size 20, size param respected)")
+    @DisplayName("KR-04: browse stays server-side paginated; default size 15, 15/30/50 accepted")
     @SuppressWarnings("unchecked")
     void browseIsPaginated() {
-        ResponseEntity<Map> firstPage = get("/api/customers?page=0&size=1");
-
-        assertThat(firstPage.getStatusCode()).isEqualTo(HttpStatus.OK);
-        List<Map<String, Object>> content = (List<Map<String, Object>>) firstPage.getBody().get("content");
-        assertThat(content).hasSize(1);
-        long totalElements = ((Number) firstPage.getBody().get("totalElements")).longValue();
-        long totalPages = ((Number) firstPage.getBody().get("totalPages")).longValue();
-        assertThat(totalElements).isGreaterThanOrEqualTo(2); // at least seed 1001 + 1002
-        assertThat(totalPages).isEqualTo(totalElements);     // size=1 -> one row per page
-
-        // Default page size is 20 (ADR-005; the UI adds its own KR-04 Per Page values).
+        // Default page size is 15 (KR-04; ADR-005 §Amendment 2026-07-29 withdrew the old 20).
         ResponseEntity<Map> defaults = get("/api/customers");
-        assertThat(((Number) defaults.getBody().get("size")).intValue()).isEqualTo(20);
+        assertThat(defaults.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(((Number) defaults.getBody().get("size")).intValue()).isEqualTo(15);
         assertThat(((Number) defaults.getBody().get("number")).intValue()).isEqualTo(0);
+
+        long totalElements = ((Number) defaults.getBody().get("totalElements")).longValue();
+        assertThat(totalElements).isGreaterThanOrEqualTo(2); // at least seed 1001 + 1002
+
+        // Every whitelisted size is applied verbatim and echoed back.
+        for (int size : new int[] {15, 30, 50}) {
+            ResponseEntity<Map> page = get("/api/customers?page=0&size=" + size);
+            assertThat(page.getStatusCode()).isEqualTo(HttpStatus.OK);
+            assertThat(((Number) page.getBody().get("size")).intValue()).isEqualTo(size);
+            List<Map<String, Object>> content = (List<Map<String, Object>>) page.getBody().get("content");
+            assertThat(content).hasSize((int) Math.min(totalElements, size));
+        }
+
+        // A page past the end stays a normal empty 200 (Spring Data semantics); KR-04
+        // whitelists page SIZE only, so `page` deliberately has no upper bound.
+        ResponseEntity<Map> beyond = get("/api/customers?page=500&size=15");
+        assertThat(beyond.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat((List<Map<String, Object>>) beyond.getBody().get("content")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("KR-04: non-whitelisted, excessive, zero size and negative page -> 400, never 500")
+    @SuppressWarnings("unchecked")
+    void rejectsInvalidPaginationParameters() {
+        // size=17 (not whitelisted), size=999999 (excessive) and size=0 (previously a 500
+        // out of PageRequest.of) all fail the same whitelist rule.
+        for (String size : new String[] {"17", "999999", "0"}) {
+            ResponseEntity<Map> response = get("/api/customers?size=" + size);
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+            Map<String, Object> errors = (Map<String, Object>) response.getBody().get("validationErrors");
+            assertThat(errors).containsEntry("size", "must be one of 15, 30, 50");
+        }
+
+        // page=-1 was the other PageRequest.of 500.
+        ResponseEntity<Map> negativePage = get("/api/customers?page=-1");
+
+        assertThat(negativePage.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(negativePage.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+        Map<String, Object> pageErrors = (Map<String, Object>) negativePage.getBody().get("validationErrors");
+        assertThat(pageErrors).containsEntry("page", "must not be negative");
     }
 
     @Test

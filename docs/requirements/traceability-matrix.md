@@ -25,6 +25,7 @@ real PostgreSQL + HTTP, real crm-security-starter chain).
 | AC-CUST-01-07 numeric-only params | `@Pattern` on request params + type-mismatch handler | `GlobalExceptionHandlerTest` |
 | AC-CUST-01-08 only active customers | `status_id = ACTV AND deleted_date IS NULL` (local) | IT `browseWithoutCriteriaListsAllActiveCustomers` (1003 invisible), `searchWordStartSemantics`, `seedDataLoaded` |
 | AC-CUST-01-09 / KR-04 server-side paging + firstName→lastName sort | `PageRequest` + stable customerNumber tiebreak | IT `browseIsPaginated`, `browseWithoutCriteriaListsAllActiveCustomers` (order asserted) |
+| KR-04 page size: default 15, only 15/30/50 (ADR-005 §Amendment) | `@AllowedPageSize` + `@Min(0)` on `GET /api/customers` | UT `AllowedPageSizeValidatorTest`, IT `browseIsPaginated`, `rejectsInvalidPaginationParameters` |
 | AC-CUST-03-02..13 demographic validation | `DemographicRequest` (VR-NAME/VR-NATID), rules (birthdate/age) | `CustomerBusinessRulesTest`, IT Turkish-name create |
 | AC-CUST-03-06 / KR-10 MERNIS keys | `MSG-CUST-NATID-VERIFICATION-FAILED` (400), `MSG-MERNIS-UNAVAILABLE` (503), fail closed pre-persist | IT `mernisRejectionLeavesNoPartialData`, `mernisUnavailableFailsClosed`; `GlobalExceptionHandlerTest`; `MernisStubIntegrationTest` (mernis-stub module) |
 | AC-CUST-03-12 + ADR-003 NAT ID unique (global, permanent) | DB UNIQUE (all rows) + `IndividualRepository.existsByNationalityId`; surfaced pre-submit by `GET /api/customers/nationality-id-availability` (ADR-005 §Addendum) | IT `nationalityIdOfSoftDeletedCustomerStaysReserved`, `nationalityIdAvailabilityCoversSoftDeletedHolders`, `nationalityIdAvailabilityDoesNotShadowDetail`, `CustomerBusinessRulesTest` |
@@ -102,8 +103,10 @@ real PostgreSQL + HTTP, real crm-security-starter chain).
    FR AC-CUST-03-12 (no qualifier) + ADR-003; conflict remains in the source document.
 2. **"İçinde-geçen" (contains) matching note** on the draw.io FR-CUST-01 page —
    contradicts KR-01/AC-CUST-01-03 (word-start); KR-01 governs.
-3. **KR-04 default page size 15 (UI) vs API default 20 (ADR-005)** — open item;
-   frontend passes `size` explicitly.
+3. ~~**KR-04 default page size 15 (UI) vs API default 20 (ADR-005)**~~ — **CLOSED
+   2026-07-29** via BUG-API-CUST-01-14/-16/-17/-18/-19: API default is 15 and only
+   15/30/50 are accepted (400 otherwise, previously 500 for `size=0`/`page=-1`).
+   ADR-005 §Amendment.
 4. **Use-case FR-CUST-03 duplicate step number "Adım 4.5"** — editorial defect,
    flagged for analysts.
 5. **Workbook USERS table (`username`/`password_hash`) vs Keycloak ownership** —

@@ -30,8 +30,8 @@ start at 1001). The internal database id is never exposed.
 ## List + filter (`GET /api/customers`) — ADR-005 / KR-01 semantics
 
 Query parameters (all optional): `firstName`, `lastName`, `nationalityId`,
-`customerId`, `gsmNumber`, `accountNumber`, `orderNumber`, `page` (default 0),
-`size` (default 20).
+`customerId`, `gsmNumber`, `accountNumber`, `orderNumber`, `page` (default 0,
+must not be negative), `size` (default **15**, must be **15, 30 or 50**).
 
 - **No parameters ⇒ browse mode (AC-CUST-01-00):** returns all ACTIVE, non-deleted
   customers, server-side paginated — the post-login main-page list. The old
@@ -64,8 +64,13 @@ exactly the same fields as `GET /api/customers/{customerNumber}`:
 > `customerId` field) was **deleted**. List rows now carry `customerNumber` and the
 > complete demographic set. The `customerId` **query parameter** keeps its name.
 
-> KR-04 note: the UI default Per Page is **15** (options 15/30/50) — the API default
-> is 20 and the frontend passes `size` explicitly. Recorded as an open item in ADR-005.
+> KR-04 pagination (ADR-005 §Amendment 2026-07-29): default Per Page **15**, and the
+> API accepts **only 15/30/50** — anything else is `400 MSG-VALIDATION-ERROR` with
+> `validationErrors.size` ("must be one of 15, 30, 50"). A negative `page` is the same
+> 400 with `validationErrors.page`. The frontend still sends `size` explicitly.
+> `page` has **no** upper bound: past the end you get a normal 200 with empty content.
+> (This replaces the earlier "API default 20, any positive size" contract, which the
+> analysts closed with BUG-API-CUST-01-14/-16/-17/-18/-19.)
 
 ## Nationality-ID availability (`GET /api/customers/nationality-id-availability`)
 
@@ -192,9 +197,15 @@ curl -sS -w "\nHTTP Status: %{http_code}\n" http://localhost:8080/api/cities/1/d
 # ADR-005 browse mode: NO parameters -> 200, all active customers, A-Z, paginated
 curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers"
 
-# pagination
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?page=0&size=1"
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?page=1&size=1"
+# pagination (KR-04: size must be 15, 30 or 50)
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?page=0&size=15"
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?page=1&size=15"   # past the end -> 200, empty content
+
+# rejected page-size / page values -> 400 MSG-VALIDATION-ERROR (never 500)
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?size=17"
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?size=999999"
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?size=0"
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?page=-1"
 
 # filters (KR-01)
 curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?firstName=Ali"        # 1001

@@ -26,7 +26,7 @@ function page(
   return {
     items: rows,
     page: 0,
-    size: 20,
+    size: 15,
     totalElements: rows.length,
     totalPages: rows.length ? 1 : 0,
     isFirst: true,
@@ -75,10 +75,10 @@ describe('CustomerListStore', () => {
     expect(store.customers()).toEqual([]);
   });
 
-  it('browse loads with no criteria, page 0, default size 20 (KR-04)', () => {
+  it('browse loads with no criteria, page 0, default size 15 (KR-04)', () => {
     api.mode = 'sync-ok';
     store.browse();
-    expect(api.calls.at(-1)).toEqual({ criteria: {}, page: 0, size: 20 });
+    expect(api.calls.at(-1)).toEqual({ criteria: {}, page: 0, size: 15 });
     expect(store.status()).toBe('loaded');
     expect(store.customers()).toEqual([ROW]);
   });
@@ -94,14 +94,14 @@ describe('CustomerListStore', () => {
   it('applyFilters sends the criteria and resets to the first page', () => {
     api.mode = 'sync-ok';
     store.applyFilters({ firstName: 'Ali' });
-    expect(api.calls.at(-1)).toEqual({ criteria: { firstName: 'Ali' }, page: 0, size: 20 });
+    expect(api.calls.at(-1)).toEqual({ criteria: { firstName: 'Ali' }, page: 0, size: 15 });
   });
 
   it('goToPage changes the page but keeps criteria and size', () => {
     api.mode = 'sync-ok';
     store.applyFilters({ lastName: 'Demir' });
     store.goToPage(2);
-    expect(api.calls.at(-1)).toEqual({ criteria: { lastName: 'Demir' }, page: 2, size: 20 });
+    expect(api.calls.at(-1)).toEqual({ criteria: { lastName: 'Demir' }, page: 2, size: 15 });
   });
 
   it('goToPage ignores the current page and negatives', () => {
@@ -167,7 +167,7 @@ describe('CustomerListStore', () => {
     store.reset();
     expect(store.status()).toBe('idle');
     expect(store.criteria()).toEqual({});
-    expect(store.size()).toBe(20);
+    expect(store.size()).toBe(15);
     expect(store.selected()).toBeNull();
     expect(store.customers()).toEqual([]);
   });

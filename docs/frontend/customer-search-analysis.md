@@ -111,11 +111,13 @@ aynı alanları taşır:
 
 ## 5. Sayfalama (KR-04)
 
-- Varsayılan **20**; seçenekler **20 / 50 / 100** (§2.4 — mock'un 15/25/50'si ve
-  analistin 15/30/50'si yerine; karar verildi).
+- Varsayılan **15**; seçenekler **15 / 30 / 50** (§2.4, 29.07.2026 revizyonu —
+  KR-04 birebir). API whitelist dışı `size` değerlerine **400** döner
+  (ADR-005 §Amendment), yani bu liste backend whitelist'iyle aynı olmak
+  **zorunda**; eski 20/50/100 kararı geçersiz.
 - Sayfa boyutu değişince **`page=0`'a dönülür** (aksi halde boş sayfada kalınır).
 - Filtre değişip yeni arama yapılınca da `page=0`.
-- Aralık metni ("1–20 / 137") **i18n parametreli** anahtar gerektirir → §8.
+- Aralık metni ("1–15 / 137") **i18n parametreli** anahtar gerektirir → §8.
 - `‹ 1 2 3 ›` kontrolleri `IconButton` + sayfa butonları; her biri `data-testid`.
 
 ---

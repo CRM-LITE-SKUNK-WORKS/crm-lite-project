@@ -627,6 +627,44 @@ class AccountServiceIntegrationTest {
         }
     }
 
+    // ------------------------------------------ product-ids (ADR-013 §5 read side)
+
+    @Test
+    @Order(22)
+    @DisplayName("product-ids: V2+V3 involvements in product_id order — non-deleted only, involvement status NOT filtered")
+    void productIdsListsNonDeletedInvolvements() {
+        // V2 seeded products 1,2 (ACTV) and V3 added 3 (ACTV) + 4 (PASV, deleted_date
+        // NULL): the PASV involvement stays listed — AC-PROD-01-03 shows passive
+        // products; only the AC-ACCT-04-03 delete guard filters on ACTV.
+        ResponseEntity<List> ids = getList("/api/accounts/1261000010/product-ids");
+        assertThat(ids.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ids.getBody()).containsExactly(1, 2, 3, 4);
+
+        // MSG-PROD-NONE fixtures stay product-less: empty array, not 404.
+        ResponseEntity<List> empty = getList("/api/accounts/1261000028/product-ids");
+        assertThat(empty.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(empty.getBody()).isEmpty();
+
+        // A Passive account stays readable (AC-ACCT-04-02): 1261000036 was
+        // passivated in the delete test above.
+        ResponseEntity<List> passiveAccount = getList("/api/accounts/1261000036/product-ids");
+        assertThat(passiveAccount.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(passiveAccount.getBody()).isEmpty();
+    }
+
+    @Test
+    @Order(23)
+    @DisplayName("product-ids: unknown number and the K-8 223 are indistinguishable 404s (ADR-013 §4.5)")
+    void productIdsHidesUnknownAnd223() {
+        ResponseEntity<Map> unknown = get("/api/accounts/1999999999/product-ids");
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknown.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+
+        ResponseEntity<Map> hidden223 = get("/api/accounts/1261000002/product-ids");
+        assertThat(hidden223.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(hidden223.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+    }
+
     @Test
     @Order(19)
     @DisplayName("concurrency: parallel allocations yield strictly distinct consecutive values, next_value exact")

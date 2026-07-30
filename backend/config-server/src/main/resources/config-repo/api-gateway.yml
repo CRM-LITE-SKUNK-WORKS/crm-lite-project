@@ -127,6 +127,33 @@ spring:
               filters:
                 - TokenRelay=
                 - RemoveRequestHeader=Cookie
+            # Product viewing (FR-PROD-01..02) + read-only offer/campaign catalog.
+            # Same BFF contract as the other domain routes. NOTE: account-service's
+            # internal /api/accounts/{n}/product-ids endpoint is matched by the
+            # accounts route above — acceptable: it serves only ids and requires the
+            # same crm-user JWT; the primary consumer (product-service) calls it
+            # directly via Eureka, never through the gateway (ADR-010).
+            - id: product-service
+              uri: lb://product-service
+              predicates:
+                - Path=/api/products/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
+            - id: product-service-offers
+              uri: lb://product-service
+              predicates:
+                - Path=/api/offers/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
+            - id: product-service-campaigns
+              uri: lb://product-service
+              predicates:
+                - Path=/api/campaigns/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
             # Unified Swagger UI (ADR-012): proxy each service's OpenAPI JSON under this
             # gateway's own origin so springdoc.swagger-ui.urls below can list them. Both
             # services permit /v3/api-docs anonymously (crm.security.permit-paths), so no
@@ -159,6 +186,14 @@ spring:
                 - RewritePath=/v3/api-docs/account-service, /v3/api-docs
                 - AddRequestHeader=X-Forwarded-Host, localhost:8080
                 - AddRequestHeader=X-Forwarded-Proto, http
+            - id: product-service-docs
+              uri: lb://product-service
+              predicates:
+                - Path=/v3/api-docs/product-service
+              filters:
+                - RewritePath=/v3/api-docs/product-service, /v3/api-docs
+                - AddRequestHeader=X-Forwarded-Host, localhost:8080
+                - AddRequestHeader=X-Forwarded-Proto, http
 
 eureka:
   client:
@@ -182,6 +217,8 @@ springdoc:
         url: /v3/api-docs/lookup-service
       - name: account-service
         url: /v3/api-docs/account-service
+      - name: product-service
+        url: /v3/api-docs/product-service
 
 # 2c) Actuator exposure.
 # NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway

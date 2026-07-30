@@ -45,6 +45,7 @@
         <module>backend/lookup-service</module>
         <module>backend/mernis-stub</module>
         <module>backend/account-service</module>
+        <module>backend/product-service</module>
     </modules>
 
     <dependencyManagement>

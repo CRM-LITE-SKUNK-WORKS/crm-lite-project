@@ -1,8 +1,11 @@
 # Service Boundaries
 
-Last updated: 2026-07-23 (**account-service implemented** — FR-ACCT-01..04 + KR-11,
-ADR-013/014; same-day earlier state: v8-1 reconciliation, documentation only).
-Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
+Last updated: 2026-07-29 (**product-service implemented — read-only FR-PROD-01..02
+slice**: port 8086, `product_db`, composes over account-service's new
+`GET /api/accounts/{n}/product-ids`; ADR-015 + an ADR-013 read-side clause are
+still owed). Prior: 2026-07-23 (**account-service implemented** — FR-ACCT-01..04
++ KR-11, ADR-013/014; same-day earlier state: v8-1 reconciliation, documentation
+only). Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
 
 ```
    browser ──► api-gateway :8080 ◄──────── login redirect ────► Keycloak :8180
@@ -68,13 +71,27 @@ Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
    **`cust_acct_prod_invl` is written ONLY by account-service** — future
    product/order/sale services integrate via an account-service command/API or a
    consumed event, never by writing `account_db` directly.
-7. **Future domains** (see roadmap below): own services + own databases per the seed
+7. **Products (read-only slice, 2026-07-29):** `product-service` (port 8086,
+   `product_db`) owns the ten PROD/catalog workbook tables. `PROD` deliberately
+   has **no customer or account column**: the product ↔ billing-account link
+   lives only in `account_db.cust_acct_prod_invl`, so `GET /api/products` is a
+   **composition** over account-service's `GET /api/accounts/{n}/product-ids`
+   (direct via Eureka with the user's token, ADR-010 — never through the gateway,
+   never a direct `account_db` read/write). `prod.service_address_id` is an
+   FK-less reference into `customer_db`, resolved through customer-service's
+   internal `GET /api/addresses/{addressId}`. Service type is derived through
+   `PROD_SPEC.service_type_id` (central GNL_TP); the public campaign identifier
+   is `cmpg.campaign_code`, never the internal id. No lookup HTTP client exists
+   here — the slice is read-only, so only the `LookupContract` constants are used
+   (ADR-002 otherwise unchanged: no local catalog tables or seeds). Upstream
+   unavailability fails closed (503 `MSG-SERVICE-UNAVAILABLE`).
+8. **Future domains** (see roadmap below): own services + own databases per the seed
    workbook. Until they exist, cross-domain behaviour is an explicit 501 or a
    documented no-op TODO — never silently faked.
-8. **Ports:** 8888 config, 8761 eureka, 8080 gateway (BFF), 8180 keycloak,
-   8082 customer, 8083 lookup, 8084 mernis-stub, 8085 account
-   (8082/8083/8084/8085 host-visible only in the IDE-run topology; compose keeps
-   them internal).
+9. **Ports:** 8888 config, 8761 eureka, 8080 gateway (BFF), 8180 keycloak,
+   8082 customer, 8083 lookup, 8084 mernis-stub, 8085 account, 8086 product
+   (8082/8083/8084/8085/8086 host-visible only in the IDE-run topology; compose
+   keeps them internal).
 
 ## Service roadmap and current status (honest, evidence-based)
 
@@ -93,7 +110,7 @@ Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
 | auth / security milestone | ✅ **Implemented (2026-07-17)** | Keycloak sole authority + gateway BFF + zero-trust resource servers + JWT-sub audit (ADR-006..011). The auth-service skeleton was REMOVED (ADR-007) — it must not come back; a future profile store, if ever needed, is a new sub-keyed service per ADR-011 |
 | localization-service | 🗓️ Planned | Required by FR-LANG if the architecture keeps a central label/message catalog; **default language is now English** (16.07.2026). Backend already returns language-neutral `messageKey`s. Not started |
 | account-service | ✅ **Implemented (2026-07-23)** | FR-ACCT-01..04 + KR-11 per **ADR-013/014**: `account_db` (acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq), gateway route `/api/accounts/**`, zero-trust resource server, K-8 lazy 223, delete = passivation (stays list-visible). Unit + Testcontainers IT suite (`AccountServiceIntegrationTest`); Swagger in the unified gateway UI. customer-service's account-related 501/no-ops convert in a separate follow-up PR |
-| product-service | 🗓️ Planned (probable owner) | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* (product/catalog/campaign/product-instance); final boundary may combine product+catalog scope for this project — not analyst-final |
+| product-service | ✅ **Implemented — read-only slice (2026-07-29)** | FR-PROD-01..02 §2.6 + read-only catalog: `product_db` (prod_spec/prod_ofr/cmpg/cmpg_prod_ofr/prod/prod_spec_char/prod_spec_char_use/prod_char_val/prod_catal/prod_catal_prod_ofr), port 8086, gateway routes `/api/products/**`, `/api/offers/**`, `/api/campaigns/**`, zero-trust resource server, Swagger in the unified gateway UI. `GET /api/products` composes over account-service's new `product-ids` endpoint — `PROD` carries NO account/customer column and this service never touches `account_db` (ADR-013 §5). Unit-free by design (no invariant maths); Testcontainers IT (`ProductServiceIntegrationTest`, 13 tests). **Write side (creation/provisioning/basket/order, FR-SALE §2.7) NOT implemented**; characteristics are schema+seed only. **ADR-015 (product boundary) + an ADR-013 read-side clause are OWED** — see `docs/api/product-service.md` |
 | order-service | 🗓️ Planned (probable owner) | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + sale orchestration (FR-SALE); not analyst-final |
 
 Planned ≠ approved: the account/product/order/localization ownership above is the

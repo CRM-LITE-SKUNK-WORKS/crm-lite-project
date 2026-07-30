@@ -32,8 +32,21 @@ Postman setup and the known traps — follow
    credentials are typed ONLY there).
 3. Keycloak redirects back to **`GET /login/oauth2/code/keycloak`** (owned by
    the gateway — Angular never handles the callback or the code).
-4. The gateway establishes the session and redirects to the originally
-   requested URL (or `/`).
+4. The gateway establishes the session and redirects to the **application root as
+   derived from the request** — `http://localhost:4200/` for a login arriving
+   through the frontend origin, `http://localhost:8080/` for a direct hit
+   (forward-header-corrected, the same derivation `{baseUrl}` and the post-logout
+   URI use). Angular's `'' → customers` route then decides the actual screen; the
+   gateway never hardcodes the frontend origin.
+   The landing is **always** that root: the gateway keeps **no** saved-request
+   cache (2026-07-30 fix), so nothing a dead session left behind can hijack the
+   next login. Before it, a stale raw API tab — or Angular's own anonymous
+   `/api/session/me` probe, or even the browser's `favicon.ico` sub-request —
+   could become the landing page and dump the user on JSON at `…?continue`
+   (`continue` being Spring Security's saved-request marker). Both origins share
+   one session, since nginx proxies `/api`, `/oauth2`, `/login` and `/logout` to
+   the gateway. Deep links are the SPA's own concern: nginx serves `index.html`
+   for any path and Angular's router owns the URL, so the gateway never sees them.
 
 Invalid credentials and disabled users stay on the Keycloak page with its
 error message (MSG-AUTH-INVALID-CRED semantics, AC-AUTH-01-03..05); no
@@ -99,6 +112,7 @@ After logout (or the browser back button): any API call returns `401`
 | Session lacks `crm-user` | 403 | same shape, `MSG-AUTH-FORBIDDEN` |
 | CSRF rejection | 403 | same shape, `MSG-AUTH-CSRF-REJECTED` |
 | Browser page navigation while anonymous | 302 | redirect to `/oauth2/authorization/keycloak` |
+| Path the gateway neither routes nor maps (e.g. `/favicon.ico`) | 404 | same shape, `MSG-NOT-FOUND` — a **documented project addition** (2026-07-30). It previously fell into the catch-all as `500 MSG-INTERNAL-ERROR`, which misreported a missing endpoint as a server fault |
 
 API calls are distinguished from page navigation by the path (`/api/**` always
 gets JSON, never a redirect).

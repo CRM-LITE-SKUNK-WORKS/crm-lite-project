@@ -1,8 +1,10 @@
-# Traceability Matrix — customer-service + authentication + account-service scope
+# Traceability Matrix — customer-service + authentication + account-service + product-service scope
 
-Last updated: 2026-07-23 (**account-service implemented** — FR-ACCT-01..04 + KR-11
-per ADR-013/014; the same date's earlier documentation-only v8-1 reconciliation is
-in [document-delta.md](document-delta.md)). Prior: 2026-07-18
+Last updated: 2026-07-29 (**product-service implemented — read-only FR-PROD-01..02
+slice**, plus account-service's `product-ids` read endpoint and customer-service's
+internal address-resolution endpoint; deviations in
+[document-delta.md](document-delta.md)). Prior: 2026-07-23 (**account-service
+implemented** — FR-ACCT-01..04 + KR-11 per ADR-013/014). Prior: 2026-07-18
 (authentication/security milestone, ADR-006..011).
 FR/AC → implementation → automated test. Tests live in
 `backend/customer-service/src/test/java` unless noted.
@@ -72,6 +74,30 @@ real PostgreSQL + HTTP, real crm-security-starter chain).
 | KR-11 permanence (never reused) | UNIQUE over all rows; sequence never rewinds | ACCT-IT `numberNeverReusedAfterPassivation`, `duplicateNumberRaceMapsTo409` |
 | ADR-002 in account_db (no gnl tables/FKs) | V1 schema; central IDs as external refs | ACCT-IT `schemaContainsOnlyAccountTables` |
 | ADR-009/010 zero trust + token propagation | starter chain; both outbound RestClients propagate the user token | ACCT-IT `securityChecks`; `OutboundBearerPropagationTest` (account-service module) |
+| ADR-013 §5 involvement read side (**NEW 2026-07-29**) | `GET /api/accounts/{n}/product-ids` → `200 [Long]`; non-deleted rows, involvement status NOT filtered (the ACTV-only filter stays exclusive to the AC-ACCT-04-03 guard); unknown number and the K-8 223 → 404 `MSG-ACCT-NOT-FOUND` | ACCT-IT `productIdsListsNonDeletedInvolvements`, `productIdsHidesUnknownAnd223` |
+
+## Implemented (product-service — 2026-07-29, read-only FR-PROD-01..02 slice)
+
+`PROD-IT` = `ProductServiceIntegrationTest` (product-service module; Testcontainers,
+real PostgreSQL + HTTP, real crm-security-starter chain; the account-service and
+customer-service clients are mocked at their interfaces only).
+
+| Requirement | Implementation | Test |
+|---|---|---|
+| FR-PROD-01 list products of a billing account | `GET /api/products?accountNumber=` composing over account-service's `product-ids` (ADR-013 §5) + local `product_db` join; **no pagination** (FR defines none) | PROD-IT `listProductsOfAccount` |
+| AC-PROD-01-01 expandable per-account sub-table | backend contract only (expand/collapse is UI); rows keyed by the account number | PROD-IT `listProductsOfAccount` |
+| AC-PROD-01-02 no products → `MSG-PROD-NONE` | `200 []`; the info text is frontend-only, the key is never produced by the backend | PROD-IT `listEmptyAccount` |
+| AC-PROD-01-03 columns Product ID/Name/Campaign Name/Campaign ID/Status | `ProductRowResponse`; `campaignId` = **public** `cmpg.campaign_code`; campaign-less product → `null` fields (`"-"` is UI); Status from `PROD.status_id`, both Active and Passive listed | PROD-IT `listProductsOfAccount` (campaign branch, passive fixture, response keys) |
+| AC-PROD-01-04 Action column = view only | no `Action` field in the API; no cancellation endpoint exists | PROD-IT `listProductsOfAccount` (response keys asserted) |
+| FR-PROD-02 / AC-PROD-02-01 detail modal (Offer Name, Offer ID, Spec ID, Campaign, Service Address) | `GET /api/products/{id}` → `ProductDetailResponse`; **child product shows its parent's** service address (`ProductBusinessRules.resolveEffectiveServiceAddressId`), resolved via customer-service | PROD-IT `detailOfChildProductShowsParentAddress`, `detailCampaignlessAndPassiveProducts` |
+| Unknown product → 404 `MSG-PROD-NOT-FOUND` (documented **project addition**) | `ProductServiceImpl.getById`; non-numeric id → 400 | PROD-IT `detailValidation` |
+| Service type derived through the spec | `PROD_SPEC.service_type_id` → GNL_TP 10/11/12 via `LookupContract.serviceTypeCode` (offers have no service-type column) | PROD-IT `offersCatalog`, `campaignsCatalog` |
+| Read-only catalog (Offer Selection support for §2.7) | `GET /api/offers`, `GET /api/campaigns`; campaign `totalPrice` **derived** from member offers, `CMPG` stores no price | PROD-IT `offersCatalog`, `campaignsCatalog` |
+| ADR-002 in product_db (no gnl tables/seeds/FKs) | V1 schema; central GNL_ST/GNL_TP IDs as external refs; **no lookup HTTP client** (read-only slice) | PROD-IT `schemaContainsOnlyProductTables` |
+| ADR-013 §5 — `PROD` has no account/customer column | V1 schema; the account link is read exclusively through account-service's API | PROD-IT `prodHasNoAccountColumns` |
+| Fail closed on upstream outage | account-service or customer-service unreachable → 503 `MSG-SERVICE-UNAVAILABLE` | PROD-IT `listFailsClosedWhenAccountServiceDown`, `detailFailsClosedWhenCustomerServiceDown` |
+| ADR-009 zero trust | starter chain (401/403; only `/actuator/health` + `/v3/api-docs/**` anonymous) | PROD-IT `securityChecks` |
+| Internal address resolution (customer-service, **NEW**) | `GET /api/addresses/{addressId}` → active address; soft-deleted/unknown → 404 `MSG-CUST-NOT-FOUND`; not gateway-routed | IT `internalAddressResolution` |
 
 ## Removed by the 16.07.2026 revision
 
@@ -90,10 +116,11 @@ real PostgreSQL + HTTP, real crm-security-starter chain).
 | AC-CUST-05-03 active-product delete guard | customer-service → account/product (same follow-up PR) | documented no-op |
 | AC-CUST-05-04 billing-account passivation on customer delete | customer-service → account-service (same follow-up PR) | documented no-op (local aggregate is passivated) |
 | AC-ADDR-04-04 address in-use check (`MSG-ADDR-IN-USE`) | customer-service → account-service (same follow-up PR; `cust_acct.address_id` now exists) | documented no-op |
-| Product involvement population (`cust_acct_prod_invl`) | future product/order services via an account-service command/API or consumed event — **never direct account_db writes** (ADR-013 §5) | seed/test rows only; real, queried guard state |
+| Product involvement **population** (`cust_acct_prod_invl` writes) | future order/sale flow via an account-service command/API or consumed event — **never direct account_db writes** (ADR-013 §5). The **read** side now exists (`product-ids`, see above) | seed/test rows only (V2 + V3); real, queried guard state |
 | AC-AUTH-01-02/06/07/08/09 login-page UI details (button state, masking, 64-char cap) + LBL-LANGUAGE on the login screen | Keycloak **project theme** (future work) | standard Keycloak login page + built-in EN/TR i18n serve the flow today |
-| FR-ACCT-01..04 + KR-11 (ACCT_TP, CUST_ACCT; Account Number `[T][YY][SSSSSS][C]`; Active+Passive list; delete = passivation) | **planned account-service — next approved Sprint domain**, account-specific ADRs pending | not implemented; contract documented 23.07.2026 (FR v8-1) |
-| FR-PROD-01..02 (PROD_*, CMPG*, PROD_CATAL*) | planned product-service | not implemented |
+| ~~FR-ACCT-01..04 + KR-11~~ | — | ✅ **implemented 2026-07-23** (ADR-013/014) — see the account-service section above; this row was a stale leftover |
+| ~~FR-PROD-01..02 (PROD_*, CMPG*, PROD_CATAL*)~~ | — | ✅ **implemented 2026-07-29** (read-only slice) — see the product-service section above |
+| FR-PROD product **write** side (creation/provisioning, characteristic values) | product-service + order-service (§2.7 sale flow) | not implemented; `prod_spec_char*`/`prod_char_val` exist as schema + seed with no endpoint |
 | FR-SALE-01..02 (BSN_INTER, CUST_ORD, CUST_ORD_ITEM, basket validation MSG-SALE-*) | planned order-service | not implemented |
 | FR-LANG-01 (TR/EN catalogs, **default EN** per 16.07.2026) | frontend + planned localization capability | backend returns language-neutral `messageKey`s |
 

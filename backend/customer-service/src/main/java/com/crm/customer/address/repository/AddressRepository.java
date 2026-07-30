@@ -13,6 +13,10 @@ public interface AddressRepository extends JpaRepository<Address, Long> {
 
     Optional<Address> findByIdAndPartyIdAndDeletedDateIsNull(Long id, Long partyId);
 
+    // Party-independent variant for the internal /api/addresses/{id} resolution
+    // endpoint: the caller (product-service) holds only the bare address id.
+    Optional<Address> findByIdAndDeletedDateIsNull(Long id);
+
     long countByPartyIdAndDeletedDateIsNull(Long partyId);
 
     Optional<Address> findByPartyIdAndPrimaryTrueAndDeletedDateIsNull(Long partyId);

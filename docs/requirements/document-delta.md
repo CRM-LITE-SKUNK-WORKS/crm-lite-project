@@ -63,6 +63,63 @@ under **ADR-013/ADR-014** (which govern; sprint decisions recorded in
   list removal) **remain open on the analyst side**; the implementation follows
   FR v8-1 (passivation, stays visible).
 
+### Implementation record (2026-07-29 — product-service built, read-only FR-PROD-01..02 slice)
+
+`backend/product-service` (port 8086, `product_db`, `com.crm.product`) implements
+FR §2.6 (FR-PROD-01, FR-PROD-02) plus a read-only offer/campaign catalog. **No
+FR/AC text changed** — this section records the *workbook* deviations and the
+project additions the FR does not name. Full contract:
+[`docs/api/product-service.md`](../api/product-service.md).
+
+**Workbook deviations (workbook NOT edited).** All four are fixtures needed to
+make the AC branches testable; the invented prices in particular are **pending
+analyst approval**:
+
+| # | Deviation | Why | Where |
+|---|---|---|---|
+| P1 | **`PROD_OFR.product_offer_total_price` filled with invented values** — offer 1 `299.00`, offer 2 `149.00`, offer 3 `49.00` | The workbook leaves the column empty in all three rows, but AC-SALE-01-12 requires per-offer "tutar" and a "Total Amount". Something had to be seeded to make the §2.7 screens buildable | `product-service` `V2__seed_product_data.sql` — **analyst approval pending** |
+| P2 | **Campaign fixture:** `PROD` rows 1 and 2 carry `campaign_id = 1` (`CMP-ADSL-01`) | Every workbook `PROD` row has `campaign_id` empty, so AC-PROD-01-03's "show campaign information when the product was bought within a campaign" branch was untestable. Product 3 deliberately stays campaign-less so the `"-"` branch is covered too | same file |
+| P3 | **Passive product fixture:** new `PROD` row 4 (`ADSL 8MB Legacy`), `status_id = 2` (PASV) with `deleted_date`/`deleted_by` set | Every workbook product is `ACTV`, leaving AC-PROD-01-03's Status "pasif" branch untestable. Follows the full soft-delete invariant rather than a status-only row | same file |
+| P4 | **Involvement rows for products 3 and 4** added to `cust_acct_prod_invl` (account 2 = `1261000010`) | The workbook links only products 1 and 2 to an account, leaving product 3 (ADSL Activation) dangling. ⚠️ These rows belong to `account_db`, so they are seeded by **account-service's own `V3__seed_activation_involvement.sql`** — product-service never writes `account_db` (ADR-013 §5). Product 4's involvement is PASV-but-not-deleted, so the product stays listed while the AC-ACCT-04-03 delete guard (ACTV-only) is unaffected | `account-service` `V3__seed_activation_involvement.sql` |
+
+Accounts `1261000028` and `1261000036` are left product-less on purpose — they are
+the `MSG-PROD-NONE` (AC-PROD-01-02) fixtures.
+
+**Project additions the FR/AC catalog does not name:**
+
+- **`MSG-PROD-NOT-FOUND` (404)** for an unknown product id on
+  `GET /api/products/{id}`. The analyst catalog names no such outcome because
+  FR-PROD-02 is always reached from a row the user just saw. `MSG-PROD-NONE`
+  stays **frontend-only** — an account with no products is `200 []`.
+- **`GET /api/accounts/{accountNumber}/product-ids`** on account-service: the
+  single public *reading* point of the `cust_acct_prod_invl` projection
+  (ADR-013 §5 read side). Involvement **writes** remain unimplemented.
+- **`GET /api/addresses/{addressId}`** on customer-service (internal, not
+  gateway-routed): product-service holds only the bare FK-less
+  `prod.service_address_id`, and the public address API is customer-scoped. A
+  read-only addition — customer-service's documented 501/no-op TODOs are
+  untouched.
+
+**Interpretation decisions where the FR is silent** (recorded so they are not
+mistaken for requirements):
+
+- `PROD_SPEC.is_dev` and `PROD.transaction_id` are kept schema-faithful and
+  nullable, unused by any endpoint — no FR/AC defines their meaning.
+- **No pagination** on `GET /api/products`: FR-PROD-01 states no pagination rule
+  (unlike KR-04 for customers), so the full list is returned.
+- **Campaign price is derived** (sum of member offers); `CMPG` gets no price
+  column, because the workbook defines none.
+- **No product-number generation rule** was invented — the public product
+  identifier is `prod.id`. KR-11-style business numbers exist only for accounts.
+- The characteristic model (`PROD_SPEC_CHAR`, `PROD_SPEC_CHAR_USE`,
+  `PROD_CHAR_VAL`) is created and seeded but has **no endpoint** in this slice:
+  it is consumed by the §2.7 Product Configuration screens.
+
+**ADR debt (explicitly owed, not silently skipped):** **ADR-015** (product
+boundary) and a **read-side clause on ADR-013** are outstanding, and
+`docs/architecture/service-boundaries.md`'s "analyst/architecture sign-off is
+still missing" warning continues to apply to the product domain.
+
 ### Accepted changes (documented 23.07.2026 morning; since implemented — see the implementation record above)
 
 | # | Change | Source | Action taken |
@@ -79,6 +136,8 @@ under **ADR-013/ADR-014** (which govern; sprint decisions recorded in
 |---|---|---|---|
 | 7 | **Use-case doc still describes FR-ACCT-04 as list removal**, not passivation: "Beklenen Çıktı" says "aktif ürün bağlantısı bulunmayan fatura hesabının **aktif hesap listesinden kaldırılması**"; Ana Senaryo Adım 5 says the system "**fatura hesabını aktif hesap listesinden kaldırır**". Both contradict FR v8-1 AC-ACCT-04-02 (passivation, stays visible as Passive) | Use-case doc, "Fatura Hesabı Silme (FR-ACCT-04)" | **FR v8-1 AC-ACCT-04-02 governs** (passivation). Use-case wording is superseded and not updated by this revision — flagged for analysts |
 | 8 | **Draw.io ACCT-04 delete-flow node still labeled "Hesabı aktif listeden kaldır"** (remove account from active list) | `CRMLite_Diagrams_Final.drawio`, ACCT-04 flow | Same conflict as #7 — FR v8-1 AC-ACCT-04-02 governs; diagram not updated by this revision — flagged for analysts |
+| 10 | **Workbook `PROD_OFR` rows carry no price, but AC-SALE-01-12 requires amounts** (see deviation P1 above). Invented fixture values are in the product-service seed; the analyst document names no prices anywhere | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `PROD_OFR` sheet vs FR §2.7 AC-SALE-01-12 | Workbook not edited. **Awaiting analyst-approved price list**; until then the seeded 299/149/49 are explicitly provisional |
+| 11 | **FR §2.6 never mentions how a product links to a billing account**, yet FR-PROD-01 lists products *per account*. The workbook answers it only via `CUST_ACCT_PROD_INVL` (in `account_db`) — `PROD` has no account column | FR v8-1 §2.6 vs workbook `PROD` / `CUST_ACCT_PROD_INVL` sheets | Resolved architecturally, not by inventing a column: product-service **composes** over account-service's `product-ids` endpoint (ADR-013 §5). Flagged for analysts as an FR gap; **ADR-015 owed** |
 | 9 | **Entity/Seed workbook `CUST_ACCT` seed rows use legacy `account_number` values that do not satisfy KR-11**: `0101112900`, `0101112911`, `0101112915`, `0101112441` — all start with segment digit `0`, not the fixed `1` required for this phase, and carry no verifiable check digit. `docs/api/customer-service.md`'s `accountNumber=0101112900` curl example (501 smoke test) also happens to reuse one of these legacy values as an illustrative query param — harmless there (the endpoint is unimplemented and returns 501 regardless of the value's format), but not a valid seed once account-service is built | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `CUST_ACCT` sheet | Workbook not edited. When account-service's Flyway seed is authored, these sample account numbers must be regenerated to the KR-11 format, not copied verbatim — flagged for analysts |
 
 ### Service roadmap impact

@@ -26,6 +26,23 @@ start at 1001). The internal database id is never exposed.
 | GET | `/api/customers/{customerNumber}/contact-medium` | Contact info |
 | PUT | `/api/customers/{customerNumber}/contact-medium` | Update contact info |
 | GET | `/api/cities` · `/api/cities/{cityId}/districts` | Cascading address dropdown data |
+| GET | `/api/addresses/{addressId}` | **Internal, service-to-service (2026-07-29).** One ACTIVE address by its public id, without customer context. Not routed through the gateway |
+
+### `GET /api/addresses/{addressId}` (internal)
+
+Added for product-service's FR-PROD-02 Service Address block: it stores only the
+FK-less `prod.service_address_id` reference, so the customer-scoped address list
+above cannot serve it. Returns the same `AddressResponse` shape as
+`/api/customers/{n}/addresses` rows.
+
+- Active addresses only; a soft-deleted or unknown id is `404 MSG-CUST-NOT-FOUND`
+  (the same key the customer-scoped address lookups use).
+- **Deliberately not gateway-routed** — there is no browser use case, and the
+  customer-scoped API stays the only public address surface. Callers reach it
+  directly via Eureka and still need a valid `crm-user` JWT (ADR-009/010).
+- Read-only. This addition does **not** touch customer-service's documented
+  501/no-op TODOs (`accountNumber` search, active-product delete guard,
+  `MSG-ADDR-IN-USE`) — those remain a separate follow-up PR.
 
 ## List + filter (`GET /api/customers`) — ADR-005 / KR-01 semantics
 

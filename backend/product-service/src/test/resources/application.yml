@@ -1,0 +1,26 @@
+# Test-only configuration.
+# - No config-server / Eureka: tests are self-contained.
+# - No datasource here: integration tests start their own PostgreSQL via
+#   Testcontainers and inject the URL with @DynamicPropertySource.
+spring:
+  cloud:
+    config:
+      enabled: false
+  config:
+    import: ""
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+eureka:
+  client:
+    enabled: false
+
+crm:
+  account:
+    base-url: http://localhost:1     # never reached; AccountServiceClient is mocked in tests
+  customer:
+    base-url: http://localhost:1     # never reached; CustomerServiceClient is mocked in tests

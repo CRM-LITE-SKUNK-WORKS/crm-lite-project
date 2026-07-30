@@ -22,6 +22,10 @@
 - Follow the team Git workflow (CONTRIBUTING.md + docs/runbooks/git-workflow.md): branches
   from origin/dev, PRs base=dev, squash-merge; never work directly on dev/main.
 - Never edit old committed Flyway migrations.
+- Never add `Co-Authored-By: Claude`, `Generated with Claude Code`, or any other
+  AI-attribution trailer to commit messages or PR bodies. Commit author and
+  co-authors are humans only. (Enforced by `includeCoAuthoredBy: false` in
+  .claude/settings.json; this line is the backstop.)
 - Never commit secrets, local settings, target folders or IDE workspace files.
 - Do not commit or push automatically.
 - Run build and tests before reporting completion (integration tests need Docker).

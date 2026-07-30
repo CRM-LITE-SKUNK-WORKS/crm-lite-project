@@ -9,7 +9,9 @@ import com.crm.account.account.entity.CustomerAccount;
 import com.crm.account.account.mapper.AccountMapper;
 import com.crm.account.account.number.AccountNumberGenerator;
 import com.crm.account.account.repository.AccountTypeRepository;
+import com.crm.account.account.entity.ProductInvolvement;
 import com.crm.account.account.repository.CustomerAccountRepository;
+import com.crm.account.account.repository.ProductInvolvementRepository;
 import com.crm.account.account.rules.AccountBusinessRules;
 import com.crm.account.account.service.AccountService;
 import com.crm.account.common.CurrentActorProvider;
@@ -32,6 +34,7 @@ public class AccountServiceImpl implements AccountService {
 
     private final CustomerAccountRepository accountRepository;
     private final AccountTypeRepository accountTypeRepository;
+    private final ProductInvolvementRepository involvementRepository;
     private final AccountBusinessRules rules;
     private final AccountNumberGenerator numberGenerator;
     private final AccountMapper mapper;
@@ -59,6 +62,25 @@ public class AccountServiceImpl implements AccountService {
     @Transactional(readOnly = true)
     public AccountResponse getByAccountNumber(String accountNumber) {
         return mapper.toResponse(findVisibleAccount(accountNumber));
+    }
+
+    /**
+     * ADR-013 §5 read side (FR-PROD-01 composition for product-service): the
+     * account's involved product ids from the local involvement projection —
+     * non-deleted rows only, deliberately NOT filtered by involvement status
+     * (AC-PROD-01-03 lists passive products too; the AC-ACCT-04-03 delete guard
+     * keeps its own ACTV-only check). Unknown numbers — and the K-8 223, which is
+     * never API-visible (ADR-013 §4.5) — are 404 via the same visibility rule as
+     * the detail endpoint; a Passive 224 stays readable (AC-ACCT-04-02).
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<Long> listProductIds(String accountNumber) {
+        CustomerAccount account = findVisibleAccount(accountNumber);
+        return involvementRepository.findByCustomerAccountIdAndDeletedDateIsNullOrderByProductIdAsc(account.getId())
+                .stream()
+                .map(ProductInvolvement::getProductId)
+                .toList();
     }
 
     /**

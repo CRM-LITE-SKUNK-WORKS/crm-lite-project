@@ -8,6 +8,9 @@ public interface AddressService {
 
     List<AddressResponse> list(Long customerNumber);
 
+    /** Service-to-service resolution of one ACTIVE address by its public id (see InternalAddressController). */
+    AddressResponse getActiveAddress(Long addressId);
+
     AddressResponse add(Long customerNumber, AddressRequest request);
 
     AddressResponse update(Long customerNumber, Long addressId, AddressRequest request);

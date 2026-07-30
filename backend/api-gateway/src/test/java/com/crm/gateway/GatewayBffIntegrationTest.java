@@ -205,6 +205,16 @@ class GatewayBffIntegrationTest {
     /** Full Authorization Code + PKCE browser flow; returns the logged-in "browser". */
     private Browser login(String username, String password) throws Exception {
         Browser browser = Browser.fresh();
+        login(browser, username, password);
+        return browser;
+    }
+
+    /**
+     * Same flow on an EXISTING browser, so a test can seed session state (e.g. a
+     * request-cache entry) before logging in. Returns the final callback response —
+     * its Location header IS the post-login landing page.
+     */
+    private HttpResponse<String> login(Browser browser, String username, String password) throws Exception {
         HttpResponse<String> start = browser.get(GATEWAY + "/oauth2/authorization/keycloak");
         assertThat(start.statusCode()).isEqualTo(302);
         String authorizeUrl = start.headers().firstValue("Location").orElseThrow();
@@ -227,18 +237,18 @@ class GatewayBffIntegrationTest {
             System.out.println("[login-debug] " + (error.find()
                     ? "kc error: " + error.group(1).trim()
                     : "body head: " + submitted.body().substring(0, Math.min(400, submitted.body().length())).replaceAll("\\s+", " ")));
-            return browser;
+            return submitted;
         }
         String callback = submitted.headers().firstValue("Location").orElseThrow();
         assertThat(callback).startsWith(GATEWAY + "/login/oauth2/code/keycloak");
 
         HttpResponse<String> completed = browser.get(callback);
-        assertThat(completed.statusCode()).isEqualTo(302); // -> saved request or "/"
+        assertThat(completed.statusCode()).isEqualTo(302); // -> saved request or the origin root
         // A failed code exchange also yields a 302 — but to /login?error. Make that
         // failure mode explicit instead of surfacing later as a puzzling 401.
         assertThat(completed.headers().firstValue("Location").orElseThrow())
                 .doesNotContain("error");
-        return browser;
+        return completed;
     }
 
     private static String extractFormAction(String html) {
@@ -370,6 +380,61 @@ class GatewayBffIntegrationTest {
         // Session probe without a session -> 401 (Angular's login trigger).
         assertThat(anonymous.get(GATEWAY + "/api/session/me", "Accept", "application/json").statusCode())
                 .isEqualTo(401);
+    }
+
+    @Test
+    @DisplayName("post-login landing is ALWAYS the app root: nothing anonymous is ever replayed")
+    void postLoginLandingIsAlwaysTheApplicationRoot() throws Exception {
+        Browser browser = Browser.fresh();
+
+        // Everything a dead session leaves behind, in the order a real browser
+        // produces it. ExceptionTranslationFilter saves the current request BEFORE
+        // calling the entry point, so with a request cache ANY of these could become
+        // the post-login landing page — and the SPA shares this very session through
+        // nginx (FE-ADR-004/010).
+        assertThat(browser.get(GATEWAY + "/api/customers/1001", "Accept", "application/json").statusCode())
+                .isEqualTo(401);                       // the raw API tab (first report)
+        assertThat(browser.get(GATEWAY + "/api/session/me", "Accept", "application/json").statusCode())
+                .isEqualTo(401);                       // Angular's own anonymous probe
+        assertThat(browser.get(GATEWAY + "/favicon.ico",
+                "Accept", "image/avif,image/webp,*/*", "Sec-Fetch-Dest", "image").statusCode())
+                .isEqualTo(302);                       // the sub-resource the second report hit
+        assertThat(browser.get(GATEWAY + "/actuator/info", "Accept", "text/html,application/xhtml+xml")
+                .statusCode()).isEqualTo(302);         // machine-readable, navigable
+        assertThat(browser.get(GATEWAY + "/portal/report?id=7", "Accept", "text/html,application/xhtml+xml")
+                .statusCode()).isEqualTo(302);         // a plausible top-level navigation
+
+        HttpResponse<String> completed = login(browser, "ayilmaz", "crm-dev");
+
+        String landing = completed.headers().firstValue("Location").orElseThrow();
+        // "continue" is HttpSessionRequestCache's default matching parameter — the
+        // fingerprint of a replayed saved request, which must never appear now.
+        assertThat(landing).doesNotContain("continue")
+                .doesNotContain("/api/").doesNotContain("favicon").doesNotContain("/portal/");
+        // Landing = the application root derived from the request, so a login arriving
+        // through the nginx-forwarded :4200 origin lands there instead, where Angular
+        // routes '' -> 'customers'.
+        assertThat(landing).isEqualTo(GATEWAY + "/");
+        assertThat(browser.get(GATEWAY + "/api/session/me", "Accept", "application/json").statusCode())
+                .isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("unmapped path is 404 MSG-NOT-FOUND, not a 500 server fault")
+    void unmappedPathIsNotFoundNotServerError() throws Exception {
+        Browser browser = login("ayilmaz", "crm-dev");
+
+        // /favicon.ico is neither routed nor served here; before the fix the catch-all
+        // advice turned it into 500 MSG-INTERNAL-ERROR with a logged stack trace.
+        HttpResponse<String> favicon = browser.get(GATEWAY + "/favicon.ico",
+                "Accept", "image/avif,image/webp,*/*");
+        assertThat(favicon.statusCode()).isEqualTo(404);
+        assertThat(favicon.body()).contains("MSG-NOT-FOUND").doesNotContain("MSG-INTERNAL-ERROR");
+
+        HttpResponse<String> unknown = browser.get(GATEWAY + "/no/such/endpoint",
+                "Accept", "application/json");
+        assertThat(unknown.statusCode()).isEqualTo(404);
+        assertThat(unknown.body()).contains("MSG-NOT-FOUND");
     }
 
     @Test

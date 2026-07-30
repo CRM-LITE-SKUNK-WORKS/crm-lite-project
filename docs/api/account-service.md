@@ -1,7 +1,11 @@
 # account-service API — Billing Accounts (FR-ACCT-01..04, KR-11)
 
-Last updated: 2026-07-23. Architecture: **ADR-013** (boundary/contract),
-**ADR-014** (Account Number generation), ADR-010 addendum (outbound auth).
+Last updated: 2026-07-29 (added the internal
+`GET /api/accounts/{accountNumber}/product-ids` read endpoint + Flyway
+`V3__seed_activation_involvement.sql` for the product-service slice; the
+FR-ACCT-01..04 contract itself is unchanged). Architecture: **ADR-013**
+(boundary/contract), **ADR-014** (Account Number generation), ADR-010 addendum
+(outbound auth).
 Source requirements: FR/AC **v8-1 Final (23.07.2026)** — supersedes v8; see
 `docs/requirements/document-delta.md`.
 
@@ -21,9 +25,37 @@ dropdown entry `account-service`, ADR-012).
 | GET | `/api/accounts/{accountNumber}` | Single account (populates the update screen; Passive readable) |
 | PUT | `/api/accounts/{accountNumber}` | Update `accountName` + `addressId` ONLY |
 | DELETE | `/api/accounts/{accountNumber}` | Soft passivation (never physical) |
+| GET | `/api/accounts/{accountNumber}/product-ids` | **Internal (2026-07-29):** involved product ids for product-service (ADR-013 §5 read side) |
 
 `customerId` is always the **public business customer number** (`cust.customer_number`,
 e.g. 1001) — never an internal id. `accountNumber` is the 10-digit KR-11 number.
+
+### `GET /api/accounts/{accountNumber}/product-ids` (service-to-service)
+
+Added 2026-07-29 for product-service's FR-PROD-01 composition. This is the
+**single public reading point** of the `cust_acct_prod_invl` projection: no other
+service reads or writes `account_db` (ADR-013 §5).
+
+```json
+[1, 2, 3, 4]
+```
+
+- Returns involvement rows with `deleted_date IS NULL`, ascending by `product_id`.
+- **Deliberately NOT filtered by involvement `status_id`:** AC-PROD-01-03 lists
+  both active and passive products, and the displayed status comes from the
+  *product*. The ACTV-only filter remains exclusive to the AC-ACCT-04-03 delete
+  guard — that logic is untouched.
+- Visibility follows the same rule as the detail endpoint: **224 only**, so an
+  unknown number *and* a K-8 223's number both answer `404 MSG-ACCT-NOT-FOUND`
+  (ADR-013 §4.5). A **Passive** 224 stays readable (AC-ACCT-04-02).
+- An account with no involvements is `200 []`, never 404.
+- Reached **directly via Eureka** with the user's token propagated (ADR-010),
+  never through the gateway. It is nonetheless matched by the existing
+  `/api/accounts/**` gateway route — acceptable: it exposes only ids and requires
+  the same `crm-user` JWT as every other account endpoint.
+- **This is a read endpoint only.** Populating/maintaining the projection remains
+  an unimplemented, documented TODO (a future account-service command/API or a
+  consumed event — never a direct `account_db` write).
 
 ## Representation (the only response shape)
 
@@ -79,7 +111,7 @@ Never present: internal ids (`cust_acct.id`, `acct_tp.id`), an `Action` field
 | 400 | `MSG-VALIDATION-ERROR` | missing/blank fields, missing or non-numeric `customerId`, addressId not in the customer's active list, malformed body |
 | 400 | `MSG-ACCT-IMMUTABLE-FIELD` | immutable/unknown properties submitted on POST/PUT |
 | 401 / 403 | `MSG-AUTH-UNAUTHORIZED` / `MSG-AUTH-FORBIDDEN` | starter contract (403 `MSG-AUTH-CSRF-REJECTED` at the gateway) |
-| 404 | `MSG-ACCT-NOT-FOUND` | unknown accountNumber (or a K-8 223's number) |
+| 404 | `MSG-ACCT-NOT-FOUND` | unknown accountNumber (or a K-8 223's number) — detail, update, delete **and `product-ids`** |
 | 404 | `MSG-CUST-NOT-FOUND` | create for an unknown/passive customer |
 | 409 | `MSG-ACCT-HAS-PRODUCTS` | delete blocked by active involvement (AC-ACCT-04-03) |
 | 409 | `MSG-ACCT-NOT-ACTIVE` | update or re-delete of a Passive account |

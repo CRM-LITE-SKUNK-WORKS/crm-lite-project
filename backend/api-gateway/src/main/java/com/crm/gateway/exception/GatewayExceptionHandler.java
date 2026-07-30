@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 /**
  * Spring Cloud Gateway Server WebMVC (servlet stack - see SecurityConfig for the WebMVC vs
@@ -45,6 +47,21 @@ public class GatewayExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(GatewayErrorResponse.of(
                 HttpStatus.SERVICE_UNAVAILABLE, "MSG-SERVICE-UNAVAILABLE",
                 "Downstream service is unavailable", request.getRequestURI()));
+    }
+
+    /**
+     * A path this gateway neither routes nor maps is a 404, not a server fault. Without
+     * this, the catch-all below turned every such request into 500 MSG-INTERNAL-ERROR
+     * plus a logged stack trace — observed with {@code /favicon.ico}, which browsers
+     * request for whatever tab they are showing and which no route or resource handler
+     * here serves. Both variants are handled because which one is thrown depends on
+     * whether a resource handler claimed the path first.
+     */
+    @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+    public ResponseEntity<GatewayErrorResponse> handleNotFound(Exception ex, HttpServletRequest request) {
+        log.debug("No gateway route or handler for {} {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(GatewayErrorResponse.of(
+                HttpStatus.NOT_FOUND, "MSG-NOT-FOUND", "No such endpoint", request.getRequestURI()));
     }
 
     @ExceptionHandler(Exception.class)

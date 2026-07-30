@@ -714,6 +714,32 @@ class CustomerServiceIntegrationTest {
         assertThat(searchResultNumbers("firstName=emal")).doesNotContain(1001L);
     }
 
+    @Test
+    @DisplayName("internal /api/addresses/{id}: active address resolves; deleted/unknown -> 404; still zero-trust")
+    void internalAddressResolution() {
+        // Seed address 1 (Ali Yildiz's primary) resolves without customer context —
+        // the service-to-service path product-service uses for FR-PROD-02.
+        ResponseEntity<Map> ok = get("/api/addresses/1");
+        assertThat(ok.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(ok.getBody().get("addressId")).isEqualTo(1);
+        assertThat(ok.getBody().get("cityName")).isEqualTo("Istanbul");
+        assertThat(ok.getBody().get("districtName")).isEqualTo("Kadikoy");
+        assertThat(ok.getBody().get("street")).isEqualTo("Bagdat Cad.");
+
+        // Unknown id -> 404 (same key as the customer-scoped address lookups).
+        ResponseEntity<Map> unknown = get("/api/addresses/99999");
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknown.getBody().get("messageKey")).isEqualTo("MSG-CUST-NOT-FOUND");
+
+        // Zero trust holds on the internal endpoint too (ADR-009).
+        RestClient anonymous = RestClient.builder()
+                .baseUrl("http://localhost:" + port)
+                .defaultStatusHandler(status -> true, (req, res) -> { })
+                .build();
+        ResponseEntity<Map> unauthorized = anonymous.get().uri("/api/addresses/1").retrieve().toEntity(Map.class);
+        assertThat(unauthorized.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> listAddresses(String base) {
         return http.get().uri(base).retrieve().toEntity(List.class).getBody();

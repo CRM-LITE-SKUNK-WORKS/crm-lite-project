@@ -48,6 +48,15 @@ public class AccountController {
         return ResponseEntity.ok(accountService.getByAccountNumber(accountNumber));
     }
 
+    // ADR-013 §5 read side: service-to-service support for product-service's
+    // FR-PROD-01 composition (the involvement projection's single public reading
+    // point — other services never touch account_db). Not routed through the
+    // gateway; reached directly via Eureka with the user's token (ADR-010).
+    @GetMapping("/{accountNumber}/product-ids")
+    public ResponseEntity<List<Long>> productIds(@PathVariable String accountNumber) {
+        return ResponseEntity.ok(accountService.listProductIds(accountNumber));
+    }
+
     @PutMapping("/{accountNumber}")
     public ResponseEntity<AccountResponse> update(@PathVariable String accountNumber,
                                                   @Valid @RequestBody AccountUpdateRequest request) {

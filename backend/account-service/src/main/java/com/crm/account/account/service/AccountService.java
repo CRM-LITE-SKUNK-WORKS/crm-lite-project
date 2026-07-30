@@ -11,6 +11,8 @@ public interface AccountService {
 
     AccountResponse getByAccountNumber(String accountNumber);
 
+    List<Long> listProductIds(String accountNumber);
+
     AccountResponse create(AccountCreateRequest request);
 
     AccountResponse update(String accountNumber, AccountUpdateRequest request);

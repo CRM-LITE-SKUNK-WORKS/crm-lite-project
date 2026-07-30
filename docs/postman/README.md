@@ -51,7 +51,7 @@ CSRF correlation value readable by the browser by design).
 1. PostgreSQL + Keycloak (`podman compose -f infra/docker-compose.yml up -d postgres keycloak`)
 2. config-server (8888) → 3. discovery-server (8761) → 4. lookup-service (8083)
 → 5. mernis-stub (8084) → 6. api-gateway (8080) → 7. customer-service (8082)
-→ 8. account-service (8085)
+→ 8. account-service (8085) → 9. product-service (8086)
 
 Details: `docs/runbooks/local-development.md`. Folder **00 - Health** verifies the
 whole stack top-to-bottom.
@@ -78,6 +78,17 @@ Folders are numbered in the intended order. Within these folders order matters:
   `xsrfToken` environment variable filled (step B.3 above). Note: delete =
   **passivation** — the account stays in the list as Passive (v8-1); the hidden
   K-8 223 (`1261000002`) intentionally answers 404.
+- **11 - Products and Catalog (FR-PROD)**: order-independent **reads only** (no
+  CSRF header needed anywhere), but run it **before** folder 10's delete step if
+  you want the seeded involvements intact — folder 10 passivates
+  `{{createdAccountNumber}}`, not the seeded `1261000010`, so in practice the two
+  folders don't collide. Products of `1261000010` are the seeded ADSL
+  installation (4 rows: two in campaign `CMP-ADSL-01`, one campaign-less, one
+  **Passive** fixture); `1261000028` is the empty-state fixture (`200 []` — the
+  `MSG-PROD-NONE` text is frontend-only); the hidden K-8 223 answers 404 here
+  too. The last two requests exercise account-service's internal
+  `/product-ids` read endpoint (ADR-013 §5 read side), which product-service
+  normally calls directly via Eureka rather than through the gateway.
 - Other folders are order-independent.
 
 Business requests go through `{{gatewayBaseUrl}}` (port 8080) and need the

@@ -5,3 +5,6 @@ CREATE DATABASE keycloak_db;
 -- manual `CREATE DATABASE account_db;` (same situation as keycloak_db — see
 -- docs/runbooks/database.md).
 CREATE DATABASE account_db;
+-- Same first-init caveat: existing dev volumes need a one-time manual
+-- `CREATE DATABASE product_db;`.
+CREATE DATABASE product_db;

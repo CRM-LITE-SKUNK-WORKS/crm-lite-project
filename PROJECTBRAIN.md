@@ -4,7 +4,28 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-23 (**account-service UYGULANDI — ADR-013/014:**
+> **Son güncelleme:** 2026-07-29 (**product-service UYGULANDI — salt-okunur FR-PROD-01..02
+> dilimi:** FR §2.6 kapsamı `backend/product-service`'te (port 8086, `product_db`,
+> `com.crm.product`) hayata geçti: 10 workbook tablosu (V1) + seed (V2),
+> `GET /api/products?accountNumber=`, `GET /api/products/{id}`, `GET /api/offers`,
+> `GET /api/campaigns`. **`PROD`'da hesap/müşteri kolonu YOK** — ürün↔fatura hesabı bağı
+> yalnız `account_db.cust_acct_prod_invl`'de, bu yüzden liste account-service'in YENİ
+> `GET /api/accounts/{n}/product-ids` ucu üzerinden **kompoze** ediliyor (Eureka ile
+> doğrudan, gateway'den DEĞİL — ADR-010); product-service `account_db`'ye asla dokunmaz
+> (ADR-013 §5). Servis tipi spec üzerinden türetilir (GNL_TP 10/11/12), kampanyanın
+> public kimliği `cmpg.campaign_code`, kampanya fiyatı üye tekliflerden **türetilir**.
+> Sayfalama YOK (FR-PROD-01 kural içermiyor); pasif ürün listede "Passive" olarak kalır;
+> çocuk ürün ebeveyninin Service Address'ini gösterir (customer-service'in YENİ dahili
+> `GET /api/addresses/{id}` ucuyla çözülür). Faz A salt-okunur: ürün yaratma/provizyon/
+> sepet/sipariş/Kafka/Redis YOK, karakteristik tabloları yalnız şema+seed. **Lookup HTTP
+> client YOK** — yazma olmadığı için sadece `LookupContract` sabitleri (ADR-002 aynen
+> korunuyor: lokal katalog tablosu/seed'i yok). Belgeli workbook sapmaları: uydurulmuş
+> teklif fiyatları (analist onayı BEKLİYOR), kampanyalı/pasif ürün fixture'ları, ve
+> ürün 3/4 involvement satırları account-service'in `V3` migration'ında. Test kanıtı:
+> product-service 13/13, account-service 43/43, customer-service 80/80 YEŞİL.
+> **ADR-015 (product boundary) + ADR-013'e "read-side" fıkrası BORÇLU.**
+> Detay: §4.9, `docs/api/product-service.md`.)
+> Önceki durum: 2026-07-23 (**account-service UYGULANDI — ADR-013/014:**
 > FR-ACCT-01..04 + KR-11 kapsamı `backend/account-service`'te (port 8085, `account_db`,
 > `com.crm.account`) hayata geçti. KR-11 Account Number: VARCHAR(10), Luhn check-digit,
 > `acct_number_seq` upsert tahsisi (`next_value` = sıradaki değer; seed sonrası 100004),
@@ -94,10 +115,18 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
    └──────────┬────────────────────────────────────────┘
               │ lb:// (Eureka) + Authorization: Bearer <Keycloak JWT>
               ▼
-   customer-service :8082 ── lookup-service :8083   (ikisi de zero-trust JWT
-              │                                      resource server — ADR-009,
-              └──► mernis-stub :8084 (token YOK,     crm-security-starter)
-                   dış sistem simülasyonu, ADR-010)
+   customer-service :8082 ── lookup-service :8083   (hepsi zero-trust JWT
+        ▲     │                                      resource server — ADR-009,
+        │     └──► mernis-stub :8084 (token YOK,     crm-security-starter)
+        │          dış sistem simülasyonu, ADR-010)
+        │
+   account-service :8085 ◄──── product-service :8086
+   (cust_acct_prod_invl        (product_db; FR-PROD-01 listesi
+    TEK yazarı — ADR-013 §5)    /api/accounts/{n}/product-ids ile
+        ▲                       KOMPOZE edilir; account_db'ye ASLA
+        └───────────────────────dokunmaz. Service Address'i
+   product-service adres için   customer-service'ten çözer.)
+   customer-service'e de gider ─┘   (ikisi de lb:// Eureka, gateway'den DEĞİL — ADR-010)
 
    discovery-server :8761 (Eureka) · config-server :8888 (native/classpath repo)
 ```
@@ -113,6 +142,7 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 | `lookup-service` | 8083 | **Paylaşılan GNL_ST/GNL_TP kataloglarının TEK sahibi** (`lookup_db`, ADR-002) — **JWT resource server** | ✅ Çalışıyor — Postgres gerekli |
 | `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL, **CRM token'ı görmez (ADR-010)** | ✅ Çalışıyor |
 | `account-service` | 8085 | Fatura hesapları: FR-ACCT-01..04 + KR-11 (`account_db` — ADR-013/014) — **JWT resource server**; K-8 tembel 223; silme = pasifleştirme | ✅ Uygulandı (2026-07-23) — Postgres + lookup-service + customer-service (yazma işlemleri için) |
+| `product-service` | 8086 | Ürün görüntüleme + salt-okunur katalog: FR-PROD-01..02 (`product_db`) — **JWT resource server**; liste account-service'in `product-ids` ucu üzerinden kompoze; `account_db`'ye ASLA dokunmaz | ✅ Uygulandı (2026-07-29, salt-okunur dilim) — Postgres + account-service + customer-service |
 | ~~`auth-service`~~ | ~~8081~~ | ~~Kimlik doğrulama~~ | 🗑️ **SİLİNDİ (2026-07-17, ADR-007)** — BFF gateway'de, kimlik Keycloak'ta; iskelet geri getirilmeyecek |
 
 **Planlanan servisler (henüz YOK — analist/mimari onayı bekliyor; ayrıntı:
@@ -123,7 +153,7 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 | ~~auth/security milestone~~ | Keycloak tek otorite + gateway BFF + zero-trust resource server + JWT-sub audit (ADR-006..011). auth-service iskeleti SİLİNDİ | ✅ **UYGULANDI (2026-07-17)** |
 | localization-service | FR-LANG merkezi etiket/mesaj kataloğu (varsayılan dil artık **İngilizce**, 16.07.2026). Backend zaten dil-bağımsız `messageKey` dönüyor | 🗓️ Planlı, başlanmadı |
 | ~~account-service~~ | ACCT_TP + CUST_ACCT (fatura hesapları) — ADR-013/014 | ✅ **UYGULANDI (2026-07-23)** — bkz. §2 tablo + §4.8 |
-| product-service | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* — product+catalog kapsamı birleşebilir | 🗓️ Planlı, sınır analist-final değil |
+| ~~product-service~~ | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* (product+catalog birleşik) | ✅ **UYGULANDI (2026-07-29, salt-okunur FR-PROD-01..02 dilimi)** — bkz. §2 tablo + §4.9. Yazma tarafı (FR-SALE §2.7) hâlâ yok; **ADR-015 borçlu** |
 | order-service | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + satış orkestrasyonu (FR-SALE) | 🗓️ Planlı, sınır analist-final değil |
 
 **address-service / contact-service ASLA ayrı deployable OLMAYACAK** — ADR-001 gereği
@@ -269,8 +299,32 @@ crm-lite-project-dev/
   `RemoveRequestHeader=Cookie`; `/api/**` → 401/403 JSON (`MSG-AUTH-UNAUTHORIZED` /
   `MSG-AUTH-FORBIDDEN` / `MSG-AUTH-CSRF-REJECTED`), sayfa gezinmesi → Keycloak'a redirect.
   `GET /api/session/me` (Angular oturum probu), CSRF-korumalı `POST /logout` → RP-initiated
-  Keycloak logout. E2E: `GatewayBffIntegrationTest` (7 test, gerçek Keycloak Testcontainers,
+  Keycloak logout. E2E: `GatewayBffIntegrationTest` (10 test, gerçek Keycloak Testcontainers,
   commit'li realm import'la; token expiry/refresh dahil).
+- **Login sonrası varış noktası (2026-07-30 düzeltmesi):** `oauth2Login` artık açık bir
+  `successHandler` taşıyor — hedef **daima** istekten türetilen uygulama kökü
+  (`ServletUriComponentsBuilder.fromContextPath`, `KeycloakLogoutSuccessHandler` deseni):
+  nginx üzerinden gelen login `http://localhost:4200/`'e (Angular `'' → customers`),
+  doğrudan hit `http://localhost:8080/`'e döner; gateway frontend origin'ini hardcode
+  etmez. Ayrıca **request cache tamamen kapatıldı (`NullRequestCache`)**.
+  Sebep (canlıda gözlendi): `ExceptionTranslationFilter` entry point'ten ÖNCE
+  `saveRequest()` yaptığı için `/api/**` 401 JSON dönse bile URL oturuma kaydoluyor;
+  `:4200` ile `:8080` aynı JSESSIONID'yi paylaştığından bayat bir ham API sekmesi sonraki
+  login'i kaçırıp kullanıcıyı `…/api/products/2?continue`'ya düşürüyordu. İlk deneme
+  (yalnız `/api/**` + `/actuator/**` dışlayan negatif matcher) **eksik kaldı**: tarayıcı
+  gösterdiği sekme için alt-kaynak da istediğinden varış `…/favicon.ico?continue` oldu.
+  Kara liste bu sınıfı kapatamaz; "yalnız navigasyon" filtresi de yetmez (insan adres
+  çubuğuna API URL'i yazabilir). Asıl gerekçe: **bu gateway'in gezilebilir HTML sayfası
+  yok** (JSON uçları + `permitAll` Swagger + eşleşmeyen yollar), SPA deep-link'leri nginx
+  statiğinden Angular router'a gidiyor → cache'in meşru girdisi hiç yok.
+  **Şu iki durumda yeniden değerlendirilecek:** gateway gezilebilir HTML sunarsa, ya da
+  Swagger UI auth arkasına alınırsa. Test: `postLoginLandingIsAlwaysTheApplicationRoot`.
+- **Eşleşmeyen yol artık 404 (aynı tur, bağımsız kusur):** `GatewayExceptionHandler`'a
+  `NoResourceFoundException` + `NoHandlerFoundException` → **404 `MSG-NOT-FOUND`**
+  eklendi. Önceden catch-all'a düşüp **500 `MSG-INTERNAL-ERROR` + stack trace** üretiyordu
+  — oturumu açık bir kullanıcının `:8080/favicon.ico` isteğinde bile. Test:
+  `unmappedPathIsNotFoundNotServerError`. `GatewayBffIntegrationTest` 8 → **10 test**.
+  Kayıt: `docs/frontend/scope-and-conflicts.md` §5.11 + §5.12.
 - **Zero-trust resource server'lar (ADR-009):** customer-service + lookup-service,
   `crm-security-starter` ile imza(JWKS)/issuer/audience(`crm-api`)/rol(`crm-user`) doğrular —
   gateway'i geçmiş olmak yetmez; doğrudan servis çağrısı da token ister (testli). Çerez asla
@@ -503,6 +557,84 @@ crm-lite-project-dev/
 - **Yeni modül tuzak notları uygulandı:** `spring-boot-flyway` açık bağımlılık (§5.11),
   Lombok `annotationProcessorPaths` (§5.9), `OpenApiConfig` relative-server bean'i (§4.7
   4-adım listesi), Testcontainers pinleri artık KÖK POM'dan (modül-yerel pin YOK).
+
+### 4.9 product-service ✅ (YENİ — 2026-07-29, salt-okunur FR-PROD-01..02 dilimi)
+- Port 8086, DB `product_db`, paket kökü `com.crm.product`. Kapsam: **FR §2.6
+  (FR-PROD-01, FR-PROD-02)** + salt-okunur teklif/kampanya kataloğu. Compose'da host
+  portu YAYINLANMAZ (ADR-009); gateway route'ları `/api/products/**`, `/api/offers/**`,
+  `/api/campaigns/**` (TokenRelay + cookie stripping); birleşik Swagger dropdown'ında
+  kayıtlı (ADR-012 4-adım listesi uygulandı).
+- **Tablolar (Flyway V1/V2 — 10 workbook tablosu):** `prod_spec`, `prod_ofr`, `cmpg`,
+  `cmpg_prod_ofr`, `prod`, `prod_spec_char`, `prod_spec_char_use`, `prod_char_val`,
+  `prod_catal`, `prod_catal_prod_ofr`. `status_id` + `prod_spec.service_type_id` +
+  `prod_catal.catalog_type_id` merkezi GNL_ST/GNL_TP dış referansları — **lokal
+  gnl tablosu/seed'i ve cross-database FK YOK** (ADR-002, testle kanıtlı).
+  `prod.service_address_id` → `customer_db.addr` dış referansı (FK'sız);
+  `parent_prod_id`/`parent_offer_id` lokal self-FK.
+- **⚠️ En kritik sınır (ADR-013 §5):** `PROD`'da **hesap/müşteri kolonu YOKTUR** —
+  ürün↔fatura hesabı bağı yalnız `account_db.cust_acct_prod_invl`'dedir ve o tabloyu
+  yalnız account-service yazar. Bu yüzden `GET /api/products?accountNumber=` bir
+  **kompozisyondur**: product-service account-service'in YENİ
+  `GET /api/accounts/{accountNumber}/product-ids` ucunu çağırır (Eureka `lb://` ile
+  DOĞRUDAN, gateway'den DEĞİL — ADR-010; kullanıcı token'ı taşınır), dönen id'lerle
+  `product_db`'de join yapar. product-service `account_db`'ye ne yazar ne okur
+  (`information_schema` testiyle de kanıtlı).
+- **API (tam liste — başka endpoint YOK):**
+  `GET /api/products?accountNumber=` → `[ProductRowResponse]` (`productId`,
+  `productName`, `campaignName`, `campaignId`, `productStatus`; **sayfalama YOK** —
+  FR-PROD-01 kural içermiyor; ürün yoksa `200 []` ve `MSG-PROD-NONE` metnini
+  frontend gösterir; bilinmeyen/223 hesap → `404 MSG-ACCT-NOT-FOUND`),
+  `GET /api/products/{id}` → `ProductDetailResponse` (5 AC-PROD-02-01 alanı; yoksa
+  `404 MSG-PROD-NOT-FOUND` — **belgeli proje eklentisi**, analist katalogunda yok),
+  `GET /api/offers`, `GET /api/campaigns`. İç anahtarlar sızmaz; API'de `Action`
+  alanı yok (UI konusu, AC-PROD-01-04).
+- **Türetilen değerler (asla saklanmaz):** servis tipi `PROD_SPEC.service_type_id` →
+  GNL_TP `10=INTERNET/11=RESOURCE/12=ACTIVATION` (teklifin kendi servis-tipi kolonu
+  yok); ürün statüsü `PROD.status_id` → `"Active"`/`"Passive"` (**pasif ürün listede
+  KALIR** — AC-PROD-01-03); kampanya toplam fiyatı üye tekliflerin toplamı (`CMPG`'ye
+  fiyat kolonu eklenmedi); kampanyanın public kimliği `cmpg.campaign_code`
+  (`CMP-ADSL-01`), iç `cmpg.id` asla dışa çıkmaz; kampanyasız üründe
+  `campaignName`/`campaignId` **`null`** (`"-"` gösterimi frontend'in işi).
+- **Service Address (FR-PROD-02):** `prod.service_address_id` yalnız ana üründe dolu →
+  **çocuk ürün ebeveyninin adresini gösterir** (`ProductBusinessRules`, ebeveyn
+  zincirini yukarı yürür). Adres customer-service'in YENİ dahili
+  `GET /api/addresses/{addressId}` ucuyla çözülür (gateway'e AÇILMADI; kullanıcı
+  token'ı taşınır). Silinmiş adres → blok `null` (detay yine döner);
+  customer-service **erişilemez** → 503 (fail closed).
+- **Lookup HTTP client YOK (bilinçli):** Faz A tamamen salt-okunur, canlı katalog
+  çözümü gerektiren hiçbir yazma yok; `isActive()` yerel `LookupContract` sabitlerini
+  kullanır. Bir sonraki yazma dilimi, statü persist etmeden ÖNCE tam
+  `LookupCatalogClient` sınırını kurmak zorunda.
+- **Belgeli sapmalar (workbook DÜZENLENMEDİ — `document-delta.md` P1..P4):**
+  (1) teklif fiyatları uydurulmuş fixture'dır (299/149/49) çünkü workbook kolonu boş
+  ama AC-SALE-01-12 tutar istiyor — **analist onayı bekliyor**; (2) `PROD` 1 ve 2'ye
+  `campaign_id=1` verildi (kampanyalı dal test edilebilsin); (3) yeni PASV ürün satırı
+  (`ADSL 8MB Legacy`) eklendi (pasif dal test edilebilsin); (4) ürün 3 ve 4'ün
+  involvement satırları **account-service'in `V3__seed_activation_involvement.sql`**
+  migration'ında (o satırlar `account_db`'ye ait). Hesap `1261000028`/`1261000036`
+  bilerek ürünsüz — `MSG-PROD-NONE` fixture'ları.
+- **Karakteristik modeli** (`prod_spec_char`, `prod_spec_char_use`, `prod_char_val` —
+  tek `val` string kolonu, `data_type ∈ {NUMBER,BOOLEAN,TEXT,DATE}`) şema+seed olarak
+  var ama **Faz A'da endpoint'i YOK**: §2.7 Product Configuration ekranları tüketecek.
+- **Diğer servislerdeki eklemeler (aynı PR):** account-service'e
+  `GET /api/accounts/{n}/product-ids` (involvement projeksiyonunun tek public okuma
+  noktası; `deleted_date IS NULL`, **involvement statüsüne göre filtrelenmez** —
+  ACTV-only filtre yalnız AC-ACCT-04-03 silme guard'ına ait, o mantığa dokunulmadı) +
+  `V3` seed; customer-service'e dahili `GET /api/addresses/{addressId}`.
+  customer-service'in 501/no-op TODO'ları (accountNumber arama, aktif ürün guard'ı,
+  `MSG-ADDR-IN-USE`) **açılmadı** — ayrı takip PR'ı.
+- **Testler:** `ProductServiceIntegrationTest` (13 IT — Testcontainers `postgres:16`,
+  gerçek HTTP + gerçek starter güvenlik zinciri; `AccountServiceClient` ve
+  `CustomerServiceClient` yalnız arayüz seviyesinde mock, gerçek servis/mapper/rules
+  mantığı çalışır): şema/kolon kanıtları (gnl yok, `PROD`'da hesap kolonu yok),
+  kampanyalı dal + pasif ürün + kampanyasız `null` dalı, çocuk ürünün ebeveyn
+  adresi, 404/400 kontratları, iki upstream için 503 fail-closed, 401/403 zero-trust,
+  katalog türetimleri (serviceType + türetilmiş 497.00). account-service tarafında
+  `product-ids` için 2 yeni IT (43/43 yeşil, AC-ACCT-04-03 guard'ı hâlâ 409),
+  customer-service tarafında dahili adres ucu için 1 yeni IT (80/80 yeşil).
+- **ADR borcu (açıkça kayıtlı):** **ADR-015 (product boundary)** ve **ADR-013'e
+  eklenecek "read-side" fıkrası** yazılmadı; `service-boundaries.md`'nin
+  "analyst/architecture sign-off eksik" uyarısı product domain'i için geçerli.
 
 
 ## 5. Alınan Kararlar ve Gerekçeleri
@@ -752,8 +884,10 @@ bu ikisi olmadan servis açılır ve okuma çalışır ama create/update/delete 
 6. **api-gateway** → Eureka'da `API-GATEWAY`; tarayıcıda `http://localhost:8080/api/session/me`
    → Keycloak login (`ayilmaz`/`crm-dev`) → oturum JSON'u
 7. **customer-service** → Flyway V1/V2 loglarda; `http://localhost:8082/actuator/health`
-8. **account-service** → Flyway V1/V2 loglarda; `http://localhost:8085/actuator/health`
+8. **account-service** → Flyway V1/V2/V3 loglarda; `http://localhost:8085/actuator/health`
    (yazma işlemleri lookup-service + customer-service ister — ADR-013 fail-closed)
+9. **product-service** → Flyway V1/V2 loglarda; `http://localhost:8086/actuator/health`
+   (okumalar account-service + customer-service ister — erişilemezse 503 fail-closed)
 
 ### 7.1b Terminal / Maven (aynı sıra, ayrı terminallerde)
 ```bash
@@ -769,6 +903,7 @@ mvn -pl backend/mernis-stub      spring-boot:run   # Terminal 4
 mvn -pl backend/api-gateway      spring-boot:run   # Terminal 5
 mvn -pl backend/customer-service spring-boot:run   # Terminal 6
 mvn -pl backend/account-service  spring-boot:run   # Terminal 7
+mvn -pl backend/product-service  spring-boot:run   # Terminal 8
 ```
 Detaylı curl doğrulama sırası: docs/api/customer-service.md; runbook: docs/runbooks/local-development.md.
 
@@ -960,12 +1095,34 @@ curl -b cookies.txt -X PATCH -H "X-XSRF-TOKEN: <xsrf-token>" \
 ### 9.1 ~~KİMLİK DOĞRULAMA / GÜVENLİK~~ ✅ UYGULANDI (2026-07-17) — sıradaki adaylar
 Müşteri agregatı ✅ (2026-07-11), ADR-005 liste kontratı ✅ (2026-07-16), **auth/security
 milestone'u ✅ (2026-07-17, ADR-006..011 — detay §4.3)**. Milestone'un tasarım kararı netleşti:
-auth-service iskeleti KALDIRILDI; BFF gateway'de, kimlik Keycloak'ta. **Sıradaki adaylar:**
-**account-service** (FR v8-1, 23.07.2026 revizyonuyla KR-11 + FR-ACCT-01..04 belgelendi —
-şimdi roadmap'te sıradaki onaylı Sprint domain'i, hesap-özel ADR'ler bekleniyor; bkz. §9B),
-product/order domain'leri, FR-LANG lokalizasyon (varsayılan dil İngilizce), frontend
-(Angular — docs/api/authentication.md kontratına karşı) ve Keycloak login sayfası proje teması.
+auth-service iskeleti KALDIRILDI; BFF gateway'de, kimlik Keycloak'ta.
+**account-service ✅ (2026-07-23, ADR-013/014 — §4.8)** ve **product-service'in
+salt-okunur FR-PROD-01..02 dilimi ✅ (2026-07-29 — §4.9)** de tamamlandı.
+**Sıradaki adaylar:** product yazma tarafı + **order-service** (FR-SALE §2.7 satış
+orkestrasyonu; §9.1b'deki borçlarla birlikte), FR-LANG lokalizasyon (varsayılan dil
+İngilizce), frontend ürün ekranları ve Keycloak login sayfası proje teması.
 **Adres/iletişim için ayrı servis YOK ve PLANLANMIYOR** (ADR-001).
+
+### 9.1b product-service diliminden kalan işler (2026-07-29 — takip)
+- [ ] **ADR-015 (product boundary) yazılacak** + **ADR-013'e "read-side" fıkrası** —
+  `product-ids` ucu ve kompozisyon deseni bugün yalnız `docs/api/product-service.md`'de
+  belgeli, mimari olarak onaylı DEĞİL. `service-boundaries.md`'nin "analyst/architecture
+  sign-off eksik" uyarısı product domain'i için geçerli.
+- [ ] **Teklif fiyatları analist onayı** — `PROD_OFR.product_offer_total_price`
+  (299/149/49) uydurulmuş fixture; workbook kolonu boş, AC-SALE-01-12 ise tutar istiyor
+  (document-delta P1).
+- [ ] **Yazma tarafı (FR-SALE §2.7):** ürün yaratma/provizyon, sepet, sipariş,
+  karakteristik değer girişi → order-service + product-service yazma dilimi. Bununla
+  birlikte account-service'e **involvement yazma komutu/event'i** gerekecek
+  (`account_db`'ye doğrudan yazım kalıcı olarak YASAK — ADR-013 §5).
+- [ ] **Karakteristik endpoint'leri** — `prod_spec_char*`/`prod_char_val` şema+seed
+  olarak var, Faz A'da API'si yok (§2.7 Product Configuration ekranları tüketecek).
+- [ ] **Yazma dilimi gelmeden ÖNCE `LookupCatalogClient` sınırı kurulmalı** —
+  product-service'te bugün lookup HTTP client'ı yok (salt-okunur olduğu için); statü
+  persist eden ilk kod, customer/account-service'teki client→service→cache desenini
+  kurmadan yazılmamalı (ADR-002 fail-closed kuralı).
+- [ ] **Frontend ürün ekranları** — `MSG-PROD-NONE` metni, `"-"` kampanya gösterimi ve
+  Action (göz) ikonu frontend'e ait; backend kontratı hazır.
 
 ### 9.2 Auth milestone'undan kalan işler (implementasyon bitti, bunlar takip)
 - [ ] **ADR-011 analist onayı** — workbook USERS tablosunun Keycloak lehine terk edilmesi.
@@ -1033,42 +1190,6 @@ serbest (PR squash'lanıyor).
 - **Komut komut tam akış** (conflict/stash/kurtarma senaryoları dahil):
   [docs/runbooks/git-workflow.md](docs/runbooks/git-workflow.md)
 
-## 9B. Açık Analist/Doküman Çelişkileri (sessizce çözülmedi — kayıt altında)
-
-Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
-
-**FR v8-1 (23.07.2026) ile eklenen yeni çelişkiler — hesap/ACCT kapsamı:**
-
-7. **Use-case dokümanı FR-ACCT-04'ü hâlâ "aktif hesap listesinden kaldırma" olarak
-   anlatıyor** ("Beklenen Çıktı" + Ana Senaryo Adım 5): FR v8-1 AC-ACCT-04-02 (silme =
-   pasifleştirme; hesap Passive statüyle listede kalmaya devam eder) ile çelişiyor. FR
-   v8-1 geçerli; use-case metni analiste bildirilecek.
-8. **draw.io ACCT-04 akışındaki "Hesabı aktif listeden kaldır" düğümü** aynı çelişkiyi
-   taşıyor — bu revizyonda diyagram güncellenmedi; FR v8-1 AC-ACCT-04-02 geçerli.
-9. **Entity/Seed workbook `CUST_ACCT` örnek `account_number` değerleri KR-11 formatına
-   uymuyor** (`0101112900`, `0101112911`, `0101112915`, `0101112441` — segment hanesi
-   sabit `1` olması gerekirken `0`, check-digit yok). account-service'in Flyway seed'i
-   yazılırken bu değerler KR-11 formatına göre yeniden üretilmeli, olduğu gibi
-   kopyalanmamalı — analiste bildirilecek.
-
-**Önceki (16.07.2026 ve öncesi) çelişkiler, hâlâ açık:**
-
-1. **NATID "aktif" ifadesi:** use-case dokümanı (FR-CUST-03 alternatif adım 4.5) hâlâ "eşleşen
-   **aktif** bir müşteri" diyor; FR AC-CUST-03-12 (nitelik yok) + ADR-003 (kalıcı global tekillik)
-   geçerli. 16.07.2026 revizyonu bu çelişkiyi temizlemedi — analist tarafında açık.
-2. **draw.io FR-CUST-01 "içinde-geçen" notu:** KR-01 kelime-başı eşleşmeyle çelişiyor; KR-01 geçerli.
-3. ~~**KR-04 varsayılan sayfa boyutu:**~~ ✅ **KAPANDI (29.07.2026), KR-04 lehine.** Analistler
-   bunu beş API bug'ı olarak açtı (BUG-API-CUST-01-14/-16/-17/-18/-19): API varsayılanı 15,
-   yalnız 15/30/50 kabul, gerisi 400. ADR-005 §Amendment. Frontend Per Page seçenekleri
-   20/50/100 → **15/30/50** oldu (100 seçeneği kalktı; `scope-and-conflicts` §2.3/§2.4 revize).
-4. **Use-case FR-CUST-03'te iki adet "Adım 4.5"** — kaynak dokümanda editoryal hata; analiste
-   bildirilecek.
-5. **Workbook USERS tablosu (username/password_hash) vs Keycloak (ADR-011):** uygulama tarafında
-   USERS/parola tablosu YOK; kimlik bilgisi sahibi Keycloak. Seed kullanıcı adları Keycloak dev
-   kullanıcısı olarak yaşıyor (`mkaya` disabled). Analist onayı bekleniyor.
-6. **FR-AUTH-01 "uygulama içi login formu" varsayımı:** kimlik bilgisi girişi Keycloak login
-   sayfasında (ADR-006; ROPC yasak). AC-AUTH-01 UI detayları gelecekteki Keycloak proje temasına
-   bağlanır (bkz. §9.2).
 
 ## 10. Bilinen Teknik Borç / Notlar
 
@@ -1082,8 +1203,10 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
 - **config-server native/classpath, sır yönetimi yok** — `config-repo` dosyaları düz metin olarak jar'a gömülüyor;
   gerçek bir sır girilecekse önce §9.4 sertleştirmesi gerekir (auth milestone'u bu yüzden config-repo'ya
   secret KOYMADI; Keycloak ayarları env-var tabanlı).
-- **Compose 9 servis** (+ tek seferlik keycloak-init) — keycloak ve account-service dahil;
-  8082/8083/8084/8085 host'a yayınlanmaz (yalnız `crm-net`). Eski volume'larda `account_db`
+- **Compose 10 servis** (+ tek seferlik keycloak-init) — keycloak, account-service ve
+  product-service dahil;
+  8082/8083/8084/8085/8086 host'a yayınlanmaz (yalnız `crm-net`). Eski volume'larda
+  `account_db`/`product_db`
   yoksa runbook'taki tek satırlık `CREATE DATABASE` çözümüne bakın (keycloak_db ile aynı durum).
 - **PAYLAŞILAN KATALOG KURALLARI (ADR-002 — bağlayıcı):**
   - GNL_ST ve GNL_TP **merkezi, cross-service kataloglardır**; tek sahibi `lookup-service` (`lookup_db`).
@@ -1097,7 +1220,11 @@ Tam liste + işlem kaydı: `docs/requirements/document-delta.md`. Özet:
     bilinmeyen kod sessizce kabul edilmez); okuma/aktif-filtreleme yerel `status_id + deleted_date`
     üzerinden çalışmaya devam eder.
 - **customer-service: accountNumber/orderNumber araması kasıtlı 501** — account/order domain'leri kurulana
-  kadar (gsmNumber artık YEREL ve çalışıyor).
+  kadar (gsmNumber artık YEREL ve çalışıyor). product-service'in gelişi bunu DEĞİŞTİRMEDİ.
+- **product-service salt-okunur (2026-07-29)** — ürün yaratma/provizyon/sepet/sipariş YOK;
+  `cust_acct_prod_invl`'e **yazma** hâlâ uygulanmadı (yalnız okuma ucu var); karakteristik
+  tabloları endpoint'siz; teklif fiyatları analist onayı bekleyen fixture. Hiçbiri
+  "yapıldı" diye iddia edilmiyor — bkz. §4.9 + §9.1b.
 - **customer-service: `checkCustomerHasNoActiveProducts` + fatura hesabı pasifleştirme + `MSG-ADDR-IN-USE`
   kontrolü TODO/no-op** — ilgili domain'ler kurulunca gerçek çağrıya çevrilecek (bkz. §9.3). Bu kontrollerin
   "yapıldığı" HİÇBİR yerde iddia edilmiyor.

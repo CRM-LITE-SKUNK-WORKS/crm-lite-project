@@ -9,6 +9,8 @@ import com.crm.customer.address.repository.AddressRepository;
 import com.crm.customer.address.rules.AddressBusinessRules;
 import com.crm.customer.address.service.AddressService;
 import com.crm.customer.common.CurrentActorProvider;
+import com.crm.customer.common.exception.BusinessException;
+import com.crm.customer.common.exception.MessageKeys;
 import com.crm.customer.customer.entity.Customer;
 import com.crm.customer.customer.entity.Party;
 import com.crm.customer.customer.rules.CustomerBusinessRules;
@@ -16,6 +18,7 @@ import com.crm.customer.lookup.LookupCatalogService;
 import com.crm.customer.lookup.LookupContract;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -36,6 +39,21 @@ public class AddressServiceImpl implements AddressService {
         Party party = resolveParty(customerNumber);
         return addressRepository.findByPartyIdAndDeletedDateIsNullOrderById(party.getId())
                 .stream().map(AddressResponse::from).toList();
+    }
+
+    /**
+     * Internal service-to-service resolution (see InternalAddressController): one
+     * ACTIVE address by its public id, without customer context — the caller
+     * (product-service, FR-PROD-02) holds only the FK-less service_address_id
+     * reference. Soft-deleted addresses are indistinguishable from unknown ones
+     * (404, same key as the customer-scoped address lookups).
+     */
+    @Override
+    public AddressResponse getActiveAddress(Long addressId) {
+        return addressRepository.findByIdAndDeletedDateIsNull(addressId)
+                .map(AddressResponse::from)
+                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, MessageKeys.CUST_NOT_FOUND,
+                        "Address not found: " + addressId));
     }
 
     /** FR-ADDR-02: save active; the customer's first address becomes primary automatically. */

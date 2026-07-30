@@ -2909,6 +2909,496 @@
           ]
         }
       ]
+    },
+    {
+      "name": "11 - Products and Catalog (FR-PROD)",
+      "description": "FR-PROD-01..02 (§2.6) + the read-only offer/campaign catalog, served by product-service (port 8086, product_db). Read-only slice: no product creation, provisioning, basket or order exists. GET /api/products composes over account-service's internal /api/accounts/{n}/product-ids endpoint, because PROD carries no account column — the product↔account link lives only in account_db.cust_acct_prod_invl (ADR-013 §5). All requests are GETs, so no X-XSRF-TOKEN header is needed; a logged-in BFF session is still required (folder 09).",
+      "item": [
+        {
+          "name": "Products of the seeded billing account (1261000010)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products?accountNumber=1261000010",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "accountNumber",
+                  "value": "1261000010"
+                }
+              ]
+            },
+            "description": "FR-PROD-01 / AC-PROD-01-03: plain array, NO pagination. Seed + account-service V3 involvements yield products 1..4: 1 and 2 inside campaign CMP-ADSL-01, 3 campaign-less (null fields — the \"-\" is rendered by the frontend), 4 the Passive fixture. campaignId is the PUBLIC campaign code, never the internal cmpg.id. No Action field (UI concern, AC-PROD-01-04)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Row contract keys only - no internal ids, no Action field\", () => {",
+                  "    const rows = pm.response.json();",
+                  "    pm.expect(rows).to.be.an(\"array\").that.is.not.empty;",
+                  "    rows.forEach(r => pm.expect(Object.keys(r).sort()).to.eql([\"campaignId\",\"campaignName\",\"productId\",\"productName\",\"productStatus\"]));",
+                  "});",
+                  "pm.test(\"Campaign branch: public campaign CODE, not the internal id\", () => {",
+                  "    const withCampaign = pm.response.json().filter(r => r.campaignId !== null);",
+                  "    pm.expect(withCampaign).to.not.be.empty;",
+                  "    withCampaign.forEach(r => {",
+                  "        pm.expect(r.campaignId).to.eql(\"CMP-ADSL-01\");",
+                  "        pm.expect(r.campaignName).to.be.a(\"string\").and.not.empty;",
+                  "    });",
+                  "});",
+                  "pm.test(\"Campaign-less products carry null campaign fields (dash is frontend-only)\", () => {",
+                  "    const without = pm.response.json().filter(r => r.campaignId === null);",
+                  "    pm.expect(without).to.not.be.empty;",
+                  "    without.forEach(r => pm.expect(r.campaignName).to.be.null);",
+                  "});",
+                  "pm.test(\"AC-PROD-01-03: passive products stay listed with Status Passive\", () => {",
+                  "    const statuses = pm.response.json().map(r => r.productStatus);",
+                  "    statuses.forEach(s => pm.expect(s).to.be.oneOf([\"Active\",\"Passive\"]));",
+                  "    pm.expect(statuses).to.include(\"Passive\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products of a product-less account -> 200 [] (MSG-PROD-NONE fixture)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products?accountNumber=1261000028",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "accountNumber",
+                  "value": "1261000028"
+                }
+              ]
+            },
+            "description": "AC-PROD-01-02: an account with no products is an EMPTY ARRAY with status 200 — never 404 and never an error body. MSG-PROD-NONE is a frontend-only key: the backend never produces it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Empty array, not an error body\", () => pm.expect(pm.response.json()).to.be.an(\"array\").that.is.empty);",
+                  "pm.test(\"No MSG-PROD-NONE key from the backend\", () => pm.expect(pm.response.text()).to.not.include(\"MSG-PROD-NONE\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products without accountNumber -> 400 MSG-VALIDATION-ERROR",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ]
+            },
+            "description": "accountNumber is a REQUIRED query parameter (same contract style as account-service's customerId)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"messageKey is MSG-VALIDATION-ERROR\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VALIDATION-ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products of the hidden K-8 223 -> 404 MSG-ACCT-NOT-FOUND",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products?accountNumber=1261000002",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "accountNumber",
+                  "value": "1261000002"
+                }
+              ]
+            },
+            "description": "The automatic 223 Customer Account is never API-visible (ADR-013 §4.5), so its number is indistinguishable from an unknown one — product-service mirrors account-service's contract here."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"messageKey is MSG-ACCT-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Products of an unknown account -> 404 MSG-ACCT-NOT-FOUND",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products?accountNumber=1999999999",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "accountNumber",
+                  "value": "1999999999"
+                }
+              ]
+            },
+            "description": "Unknown billing-account number: the composition upstream (account-service) answers 404 and product-service surfaces the same key."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"messageKey is MSG-ACCT-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product detail - CHILD product shows the PARENT's Service Address",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products/2",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "2"
+              ]
+            },
+            "description": "FR-PROD-02 / AC-PROD-02-01: exactly five fields. Product 2 (ADSL Data Modem) is a child of product 1 and has no service_address_id of its own, so the parent’s address is displayed — resolved through customer-service’s internal GET /api/addresses/{id}."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Exactly the AC-PROD-02-01 fields\", () => {",
+                  "    pm.expect(Object.keys(pm.response.json()).sort()).to.eql([\"campaign\",\"productOfferId\",\"productOfferName\",\"productSpecId\",\"serviceAddress\"]);",
+                  "});",
+                  "pm.test(\"Child product inherits the parent Service Address\", () => {",
+                  "    const a = pm.response.json().serviceAddress;",
+                  "    pm.expect(a, \"serviceAddress must not be null for a child of an addressed parent\").to.not.be.null;",
+                  "    pm.expect(Object.keys(a).sort()).to.eql([\"addressId\",\"cityName\",\"districtName\",\"houseFlatNumber\",\"street\"]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product detail - campaign-less product -> campaign null",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products/3",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "3"
+              ]
+            },
+            "description": "Product 3 (ADSL Activation) was not bought within a campaign, so campaign is null (the \"-\" display is the frontend job)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"campaign is null\", () => pm.expect(pm.response.json().campaign).to.be.null);",
+                  "pm.test(\"Offer name still present\", () => pm.expect(pm.response.json().productOfferName).to.be.a(\"string\").and.not.empty);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product detail - unknown product -> 404 MSG-PROD-NOT-FOUND",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products/999",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "999"
+              ]
+            },
+            "description": "MSG-PROD-NOT-FOUND is a DOCUMENTED PROJECT ADDITION (not in the analyst catalog — see docs/api/product-service.md): FR-PROD-02 is normally reached from a row the user just saw."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"messageKey is MSG-PROD-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-PROD-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Product detail - non-numeric id -> 400 MSG-VALIDATION-ERROR",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/products/abc",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "products",
+                "abc"
+              ]
+            },
+            "description": "Fails Spring's argument conversion before reaching the handler body (same pattern as the other services)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 400\", () => pm.response.to.have.status(400));",
+                  "pm.test(\"messageKey is MSG-VALIDATION-ERROR\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-VALIDATION-ERROR\"));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Offer catalog - serviceType derived through the spec",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/offers",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "offers"
+              ]
+            },
+            "description": "GET /api/offers: ACTIVE offers only. serviceType comes from PROD_SPEC.service_type_id (central GNL_TP 10=INTERNET / 11=RESOURCE / 12=ACTIVATION) — PROD_OFR has no service-type column. NOTE: the prices are INVENTED seed fixtures pending analyst approval (document-delta P1)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Offer contract keys\", () => {",
+                  "    const offers = pm.response.json();",
+                  "    pm.expect(offers).to.be.an(\"array\").that.is.not.empty;",
+                  "    offers.forEach(o => pm.expect(Object.keys(o).sort()).to.eql([\"offerId\",\"offerName\",\"price\",\"serviceType\"]));",
+                  "});",
+                  "pm.test(\"serviceType is a contract GNL_TP short code\", () => {",
+                  "    pm.response.json().forEach(o => pm.expect(o.serviceType).to.be.oneOf([\"INTERNET\",\"RESOURCE\",\"ACTIVATION\"]));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Campaign catalog - public code + DERIVED total price",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/campaigns",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "campaigns"
+              ]
+            },
+            "description": "GET /api/campaigns: campaignId is the PUBLIC cmpg.campaign_code (never the internal id); totalPrice is DERIVED as the sum of the member offers prices — CMPG deliberately has no price column. With the seeded fixtures the total is 497.00 (299 + 149 + 49)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Campaign contract keys, public code as id\", () => {",
+                  "    const campaigns = pm.response.json();",
+                  "    pm.expect(campaigns).to.be.an(\"array\").that.is.not.empty;",
+                  "    campaigns.forEach(c => {",
+                  "        pm.expect(Object.keys(c).sort()).to.eql([\"activationEndDate\",\"campaignId\",\"campaignName\",\"description\",\"offers\",\"totalPrice\"]);",
+                  "        pm.expect(c.campaignId).to.match(/^CMP-/);",
+                  "    });",
+                  "});",
+                  "pm.test(\"totalPrice equals the sum of member offer prices (derived, not stored)\", () => {",
+                  "    pm.response.json().forEach(c => {",
+                  "        const sum = c.offers.reduce((acc, o) => acc + Number(o.price || 0), 0);",
+                  "        pm.expect(Number(c.totalPrice)).to.eql(sum);",
+                  "    });",
+                  "});",
+                  "pm.test(\"Exactly one main offer per seeded campaign\", () => {",
+                  "    pm.response.json().forEach(c => pm.expect(c.offers.filter(o => o.main).length).to.eql(1));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Involvement read side (account-service) - product ids of an account",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/1261000010/product-ids",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "1261000010",
+                "product-ids"
+              ]
+            },
+            "description": "ADR-013 §5 read side: the single public READING point of cust_acct_prod_invl. Returns non-deleted involvement rows and is deliberately NOT filtered by involvement status (AC-PROD-01-03 lists passive products too). product-service normally calls this directly via Eureka; it is reachable here only because it sits under the existing /api/accounts/** gateway route."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "pm.test(\"Array of numeric product ids, ascending\", () => {",
+                  "    const ids = pm.response.json();",
+                  "    pm.expect(ids).to.be.an(\"array\").that.is.not.empty;",
+                  "    ids.forEach(i => pm.expect(i).to.be.a(\"number\"));",
+                  "    pm.expect(ids).to.eql([...ids].sort((a, b) => a - b));",
+                  "});",
+                  "pm.test(\"Includes the PASSIVE involvement (status not filtered here)\", () => {",
+                  "    pm.expect(pm.response.json().length).to.be.at.least(4);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Involvement read side - hidden K-8 223 -> 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/accounts/1261000002/product-ids",
+              "host": [
+                "{{gatewayBaseUrl}}"
+              ],
+              "path": [
+                "api",
+                "accounts",
+                "1261000002",
+                "product-ids"
+              ]
+            },
+            "description": "Same visibility rule as every other account endpoint: 224 only, so the 223 number is a 404 (ADR-013 §4.5)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 404\", () => pm.response.to.have.status(404));",
+                  "pm.test(\"messageKey is MSG-ACCT-NOT-FOUND\", () => pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-FOUND\"));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

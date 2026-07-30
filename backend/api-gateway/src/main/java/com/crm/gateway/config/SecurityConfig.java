@@ -5,6 +5,8 @@ import com.crm.gateway.security.ApiAccessDeniedHandler;
 import com.crm.gateway.security.CsrfCookieFilter;
 import com.crm.gateway.security.KeycloakLogoutSuccessHandler;
 import com.crm.gateway.security.SpaCsrfTokenRequestHandler;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -21,9 +23,13 @@ import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMap
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationFailureHandler;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 /**
  * BFF security for the WebMVC gateway (ADR-007).
@@ -59,7 +65,33 @@ public class SecurityConfig {
         ApiAuthenticationEntryPoint apiEntryPoint = new ApiAuthenticationEntryPoint();
         ApiAccessDeniedHandler apiAccessDeniedHandler = new ApiAccessDeniedHandler();
 
+        // NO saved-request replay: nothing this gateway serves is a page a human
+        // could be sent back to after logging in.
+        //
+        // ExceptionTranslationFilter saves the current request BEFORE invoking the
+        // entry point — for /api/** that happens even though ApiAuthenticationEntryPoint
+        // answers 401 JSON rather than redirecting. Since nginx proxies /api, /oauth2,
+        // /login and /logout here (FE-ADR-004/010), the SPA on :4200 and a raw API tab
+        // on :8080 share ONE session, so anything left in the cache hijacked the SPA's
+        // next login: first observed as …/api/products/2?continue, then — once those
+        // paths were excluded — as …/favicon.ico?continue, because a browser also
+        // fetches sub-resources for the tab it is showing (`continue` is
+        // HttpSessionRequestCache's default matching parameter).
+        //
+        // A path blacklist cannot close that: sub-resources are open-ended. Filtering
+        // on "top-level navigation" alone cannot either — a human CAN type an API URL
+        // into the address bar, which is a navigation. What actually settles it is that
+        // the cache has no legitimate input here at all: /api/** and /actuator/** are
+        // JSON, "/" is the JSON session probe (and already the default target), Swagger
+        // is permitAll so it is never saved, and every other path is unmapped. SPA deep
+        // links never reach this gateway — nginx serves index.html statically and
+        // Angular's router owns the URL.
+        //
+        // REVISIT if either becomes true: (a) this gateway starts serving navigable
+        // HTML (SSR, or hosting the SPA itself instead of nginx), (b) Swagger UI is put
+        // behind authentication. Both would give the cache a real input again.
         http
+                .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfTokenRepository)
                         .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()))
@@ -90,6 +122,7 @@ public class SecurityConfig {
                         .accessDeniedHandler(apiAccessDeniedHandler))
                 .oauth2Login(login -> login
                         .userInfoEndpoint(userInfo -> userInfo.userAuthoritiesMapper(keycloakAuthoritiesMapper()))
+                        .successHandler(loginSuccessHandler())
                         .failureHandler(replayedCallbackFailureHandler()))
                 .logout(logout -> logout
                         // POST /logout, CSRF-protected. Ends the gateway session AND
@@ -99,6 +132,34 @@ public class SecurityConfig {
                         .clearAuthentication(true)
                         .deleteCookies("JSESSIONID", "XSRF-TOKEN"));
         return http.build();
+    }
+
+    /**
+     * Post-login landing (ADR-007/008): ALWAYS this application's root, derived from
+     * the request itself — exactly how {@code {baseUrl}} resolves the OAuth2
+     * redirect-uri and how {@link com.crm.gateway.security.KeycloakLogoutSuccessHandler}
+     * builds its post-logout URI (forward-header-corrected via
+     * {@code server.forward-headers-strategy: framework}).
+     *
+     * <p>That derivation is the point: a login arriving through the nginx-forwarded
+     * frontend origin lands on {@code http://localhost:4200/}, where Angular's
+     * {@code path: '' → redirectTo: 'customers'} takes over; a direct hit on the
+     * gateway lands on {@code http://localhost:8080/} (the session probe). The
+     * gateway therefore never hardcodes the frontend origin — and does not rely on a
+     * bare relative "/" being resolved by the container's redirect strategy.
+     *
+     * <p>Deliberately NOT {@code SavedRequestAwareAuthenticationSuccessHandler}: there
+     * is no request cache to consult (see the chain above), so the plain
+     * target-URL handler states that intent instead of hiding a no-op behind a
+     * saved-request-aware name.
+     */
+    private AuthenticationSuccessHandler loginSuccessHandler() {
+        return new SimpleUrlAuthenticationSuccessHandler() {
+            @Override
+            protected String determineTargetUrl(HttpServletRequest request, HttpServletResponse response) {
+                return ServletUriComponentsBuilder.fromContextPath(request).path("/").build().toUriString();
+            }
+        };
     }
 
     /**

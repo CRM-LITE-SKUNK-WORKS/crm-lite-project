@@ -18,8 +18,8 @@ must never renumber them. Consumers store them as external references with **no 
 | Workbook | Table | Notes |
 |---|---|---|
 | ROLE | `role` | Local lookup; seed 1 = "Customer" |
-| CITY | `city` | Local reference; seed Istanbul, Ankara |
-| DISTRICT | `district` | FK → city; seed Kadikoy, Besiktas, Cankaya |
+| CITY | `city` | Local reference; seed Istanbul, Ankara (V2) + 8 more (V3 fixture expansion): Izmir, Bursa, Antalya, Adana, Konya, Gaziantep, Mersin, Kayseri — 10 total |
+| DISTRICT | `district` | FK → city; seed Kadikoy, Besiktas, Cankaya (V2) + 21 more (V3 fixture expansion), 2-4 per city — 24 total |
 | PARTY | `party` | `party_type_id` → central GNL_TP (INDV) |
 | IND | `ind` | `gender_id` → central GNL_TP; `nationality_id` UNIQUE over ALL rows (ADR-003) |
 | PARTY_ROLE | `party_role` | partial unique (party_id, role_id) among non-deleted |

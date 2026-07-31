@@ -64,6 +64,10 @@ class ProductServiceIntegrationTest {
     static final String ACCOUNT_WITH_PRODUCTS = "1261000010";
     /** The seeded MSG-PROD-NONE fixture account. */
     static final String ACCOUNT_WITHOUT_PRODUCTS = "1261000028";
+    /** V4 fixture: customer 1007's billing account with two independent product families. */
+    static final String ACCOUNT_MULTI_FAMILY = "1261000127";
+    /** V4 fixture: customer 1007's third billing account, deliberately product-less. */
+    static final String ACCOUNT_NO_PRODUCTS_1007 = "1261000135";
 
     @LocalServerPort
     int port;
@@ -99,6 +103,15 @@ class ProductServiceIntegrationTest {
                 .thenReturn(Optional.of(List.of(1L, 2L, 3L, 4L)));
         Mockito.when(accountServiceClient.fetchProductIds(ACCOUNT_WITHOUT_PRODUCTS))
                 .thenReturn(Optional.of(List.of()));
+        // V4 fixture expansion: customer 1007's billing account with two
+        // independent product families (standalone Fiber 1000MB + an ADSL 16MB
+        // parent/child family) sharing one billing account.
+        Mockito.when(accountServiceClient.fetchProductIds(ACCOUNT_MULTI_FAMILY))
+                .thenReturn(Optional.of(List.of(13L, 14L, 15L, 16L)));
+        // V4 fixture expansion: customer 1007's third billing account, a deliberate
+        // MSG-PROD-NONE fixture with zero product involvement.
+        Mockito.when(accountServiceClient.fetchProductIds(ACCOUNT_NO_PRODUCTS_1007))
+                .thenReturn(Optional.of(List.of()));
     }
 
     private void stubCustomerService() {
@@ -108,6 +121,15 @@ class ProductServiceIntegrationTest {
         Mockito.when(customerServiceClient.fetchAddress(1L))
                 .thenReturn(Optional.of(new CustomerAddress(1L, "Istanbul", "Kadikoy", "Bagdat Cad.", "12/4",
                         "Kadikoy ev", true)));
+        // V3 fixture expansion: customer 1007's primary address (addr 8, used by
+        // standalone product 13) and secondary address (addr 9, used by the
+        // ADSL 16MB main product 14 and resolved by its children 15/16).
+        Mockito.when(customerServiceClient.fetchAddress(8L))
+                .thenReturn(Optional.of(new CustomerAddress(8L, "Istanbul", "Kadikoy", "Moda Cad.", "45",
+                        "Kadikoy ev", true)));
+        Mockito.when(customerServiceClient.fetchAddress(9L))
+                .thenReturn(Optional.of(new CustomerAddress(9L, "Istanbul", "Besiktas", "Levent Cad.", "8",
+                        "Besiktas ofis", false)));
     }
 
     // ---------------------------------------------------------------- http helpers
@@ -238,6 +260,35 @@ class ProductServiceIntegrationTest {
         assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
     }
 
+    @Test
+    @DisplayName("V4 fixture: one billing account with TWO independent product families -> campaign-linked and campaign-less rows")
+    void listMultipleIndependentFamiliesOnOneAccount() {
+        ResponseEntity<List> response = getList("/api/products?accountNumber=" + ACCOUNT_MULTI_FAMILY);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> rows = response.getBody();
+        assertThat(rows).hasSize(4);
+        assertThat(rows).extracting(row -> row.get("productId")).containsExactly(13, 14, 15, 16);
+
+        // Family A: standalone Fiber 1000MB, campaign-less.
+        assertThat(rows.get(0).get("productName")).isEqualTo("Fiber 1000MB");
+        assertThat(rows.get(0).get("campaignId")).isNull();
+
+        // Family B: ADSL 16MB main + modem + activation, all linked to CMP-ADSL-02.
+        assertThat(rows.get(1).get("productName")).isEqualTo("ADSL 16MB");
+        assertThat(rows.get(1).get("campaignId")).isEqualTo("CMP-ADSL-02");
+        assertThat(rows.get(2).get("campaignId")).isEqualTo("CMP-ADSL-02");
+        assertThat(rows).extracting(row -> row.get("productStatus"))
+                .containsExactly("Active", "Active", "Active", "Active");
+    }
+
+    @Test
+    @DisplayName("V4 fixture: billing account with no product involvement -> 200 empty array")
+    void listEmptyForV4NoProductsAccount() {
+        ResponseEntity<List> response = getList("/api/products?accountNumber=" + ACCOUNT_NO_PRODUCTS_1007);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- FR-PROD-02 detail
 
     @Test
@@ -262,6 +313,24 @@ class ProductServiceIntegrationTest {
         assertThat(address.get("districtName")).isEqualTo("Kadikoy");
         assertThat(address.get("cityName")).isEqualTo("Istanbul");
         Mockito.verify(customerServiceClient).fetchAddress(1L);
+    }
+
+    @Test
+    @DisplayName("V4 fixture: child product resolves the parent's SECONDARY (non-primary) service address")
+    void detailOfChildProductResolvesNonPrimaryParentAddress() {
+        // Product 15 (ADSL Data Modem) is a child of main product 14 (ADSL 16MB),
+        // whose service_address_id is 9 (customer 1007's non-primary address).
+        ResponseEntity<Map> response = get("/api/products/15");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        Map<String, Object> body = response.getBody();
+        assertThat(body.get("campaign")).isEqualTo("ADSL Hiz Yukseltme Kampanyasi");
+
+        Map<String, Object> address = (Map<String, Object>) body.get("serviceAddress");
+        assertThat(address).isNotNull();
+        assertThat(address.get("addressId")).isEqualTo(9);
+        assertThat(address.get("street")).isEqualTo("Levent Cad.");
+        assertThat(address.get("districtName")).isEqualTo("Besiktas");
+        Mockito.verify(customerServiceClient).fetchAddress(9L);
     }
 
     @Test
@@ -311,30 +380,41 @@ class ProductServiceIntegrationTest {
     // ---------------------------------------------------------------- catalog reads
 
     @Test
-    @DisplayName("GET /api/offers: 3 active offers; serviceType derived through the spec (INTERNET/RESOURCE/ACTIVATION)")
+    @DisplayName("GET /api/offers: V2 ADSL (3) + V3 Fiber/ADSL expansion (7) = 10 active offers, id-ordered")
     void offersCatalog() {
         ResponseEntity<List> response = getList("/api/offers");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         List<Map<String, Object>> offers = response.getBody();
-        assertThat(offers).hasSize(3);
+        assertThat(offers).hasSize(10);
         assertThat(offers).allSatisfy(offer ->
                 assertThat(offer.keySet()).isEqualTo(Set.of("offerId", "offerName", "serviceType", "price")));
-        assertThat(offers).extracting(offer -> offer.get("offerName"))
-                .containsExactly("ADSL 8MB Offer", "ADSL Data Modem Offer", "ADSL Activation Offer");
-        assertThat(offers).extracting(offer -> offer.get("serviceType"))
-                .containsExactly("INTERNET", "RESOURCE", "ACTIVATION");
-        // Seed deviation 1: invented fixture prices (analyst approval pending).
-        assertThat(offers).extracting(offer -> ((Number) offer.get("price")).doubleValue())
-                .containsExactly(299.00, 149.00, 49.00);
+        // findActiveWithSpec orders by offer id ascending: V2's 3 ADSL offers first,
+        // then the V3 fixture expansion (Fiber family + 2 more ADSL offers).
+        assertThat(offers).extracting(offer -> offer.get("offerName")).containsExactly(
+                "ADSL 8MB Offer", "ADSL Data Modem Offer", "ADSL Activation Offer",
+                "Fiber 100MB Offer", "Fiber 500MB Offer", "Fiber 1000MB Offer",
+                "Fiber Wi-Fi 6 Modem Offer", "Fiber Activation Offer",
+                "ADSL 16MB Offer", "ADSL 24MB Offer");
+        assertThat(offers).extracting(offer -> offer.get("serviceType")).containsExactly(
+                "INTERNET", "RESOURCE", "ACTIVATION",
+                "INTERNET", "INTERNET", "INTERNET", "RESOURCE", "ACTIVATION",
+                "INTERNET", "INTERNET");
+        // Seed deviation: all prices are project-added dev fixtures (analyst approval pending).
+        assertThat(offers).extracting(offer -> ((Number) offer.get("price")).doubleValue()).containsExactly(
+                299.00, 149.00, 49.00,
+                399.00, 599.00, 799.00, 249.00, 79.00,
+                349.00, 379.00);
     }
 
     @Test
-    @DisplayName("GET /api/campaigns: public code as id, 3 member offers, main flag, DERIVED total 497.00")
+    @DisplayName("GET /api/campaigns: V2 CMP-ADSL-01 (497.00) + V3 Fiber/ADSL campaigns (727/927/547) = 4 active campaigns")
     void campaignsCatalog() {
         ResponseEntity<List> response = getList("/api/campaigns");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         List<Map<String, Object>> campaigns = response.getBody();
-        assertThat(campaigns).hasSize(1);
+        assertThat(campaigns).hasSize(4);
+        assertThat(campaigns).extracting(c -> c.get("campaignId"))
+                .containsExactly("CMP-ADSL-01", "CMP-FIBER-01", "CMP-FIBER-02", "CMP-ADSL-02");
 
         Map<String, Object> campaign = campaigns.get(0);
         assertThat(campaign.keySet()).isEqualTo(Set.of(
@@ -348,5 +428,11 @@ class ProductServiceIntegrationTest {
         assertThat(offers).extracting(offer -> offer.get("main")).containsExactly(true, false, false);
         assertThat(offers).extracting(offer -> offer.get("serviceType"))
                 .containsExactly("INTERNET", "RESOURCE", "ACTIVATION");
+
+        // V3 fixture expansion: derived totals for the new campaigns (all project-added
+        // dev fixture prices, none expired, none passive).
+        assertThat(((Number) campaigns.get(1).get("totalPrice")).doubleValue()).isEqualTo(727.00); // CMP-FIBER-01
+        assertThat(((Number) campaigns.get(2).get("totalPrice")).doubleValue()).isEqualTo(927.00); // CMP-FIBER-02
+        assertThat(((Number) campaigns.get(3).get("totalPrice")).doubleValue()).isEqualTo(547.00); // CMP-ADSL-02
     }
 }

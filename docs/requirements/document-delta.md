@@ -120,6 +120,33 @@ boundary) and a **read-side clause on ADR-013** are outstanding, and
 `docs/architecture/service-boundaries.md`'s "analyst/architecture sign-off is
 still missing" warning continues to apply to the product domain.
 
+### Implementation record (2026-07-31 — local dev/demo seed fixture expansion, no FR/AC text changed)
+
+Forward-only migrations only: `customer-service V3`, `product-service V3`,
+`account-service V4`. **No previously applied migration was edited.** This is a
+test-data **volume** expansion for local development/demo purposes, not a new
+requirement deviation — full fixture-by-fixture detail (customer/account/product
+tables, offers, campaigns, cross-service id contract) is in
+[`docs/testing/seed-fixture-catalog.md`](../testing/seed-fixture-catalog.md);
+only the deviations from analyst source material are recorded here, extending the
+same open conflicts already logged above (P1/#10):
+
+| # | Deviation | Why | Where |
+|---|---|---|---|
+| P5 | **More invented offer prices**: Fiber 100MB `399.00`, Fiber 500MB `599.00`, Fiber 1000MB `799.00`, Fiber Wi-Fi 6 Modem `249.00`, Fiber Activation `79.00`, ADSL 16MB `349.00`, ADSL 24MB `379.00` | Same root cause as P1 — the workbook/analyst document names no prices, and a compact demo dataset needs more than 3 offers to exercise the campaign/basket screens. All project-added, relatively ordered (slower/basic < faster/premium; device priced separately; activation below the recurring main offer) | `product-service` `V3__expand_product_test_fixtures.sql` — **analyst approval pending, same as P1** |
+| P6 | **3 more active campaigns** (`CMP-FIBER-01`, `CMP-FIBER-02`, `CMP-ADSL-02`), each a main-internet + resource + activation triple, future `activation_end_date` | AC-PROD-01-03/campaign screens need more than one campaign to demo meaningfully; no expired or passive campaign fixture was added (explicitly out of scope) | same file |
+| P7 | **13 more product instances** (ids 5-17) across 6 new customers' billing accounts, including 2 independent product families sharing one billing account and a 2nd main+children family | Demonstrates FR-PROD-01/02 branches (multi-family accounts, non-primary service address resolution) that the V2 seed's single family couldn't cover | same file |
+| P8 | **8 more customers** (1004-1011) covering middle-name search, shared last names, GSM-prefix grouping, multi-address customers with exactly one primary, and a fully populated contact record | AC-CUST-01 search branches (middle name, GSM prefix, multiple addresses) had only 2-3 active customers to test against | `customer-service` `V3__expand_customer_test_fixtures.sql` |
+| P9 | **14 more accounts** (K-8 223 + Billing Accounts) for 6 of the new customers, including a customer with 2 Billing Accounts, a Billing Account with no product involvement, and account numbers contiguously continuing the V2 KR-11 sequence (100004-100017) | FR-ACCT-01 "multiple Billing Accounts per customer" and "Billing Account with no products" branches only had one seeded example (customer 1001) to test against | `account-service` `V4__expand_account_test_fixtures.sql` |
+
+None of P5-P9 changes the account-number or Luhn algorithm, the campaign-total
+derivation rule, or any other production business logic — they are additional
+rows only. An IPTV product family was considered and **not added**: it would
+require a new shared `GNL_TP` `SERVICE_TYPE` row and a change to
+`LookupContract.serviceTypeCode()` in product-service, which is out of scope for
+a fixture-volume expansion and does not fit AC-SALE-01-08's three-service-type
+basket rule — flagged here for analysts, not built.
+
 ### Accepted changes (documented 23.07.2026 morning; since implemented — see the implementation record above)
 
 | # | Change | Source | Action taken |
@@ -136,7 +163,7 @@ still missing" warning continues to apply to the product domain.
 |---|---|---|---|
 | 7 | **Use-case doc still describes FR-ACCT-04 as list removal**, not passivation: "Beklenen Çıktı" says "aktif ürün bağlantısı bulunmayan fatura hesabının **aktif hesap listesinden kaldırılması**"; Ana Senaryo Adım 5 says the system "**fatura hesabını aktif hesap listesinden kaldırır**". Both contradict FR v8-1 AC-ACCT-04-02 (passivation, stays visible as Passive) | Use-case doc, "Fatura Hesabı Silme (FR-ACCT-04)" | **FR v8-1 AC-ACCT-04-02 governs** (passivation). Use-case wording is superseded and not updated by this revision — flagged for analysts |
 | 8 | **Draw.io ACCT-04 delete-flow node still labeled "Hesabı aktif listeden kaldır"** (remove account from active list) | `CRMLite_Diagrams_Final.drawio`, ACCT-04 flow | Same conflict as #7 — FR v8-1 AC-ACCT-04-02 governs; diagram not updated by this revision — flagged for analysts |
-| 10 | **Workbook `PROD_OFR` rows carry no price, but AC-SALE-01-12 requires amounts** (see deviation P1 above). Invented fixture values are in the product-service seed; the analyst document names no prices anywhere | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `PROD_OFR` sheet vs FR §2.7 AC-SALE-01-12 | Workbook not edited. **Awaiting analyst-approved price list**; until then the seeded 299/149/49 are explicitly provisional |
+| 10 | **Workbook `PROD_OFR` rows carry no price, but AC-SALE-01-12 requires amounts** (see deviation P1 above; extended by P5's 7 additional invented offer prices, 2026-07-31). Invented fixture values are in the product-service seed; the analyst document names no prices anywhere | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `PROD_OFR` sheet vs FR §2.7 AC-SALE-01-12 | Workbook not edited. **Awaiting analyst-approved price list**; until then all seeded prices (299/149/49 plus the P5 additions) are explicitly provisional |
 | 11 | **FR §2.6 never mentions how a product links to a billing account**, yet FR-PROD-01 lists products *per account*. The workbook answers it only via `CUST_ACCT_PROD_INVL` (in `account_db`) — `PROD` has no account column | FR v8-1 §2.6 vs workbook `PROD` / `CUST_ACCT_PROD_INVL` sheets | Resolved architecturally, not by inventing a column: product-service **composes** over account-service's `product-ids` endpoint (ADR-013 §5). Flagged for analysts as an FR gap; **ADR-015 owed** |
 | 9 | **Entity/Seed workbook `CUST_ACCT` seed rows use legacy `account_number` values that do not satisfy KR-11**: `0101112900`, `0101112911`, `0101112915`, `0101112441` — all start with segment digit `0`, not the fixed `1` required for this phase, and carry no verifiable check digit. `docs/api/customer-service.md`'s `accountNumber=0101112900` curl example (501 smoke test) also happens to reuse one of these legacy values as an illustrative query param — harmless there (the endpoint is unimplemented and returns 501 regardless of the value's format), but not a valid seed once account-service is built | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `CUST_ACCT` sheet | Workbook not edited. When account-service's Flyway seed is authored, these sample account numbers must be regenerated to the KR-11 format, not copied verbatim — flagged for analysts |
 

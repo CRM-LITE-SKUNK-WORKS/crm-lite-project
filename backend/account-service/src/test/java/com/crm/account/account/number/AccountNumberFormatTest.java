@@ -52,4 +52,35 @@ class AccountNumberFormatTest {
         assertThat(number).startsWith("100100000").hasSize(10);
         assertThat(LuhnCheckDigit.isValid(number)).isTrue();
     }
+
+    /**
+     * V4 fixture expansion (docs/testing/seed-fixture-catalog.md): sequence
+     * 100004..100017 contiguously continuing the V2 seed's next_value=100004,
+     * across customers 1004-1008/1011. Every literal committed to the V4
+     * migration is re-derived here from the SAME production algorithm and
+     * Luhn-validated — the migration numbers are not hand-typed.
+     */
+    @Test
+    @DisplayName("V4 fixture expansion: 14 contiguous numbers (100004..100017), all Luhn-valid and pairwise distinct")
+    void v4FixtureAccountNumbersAreValidAndDistinct() {
+        String[] expected = {
+                "1261000044", "1261000051", "1261000069", // customer 1004 (223, 224, 224)
+                "1261000077", "1261000085",                // customer 1005 (223, 224)
+                "1261000093", "1261000101",                // customer 1006 (223, 224)
+                "1261000119", "1261000127", "1261000135",   // customer 1007 (223, 224, 224)
+                "1261000143", "1261000150",                // customer 1008 (223, 224)
+                "1261000168", "1261000176",                // customer 1011 (223, 224)
+        };
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        int seq = 100004;
+        for (String number : expected) {
+            String derived = AccountNumberGenerator.format(1, 2026, seq);
+            assertThat(derived).isEqualTo(number);
+            assertThat(LuhnCheckDigit.isValid(derived)).isTrue();
+            assertThat(seen.add(derived)).as("no duplicate account number: " + derived).isTrue();
+            seq++;
+        }
+        // Next value after the fixture range (matches the V4 migration's GREATEST target).
+        assertThat(seq).isEqualTo(100018);
+    }
 }

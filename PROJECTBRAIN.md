@@ -418,6 +418,12 @@ crm-lite-project-dev/
   interface seviyesinde mock'lanır — gerçek `LookupCatalogService` doğrulama/cache mantığı testte de
   çalışır. Not: Testcontainers 1.21.3 + Docker/Podman 29 uyumu için surefire `-Dapi.version=1.44`
   pin'li (pom yorumunda gerekçe).
+- **Seed fixture genişletmesi (2026-07-31, `V3__expand_customer_test_fixtures.sql`):** 8 yeni aktif
+  müşteri (1004-1011) — ortak soyisim, orta-isim araması, GSM prefix gruplaması (0532→3 müşteri,
+  0533→2 müşteri), çoklu adres + tek aktif primary invariant'ı, tam dolu iletişim kaydı. Önceden
+  uygulanmış V1/V2 DEĞİŞTİRİLMEDİ. Tam fixture kataloğu:
+  [`docs/testing/seed-fixture-catalog.md`](docs/testing/seed-fixture-catalog.md). Yeni testler:
+  `CustomerServiceIntegrationTest.v3FixtureSearchCoverage` + `.v3FixtureAddressInvariant`.
 
 ### 4.5 lookup-service ✅ (YENİ — paylaşılan katalog sahibi, ADR-002)
 - Port 8083, DB `lookup_db`. **GNL_ST ve GNL_TP tablolarının tüm sistemdeki TEK sahibi.**
@@ -557,6 +563,22 @@ crm-lite-project-dev/
 - **Yeni modül tuzak notları uygulandı:** `spring-boot-flyway` açık bağımlılık (§5.11),
   Lombok `annotationProcessorPaths` (§5.9), `OpenApiConfig` relative-server bean'i (§4.7
   4-adım listesi), Testcontainers pinleri artık KÖK POM'dan (modül-yerel pin YOK).
+- **Seed fixture genişletmesi (2026-07-31, `V4__expand_account_test_fixtures.sql`):**
+  14 yeni hesap (K-8 223 + Billing Account'lar) — 6 yeni müşteri için (1004-1008, 1011),
+  biri **çoklu Billing Account** (1004: 2 adet), ikisi **ürünsüz Billing Account**
+  (1007'nin 3. hesabı, 1011'in hesabı). Hesap numaraları V2 seed'in KR-11
+  sequence'ini (`acct_number_seq(1,2026)`) 100004'ten 100017'ye kadar **kesintisiz**
+  devam ettiriyor; `next_value` artık **100018** (`GREATEST` ile, asla azaltılmadan).
+  Her numara production `AccountNumberGenerator.format`/Luhn algoritmasından
+  türetildi ve doğrulandı — bkz. yeni test
+  `AccountNumberFormatTest.v4FixtureAccountNumbersAreValidAndDistinct`. Mevcut V1/V2/V3
+  DEĞİŞTİRİLMEDİ. Tam fixture kataloğu:
+  [`docs/testing/seed-fixture-catalog.md`](docs/testing/seed-fixture-catalog.md).
+  `AccountServiceIntegrationTest`'e 2 yeni IT eklendi (çoklu-BA müşteri, ürünsüz/
+  çoklu-aile product-ids); mevcut sequence-bağımlı 3 assertion (next_value=100004,
+  1261000051/1261000069 beklentileri) yeni değerlere güncellendi (100018,
+  1261000184/1261000192/1261000200) — ayrıca @Order(20) atomiklik testi artık
+  1005 yerine hesapsız müşteri 1009'u kullanıyor (1005 artık V4 fixture'larına sahip).
 
 ### 4.9 product-service ✅ (YENİ — 2026-07-29, salt-okunur FR-PROD-01..02 dilimi)
 - Port 8086, DB `product_db`, paket kökü `com.crm.product`. Kapsam: **FR §2.6
@@ -635,6 +657,20 @@ crm-lite-project-dev/
 - **ADR borcu (açıkça kayıtlı):** **ADR-015 (product boundary)** ve **ADR-013'e
   eklenecek "read-side" fıkrası** yazılmadı; `service-boundaries.md`'nin
   "analyst/architecture sign-off eksik" uyarısı product domain'i için geçerli.
+- **Seed fixture genişletmesi (2026-07-31, `V3__expand_product_test_fixtures.sql`):**
+  Fiber Internet ailesi (mevcut onaylı SERVICE_TYPE 10/11/12'yi yeniden kullanır —
+  yeni paylaşılan lookup tipi YOK) + 2 yeni ADSL teklifi (toplam 10 aktif teklif),
+  3 yeni aktif kampanya (`CMP-FIBER-01/02`, `CMP-ADSL-02` — toplam 4, hepsi gelecek
+  `activation_end_date`'li; süresi geçmiş/pasif kampanya fixture'ı EKLENMEDİ), 13 yeni
+  ürün örneği (id 5-17, toplam 17). Mevcut V1/V2 (pasif "ADSL 8MB Legacy" fixture'ı
+  dahil) DEĞİŞTİRİLMEDİ. IPTV ailesi değerlendirildi ve **eklenmedi** — yeni bir
+  paylaşılan GNL_TP satırı + `LookupContract.serviceTypeCode()` kod değişikliği
+  gerektirir, analist onayı olmadan yapılmadı. Tam fixture kataloğu:
+  [`docs/testing/seed-fixture-catalog.md`](docs/testing/seed-fixture-catalog.md).
+  Fiyatlar proje-eklentisi geliştirme fixture'ıdır, ticari tarife verisi DEĞİLDİR
+  (`document-delta.md` P5-P9). Yeni testler: `ProductServiceIntegrationTest`'e 3 IT
+  (çoklu-aile hesap, ürünsüz hesap, çocuk ürünün non-primary ebeveyn adresi) +
+  yeni birim test sınıfı `ProductBusinessRulesTest` (çok seviyeli ebeveyn zinciri).
 
 
 ## 5. Alınan Kararlar ve Gerekçeleri

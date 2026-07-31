@@ -466,6 +466,44 @@ class CustomerServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("V3 fixture expansion: shared last name, middle-name search, GSM grouping, soft-delete stays invisible")
+    void v3FixtureSearchCoverage() {
+        // Mehmet Yilmaz (1005) and Elif Yilmaz (1006) share a last name.
+        assertThat(searchResultNumbers("lastName=Yilmaz")).contains(1005L, 1006L);
+
+        // Ali Kemal Ozturk (1007): middle-name word-start search.
+        assertThat(searchResultNumbers("firstName=Kemal")).contains(1007L);
+
+        // "Ali" matches both a first name (1001) and a middle name (1011, Kerem Ali Toprak).
+        assertThat(searchResultNumbers("firstName=Ali")).contains(1001L, 1011L);
+
+        // GSM prefix grouping (docs/testing/seed-fixture-catalog.md): 0532 groups
+        // 1001, 1007 and 1011; 0533 groups 1002 and 1006. Not containsExactly: other
+        // tests in this class create additional customers via createBody(), whose
+        // default fixture mobile (05329998877) also starts with 0532, and this test
+        // class shares one live database with no per-test rollback.
+        assertThat(searchResultNumbers("gsmNumber=0532")).contains(1001L, 1007L, 1011L);
+        assertThat(searchResultNumbers("gsmNumber=0533")).contains(1002L, 1006L);
+
+        // Fatma Nur Sahin (1008) shares a last name with the soft-deleted Caner Sahin
+        // (1003) — the deleted row must stay invisible even under a shared surname.
+        assertThat(searchResultNumbers("lastName=Sahin")).containsExactly(1008L);
+    }
+
+    @Test
+    @DisplayName("V3 fixture expansion: every new party has exactly one active primary address")
+    void v3FixtureAddressInvariant() {
+        // 1004 (1 address), 1006/1008/1009/1010/1011 (1 address each) and the
+        // multi-address customers 1005 (2) / 1007 (3) all keep exactly one primary.
+        for (long partyId : new long[] {4, 5, 6, 7, 8, 9, 10, 11}) {
+            long primaryCount = addressRepository.findByPartyIdAndDeletedDateIsNullOrderById(partyId).stream()
+                    .filter(a -> Boolean.TRUE.equals(a.isPrimary()))
+                    .count();
+            assertThat(primaryCount).as("party %d has exactly one primary address", partyId).isEqualTo(1);
+        }
+    }
+
+    @Test
     @DisplayName("ADR-005: GET /api/customers with no criteria browses ALL active customers, A-Z")
     @SuppressWarnings("unchecked")
     void browseWithoutCriteriaListsAllActiveCustomers() {

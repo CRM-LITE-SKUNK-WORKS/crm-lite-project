@@ -5,11 +5,17 @@ databases per service:
 
 | Database | Owner service | Schema authority |
 |---|---|---|
-| `customer_db` | customer-service | its Flyway (V1 tables/indexes, V2 seed) |
+| `customer_db` | customer-service | its Flyway (V1 tables/indexes, V2 seed, V3 fixture expansion) |
 | `lookup_db` | lookup-service | its Flyway (V1 gnl_st/gnl_tp, V2 contract seed) |
-| `account_db` | account-service | its Flyway (V1 acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq, V2 KR-11 seed — ADR-013/014) |
+| `account_db` | account-service | its Flyway (V1 acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq, V2 KR-11 seed, V3 involvement seed, V4 fixture expansion — ADR-013/014) |
+| `product_db` | product-service | its Flyway (V1 tables, V2 seed, V3 fixture expansion) |
 | `keycloak_db` | keycloak (infra) | Keycloak-managed |
 | `crm_admin` | — | compose default DB only |
+
+Project-added local dev/demo fixtures (customer-service V3, product-service V3,
+account-service V4) are documented in full in
+[`docs/testing/seed-fixture-catalog.md`](../testing/seed-fixture-catalog.md) —
+fixture prices there are development data only, never commercial tariff data.
 
 `infra/postgres/init/01-create-databases.sql` creates the databases **only on first
 volume initialization**. Hibernate validates; it never creates or alters schema.
@@ -57,7 +63,8 @@ SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' O
 SELECT table_name FROM information_schema.tables
 WHERE table_schema = 'public' AND table_name IN ('gnl_st', 'gnl_tp');
 
--- KR-11 sequence invariant: next_value = the NEXT number to issue (seed leaves 100004)
+-- KR-11 sequence invariant: next_value = the NEXT number to issue
+-- (V2 seed leaves 100004; V4 fixture expansion advances it to 100018)
 SELECT segment, seq_year, next_value FROM acct_number_seq ORDER BY segment, seq_year;
 
 -- Accounts: 223 is the hidden K-8 row; the three 224s are the listed billing accounts

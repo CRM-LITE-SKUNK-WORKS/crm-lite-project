@@ -65,7 +65,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * crm-security-starter is active; only JWT decoding is stubbed (TestSecurity).
  *
  * The Clock is pinned to 2026 so KR-11 numbers continue the Flyway seed
- * deterministically (seed consumed 100000..100003; next_value = 100004).
+ * deterministically (V2 seed consumed 100000..100003, V4 fixture expansion
+ * consumed 100004..100017 across customers 1004-1008/1011; next_value = 100018).
  *
  * Ordered: later tests build on the sequence/passivation state of earlier ones.
  * Requires a running Docker daemon. Rerun with:
@@ -218,9 +219,9 @@ class AccountServiceIntegrationTest {
 
     @Test
     @Order(3)
-    @DisplayName("seed: KR-11 regenerated numbers, next_value=100004, 224-only list in AC-ACCT-01-04 order, 223 hidden")
+    @DisplayName("seed: KR-11 regenerated numbers, next_value=100018, 224-only list in AC-ACCT-01-04 order, 223 hidden")
     void seedDataLoaded() {
-        assertThat(nextValue(1, 2026)).isEqualTo(100004);
+        assertThat(nextValue(1, 2026)).isEqualTo(100018);
 
         ResponseEntity<List> response = getList("/api/accounts?customerId=1001");
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -279,9 +280,10 @@ class AccountServiceIntegrationTest {
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         Map<String, Object> body = response.getBody();
         assertThat(body.keySet()).isEqualTo(CONTRACT_KEYS);
-        // Sequence continuation: 223 consumed 100004 -> 1261000044; the returned 224
-        // consumed 100005 -> 1261000051 (both Luhn-checked KR-11 numbers).
-        assertThat(body.get("accountNumber")).isEqualTo("1261000051");
+        // Sequence continuation: 223 consumed 100018 -> 1261000184; the returned 224
+        // consumed 100019 -> 1261000192 (both Luhn-checked KR-11 numbers, continuing
+        // past the V4 fixture expansion's 100004..100017 range).
+        assertThat(body.get("accountNumber")).isEqualTo("1261000192");
         assertThat(body.get("accountName")).isEqualTo("Zeynep Billing");
         assertThat(body.get("accountTypeCode")).isEqualTo("224");
         assertThat(body.get("accountTypeName")).isEqualTo("Billing Account");
@@ -293,7 +295,7 @@ class AccountServiceIntegrationTest {
         Map<String, Object> row223 = jdbcTemplate.queryForMap(
                 "SELECT account_number, account_name, address_id, created_by FROM cust_acct "
                         + "WHERE customer_number = 1002 AND account_type_id = 1");
-        assertThat(row223.get("account_number")).isEqualTo("1261000044");
+        assertThat(row223.get("account_number")).isEqualTo("1261000184");
         assertThat(row223.get("account_name")).isEqualTo("Customer Account");
         assertThat(((Number) row223.get("address_id")).longValue()).isEqualTo(3L);
         assertThat(row223.get("created_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
@@ -301,9 +303,9 @@ class AccountServiceIntegrationTest {
         // The 223 never shows up in the list (AC-ACCT-01-02).
         ResponseEntity<List> list = getList("/api/accounts?customerId=1002");
         assertThat(list.getBody()).hasSize(1);
-        assertThat(((Map<String, Object>) list.getBody().get(0)).get("accountNumber")).isEqualTo("1261000051");
+        assertThat(((Map<String, Object>) list.getBody().get(0)).get("accountNumber")).isEqualTo("1261000192");
 
-        assertThat(nextValue(1, 2026)).isEqualTo(100006);
+        assertThat(nextValue(1, 2026)).isEqualTo(100020);
     }
 
     @Test
@@ -315,12 +317,12 @@ class AccountServiceIntegrationTest {
                 {"customerId": 1002, "accountName": "Zeynep Billing 2", "addressId": 3}
                 """);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
-        assertThat(response.getBody().get("accountNumber")).isEqualTo("1261000069");
+        assertThat(response.getBody().get("accountNumber")).isEqualTo("1261000200");
 
         Integer count223 = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM cust_acct WHERE customer_number = 1002 AND account_type_id = 1", Integer.class);
         assertThat(count223).isEqualTo(1);
-        assertThat(nextValue(1, 2026)).isEqualTo(100007);
+        assertThat(nextValue(1, 2026)).isEqualTo(100021);
     }
 
     @Test
@@ -328,6 +330,7 @@ class AccountServiceIntegrationTest {
     @DisplayName("create validation: unknown customer 404, foreign address 400, forbidden field 400 MSG-ACCT-IMMUTABLE-FIELD")
     void createValidation() {
         int accountsBefore = accountCount();
+        int nextBefore = nextValue(1, 2026);
 
         ResponseEntity<Map> unknownCustomer = send(HttpMethod.POST, "/api/accounts",
                 """
@@ -361,7 +364,7 @@ class AccountServiceIntegrationTest {
         assertThat(missingFields.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
 
         assertThat(accountCount()).isEqualTo(accountsBefore);
-        assertThat(nextValue(1, 2026)).isEqualTo(100007);   // nothing consumed
+        assertThat(nextValue(1, 2026)).isEqualTo(nextBefore);   // nothing consumed
     }
 
     @Test
@@ -574,10 +577,13 @@ class AccountServiceIntegrationTest {
     @Order(20)
     @DisplayName("K-8 atomicity: when the 224's number allocation fails AFTER the 223 was created, BOTH roll back")
     void createIsAtomicAcrossThe223And224() {
-        Mockito.when(customerServiceClient.fetchCustomer(1005L))
-                .thenReturn(Optional.of(new CustomerSummary(1005L, "ACTV")));
-        Mockito.when(customerServiceClient.fetchAddresses(1005L))
-                .thenReturn(List.of(new CustomerAddress(5L, true)));
+        // Customer 1009 (customer-service V3 fixture) deliberately has NO accounts
+        // yet — needed so this probe genuinely exercises the K-8 223+224 atomic
+        // create; 1005 now owns V4 fixture accounts and would skip 223 creation.
+        Mockito.when(customerServiceClient.fetchCustomer(1009L))
+                .thenReturn(Optional.of(new CustomerSummary(1009L, "ACTV")));
+        Mockito.when(customerServiceClient.fetchAddresses(1009L))
+                .thenReturn(List.of(new CustomerAddress(12L, true)));
 
         int nextBefore = nextValue(1, 2026);
         // Leave capacity for exactly ONE number: the 223 gets 999999, the 224's
@@ -586,14 +592,14 @@ class AccountServiceIntegrationTest {
         try {
             ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts",
                     """
-                    {"customerId": 1005, "accountName": "Atomicity probe", "addressId": 5}
+                    {"customerId": 1009, "accountName": "Atomicity probe", "addressId": 12}
                     """);
             assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
             assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NUMBER-CAPACITY-EXCEEDED");
 
-            Integer rowsFor1005 = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM cust_acct WHERE customer_number = 1005", Integer.class);
-            assertThat(rowsFor1005).isZero();                    // no partial 223 survived
+            Integer rowsFor1009 = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(*) FROM cust_acct WHERE customer_number = 1009", Integer.class);
+            assertThat(rowsFor1009).isZero();                    // no partial 223 survived
             assertThat(nextValue(1, 2026)).isEqualTo(999999);    // both allocations rolled back
         } finally {
             jdbcTemplate.update("UPDATE acct_number_seq SET next_value = ? WHERE segment = 1 AND seq_year = 2026",
@@ -663,6 +669,48 @@ class AccountServiceIntegrationTest {
         ResponseEntity<Map> hidden223 = get("/api/accounts/1261000002/product-ids");
         assertThat(hidden223.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(hidden223.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+    }
+
+    // ------------------------------------------ V4 fixture expansion coverage
+
+    @Test
+    @Order(24)
+    @DisplayName("V4 fixture: customer 1004 lists 2 Billing Accounts (multiple-BA scenario), 223 stays hidden")
+    void customer1004HasMultipleBillingAccounts() {
+        ResponseEntity<List> list = getList("/api/accounts?customerId=1004");
+        assertThat(list.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> rows = list.getBody();
+        assertThat(rows).hasSize(2);
+        assertThat(rows).extracting(row -> row.get("accountNumber"))
+                .containsExactly("1261000051", "1261000069");
+        assertThat(rows).allSatisfy(row -> assertThat(row.get("accountTypeCode")).isEqualTo("224"));
+
+        ResponseEntity<Map> hidden223 = get("/api/accounts/1261000044");
+        assertThat(hidden223.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(hidden223.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+    }
+
+    @Test
+    @Order(25)
+    @DisplayName("V4 fixture: BA with no product involvement -> empty array; BA with 2 independent families -> 4 ids")
+    void v4FixtureProductIdsCoverage() {
+        // Customer 1007's third account (1261000135) is a deliberate MSG-PROD-NONE
+        // fixture — no cust_acct_prod_invl rows written for it.
+        ResponseEntity<List> empty = getList("/api/accounts/1261000135/product-ids");
+        assertThat(empty.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(empty.getBody()).isEmpty();
+
+        // Customer 1011's Billing Account (1261000176) is likewise product-less.
+        ResponseEntity<List> emptyToo = getList("/api/accounts/1261000176/product-ids");
+        assertThat(emptyToo.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(emptyToo.getBody()).isEmpty();
+
+        // Customer 1007's second account (1261000127) holds two independent product
+        // families under one billing account: a standalone Fiber 1000MB product (13)
+        // plus an ADSL 16MB main (14) with its modem (15) and activation (16) children.
+        ResponseEntity<List> multiFamily = getList("/api/accounts/1261000127/product-ids");
+        assertThat(multiFamily.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(multiFamily.getBody()).containsExactly(13, 14, 15, 16);
     }
 
     @Test

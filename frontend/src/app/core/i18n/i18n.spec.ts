@@ -63,6 +63,13 @@ describe('i18n catalogue', () => {
       'MSG-ACCT-IMMUTABLE-FIELD',
       'MSG-ACCT-DUP-NUMBER',
       'MSG-ACCT-NUMBER-CAPACITY-EXCEEDED',
+      // product-service (docs/api/product-service.md §Status/message-key matrix).
+      // MSG-PROD-NOT-FOUND (404) is a documented PROJECT ADDITION the backend
+      // does return. MSG-PROD-NONE is deliberately NOT listed: it is
+      // frontend-only — an account with no products is a 200 [] (AC-PROD-01-02).
+      // MSG-ACCT-NOT-FOUND (unknown accountNumber) and MSG-SERVICE-UNAVAILABLE
+      // are the other two product-list outcomes and are already listed above.
+      'MSG-PROD-NOT-FOUND',
     ];
     for (const key of backendKeys) {
       expect(Object.prototype.hasOwnProperty.call(CATALOG, key), `missing ${key}`).toBe(true);

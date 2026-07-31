@@ -175,4 +175,18 @@ export const MESSAGES = {
     en: 'Account number capacity for this segment and year is exhausted.',
     tr: 'Bu segment ve yıl için hesap numarası kapasitesi tükendi.',
   },
+
+  // ---- product-service PROJECT-AUTHORED key (docs/api/product-service.md
+  //      §Message-key notes). NOT in the analyst catalog: FR-PROD-02 is always
+  //      reached from a row the user just saw, so the analysts never named an
+  //      unknown-product outcome. EN/TR are the backend document's own
+  //      suggestion, taken verbatim. Backend-returned (404) — the name is the
+  //      contract and is never changed.
+  //      (MSG-PROD-NONE is the analyst key and is FRONTEND-ONLY: an account
+  //      with no products is a 200 [], so the backend never sends it — it is
+  //      defined above with the other analyst messages.) ----
+  'MSG-PROD-NOT-FOUND': {
+    en: 'Product not found.',
+    tr: 'Ürün bulunamadı.',
+  },
 } satisfies Catalog;

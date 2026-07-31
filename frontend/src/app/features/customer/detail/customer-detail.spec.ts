@@ -171,32 +171,73 @@ describe('CustomerDetail', () => {
     expect(byTestId(fixture, 'customer-detail-name')?.textContent).toContain('Ali Yildiz');
   });
 
-  // ---- account tab: the account feature's section (F6); products still A3 --
+  // ---- account tab: the account (F6) and product (2026-07-31) sections ------
 
-  it('account tab loads the billing accounts through the account section; products stay Coming soon', () => {
-    const fixture = render();
-    flushInitial(fixture);
+  const BILLING_ACCOUNT = {
+    accountNumber: '1261000010',
+    accountName: 'Ali Billing',
+    accountTypeCode: '224',
+    accountTypeName: 'Billing Account',
+    billingAddressId: 1,
+    accountStatus: 'Active',
+  };
+
+  function openAccountTab(fixture: ComponentFixture<CustomerDetail>): void {
     click(fixture, 'customer-detail-tabs-account');
     const request = http.expectOne((r) => r.url === '/api/accounts');
     expect(request.request.params.get('customerId')).toBe('1001');
-    request.flush([
-      {
-        accountNumber: '1261000010',
-        accountName: 'Ali Billing',
-        accountTypeCode: '224',
-        accountTypeName: 'Billing Account',
-        billingAddressId: 1,
-        accountStatus: 'Active',
-      },
-    ]);
+    request.flush([BILLING_ACCOUNT]);
     fixture.detectChanges();
+  }
+
+  it('account tab loads the billing accounts through the account section', () => {
+    const fixture = render();
+    flushInitial(fixture);
+    openAccountTab(fixture);
     expect(byTestId(fixture, 'customer-detail-account-row-1261000010')).not.toBeNull();
     expect(
       (byTestId(fixture, 'customer-detail-account-create-button') as HTMLButtonElement).disabled,
     ).toBe(false); // functional since F6
-    const products = byTestId(fixture, 'customer-detail-products-coming-soon');
-    expect(products?.getAttribute('aria-disabled')).toBe('true');
-    expect(products?.textContent).toContain('Coming soon');
+  });
+
+  it('the products section is NOT read until its account row is expanded', () => {
+    const fixture = render();
+    flushInitial(fixture);
+    openAccountTab(fixture);
+    // Collapsed: no product markup and, critically, no product request at all.
+    expect(byTestId(fixture, 'customer-detail-product-section')).toBeNull();
+    http.expectNone((r) => r.url === '/api/products');
+    // The former FE-ADR-013 §A3 "Coming soon" block is gone for good.
+    expect(byTestId(fixture, 'customer-detail-products-coming-soon')).toBeNull();
+  });
+
+  it('expanding an account row renders the product feature section for THAT account', () => {
+    const fixture = render();
+    flushInitial(fixture);
+    openAccountTab(fixture);
+
+    click(fixture, 'customer-detail-account-row-1261000010-expander');
+    const products = http.expectOne((r) => r.url === '/api/products');
+    // The two sibling features meet ONLY through the accountNumber string.
+    expect(products.request.params.get('accountNumber')).toBe('1261000010');
+    products.flush([
+      {
+        productId: 1,
+        productName: 'ADSL 8MB',
+        campaignName: 'ADSL Hosgeldin Kampanyasi',
+        campaignId: 'CMP-ADSL-01',
+        productStatus: 'Active',
+      },
+    ]);
+    fixture.detectChanges();
+
+    expect(byTestId(fixture, 'customer-detail-account-row-1261000010-expansion')).not.toBeNull();
+    expect(byTestId(fixture, 'customer-detail-product-row-1')?.textContent).toContain('ADSL 8MB');
+
+    // Collapsing removes the section again (and issues nothing further).
+    click(fixture, 'customer-detail-account-row-1261000010-expander');
+    expect(byTestId(fixture, 'customer-detail-product-section')).toBeNull();
+    http.expectNone((r) => r.url === '/api/products');
   });
 
   // ---- address tab (FR-ADDR-01..05) ----------------------------------------

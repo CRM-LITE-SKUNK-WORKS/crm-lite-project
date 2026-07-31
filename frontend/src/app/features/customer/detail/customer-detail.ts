@@ -11,11 +11,14 @@ import {
   Toast,
   type TabItem,
 } from '../../../shared/patterns';
-import { Button, Icon, IconButton } from '../../../shared/ui';
-// The ONE sanctioned cross-feature import (FE-ADR-003 §Consequences): the
-// account tab consumes the component the account feature exposes.
+import { Button, IconButton } from '../../../shared/ui';
+// The sanctioned cross-feature imports (FE-ADR-003 §Consequences): the account
+// tab consumes the components the account and product features EXPOSE. The
+// direction is one-way in both cases — and account ⇄ product never touch: this
+// screen is the only place they meet (scope §4.28).
 import { AccountSection } from '../../account/section/account-section';
 import { type BillingAddressOption } from '../../account/section/billing-address-option';
+import { ProductSection } from '../../product/section/product-section';
 import { AddressCards } from '../address/address-cards';
 import { AddressFormDialog } from '../address/address-form-dialog';
 import { CustomerDetailStore } from '../state/customer-detail.store';
@@ -48,12 +51,16 @@ const EM_DASH = '—';
  * - `messageKey → i18n` exclusively; 401/403 are the core interceptors' job;
  * - every state carries a `data-testid`; all copy from the catalogue.
  *
- * Tab scope (FE-ADR-013 as amended):
+ * Tab scope (FE-ADR-013 as amended twice):
  * - info / address / contact — fully functional;
- * - **account** — layout RESERVED for F6: mock-conform card header, no API
- *   call, no data (FE-ADR-013 §a; recorded in scope §4.23);
- * - **products** — "Coming soon" inert section inside the account tab
- *   (§Amendment A3: visible, labelled from the catalogue, testid'd, inert).
+ * - **account** — live since F6 via the account feature's `AccountSection`
+ *   (FR-ACCT-01..04, KR-11; scope §4.24);
+ * - **products** — live since 2026-07-31 via the product feature's
+ *   `ProductSection`, rendered inside an EXPANDED account row exactly as the
+ *   mock shows (FR-PROD-01..02; FE-ADR-013 §Amendment B; scope §4.28). The
+ *   former "Coming soon" block is gone — §Amendment A3 no longer applies here.
+ *   "Deactivate product" is the one piece still inert: it is a WRITE, and
+ *   product-service Phase A has no write endpoint at all.
  *
  * Tab switches reset all sub-state — open dialogs, errors — per the mock §6.4
  * rule. Delete (FR-CUST-05) uses the shared ConfirmDialog: the 409
@@ -66,7 +73,6 @@ const EM_DASH = '—';
   imports: [
     TranslatePipe,
     Button,
-    Icon,
     IconButton,
     Tabs,
     Toast,
@@ -74,6 +80,7 @@ const EM_DASH = '—';
     EmptyState,
     ConfirmDialog,
     AccountSection,
+    ProductSection,
     AddressCards,
     AddressFormDialog,
     ContactFormDialog,

@@ -5,7 +5,13 @@
  * NOTHING from core/ or features/ — all text arrives RESOLVED (`'KEY' | t` at
  * the call site, scope §4.14), all data and decisions come from the caller.
  */
-export { Table, TableCellDef, type TableCellContext, type TableColumn } from './table/table';
+export {
+  Table,
+  TableCellDef,
+  TableExpansionDef,
+  type TableCellContext,
+  type TableColumn,
+} from './table/table';
 export { EmptyState } from './empty-state/empty-state';
 export { Skeleton } from './skeleton/skeleton';
 export { Pagination } from './pagination/pagination';

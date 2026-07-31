@@ -1,6 +1,7 @@
-<!-- Billing accounts (mock §6.4 tab 2 layout; K-8: 224s only, ever). The row
-     EXPANSION + product sub-table stay out until product-service exists — the
-     products "Coming soon" block renders in the parent (scope §4.23/2, §4.24). -->
+<!-- Billing accounts (mock §6.4 tab 2 layout; K-8: 224s only, ever). Row
+     EXPANSION is live since 2026-07-31 (scope §4.24/4 deferral came due): this
+     section owns the expander, the CALLER projects what appears inside — in
+     Customer Info, the product feature's sub-table. -->
 <div class="flex items-center justify-between border-b border-line px-6 py-5">
   <h2 class="text-h3 font-semibold text-ink">{{ 'UI-DETAIL-ACCOUNTS-HEADING' | t }}</h2>
   <app-button
@@ -51,8 +52,28 @@
       [columns]="columns()"
       [rows]="store.accounts()"
       [rowTestId]="rowTestIdFor"
+      [isExpanded]="isExpanded"
       testId="customer-detail-account-table"
     >
+      <!-- Declared unconditionally so the table's CONTENT queries always see
+           them; the `expander` COLUMN only exists when a caller projected an
+           expansion template, so an unused template is simply never rendered. -->
+      <ng-template appTableCell="expander" let-account>
+        <app-icon-button
+          [icon]="isExpanded(account) ? 'chevron-down' : 'chevron-right'"
+          [ariaLabel]="(isExpanded(account) ? 'UI-ACCOUNT-COLLAPSE' : 'UI-ACCOUNT-EXPAND') | t"
+          [testId]="'customer-detail-account-row-' + account.accountNumber + '-expander'"
+          (action)="toggleExpanded(account)"
+        />
+      </ng-template>
+      <!-- The caller's content, given ONLY the account number string. -->
+      <ng-template appTableExpansion let-account>
+        @if (rowExpansion(); as expansion) {
+          <ng-container
+            *ngTemplateOutlet="expansion; context: { $implicit: account.accountNumber }"
+          />
+        }
+      </ng-template>
       <ng-template appTableCell="status" let-account>
         <app-status-badge
           [variant]="account.accountStatus === 'Active' ? 'success' : 'neutral'"

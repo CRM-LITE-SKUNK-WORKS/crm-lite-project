@@ -1,4 +1,13 @@
-import { Component, computed, effect, inject, input, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import {
+  Component,
+  TemplateRef,
+  computed,
+  effect,
+  inject,
+  input,
+  signal,
+} from '@angular/core';
 import { isApiError } from '../../../core/http';
 import { I18nService, TranslatePipe } from '../../../core/i18n';
 import {
@@ -8,6 +17,7 @@ import {
   StatusBadge,
   Table,
   TableCellDef,
+  TableExpansionDef,
   Toast,
   type TableColumn,
 } from '../../../shared/patterns';
@@ -38,10 +48,22 @@ import { type BillingAddressOption } from './billing-address-option';
  *   / `MSG-ACCT-NOT-ACTIVE`) flips the dialog into its error state, never
  *   pre-computed. Passive-row actions stay ENABLED for the same reason: the
  *   backend's answer is the truth, the client does not imitate the check.
+ *
+ * ROW EXPANSION (added 2026-07-31, the deferral in scope §4.24/4 coming due).
+ * The mock shows each account's products inside an EXPANDED row. This component
+ * owns the expand/collapse control and state but renders **no product markup of
+ * its own**: the caller projects an {@link rowExpansion} template whose only
+ * context is the `accountNumber` STRING. That keeps the dependency graph
+ * one-way — the account feature does not import the product feature, and the
+ * product feature does not import the account feature; Customer Info composes
+ * the two, which is the one sanctioned direction (FE-ADR-003 §Consequences).
+ * With no template projected, the expander column is not rendered at all and
+ * the table behaves exactly as it did before.
  */
 @Component({
   selector: 'app-account-section',
   imports: [
+    NgTemplateOutlet,
     TranslatePipe,
     Button,
     IconButton,
@@ -51,6 +73,7 @@ import { type BillingAddressOption } from './billing-address-option';
     StatusBadge,
     Table,
     TableCellDef,
+    TableExpansionDef,
     Toast,
     AccountFormDialog,
   ],
@@ -65,6 +88,13 @@ export class AccountSection {
   readonly customerNumber = input.required<number>();
   /** Active addresses of the customer, resolved to display labels by the caller. */
   readonly addressOptions = input.required<readonly BillingAddressOption[]>();
+  /**
+   * OPTIONAL content for an expanded row — in Customer Info, the product
+   * sub-table. The template context is the `accountNumber` STRING and nothing
+   * else, so no account type crosses into whatever the caller renders. When
+   * absent, no expander column and no expansion row exist.
+   */
+  readonly rowExpansion = input<TemplateRef<{ $implicit: string }> | null>(null);
 
   // --- dialog / toast state -------------------------------------------------
   protected readonly formDialogOpen = signal(false);
@@ -75,7 +105,16 @@ export class AccountSection {
   protected readonly deleteBusy = signal(false);
   protected readonly toastKey = signal<string | null>(null);
 
+  /** Account numbers whose product sub-table is open. Several rows may be open
+   *  at once — each expansion owns an independent store instance. */
+  private readonly expanded = signal<ReadonlySet<string>>(new Set());
+
   protected readonly columns = computed<readonly TableColumn[]>(() => [
+    // mock §6.4: a 44px expander column precedes Account status — rendered only
+    // when the caller actually has something to reveal.
+    ...(this.rowExpansion()
+      ? [{ id: 'expander', header: '', headerClass: 'w-11' } satisfies TableColumn]
+      : []),
     { id: 'status', header: this.i18n.translate('UI-ACCOUNT-COL-STATUS') },
     {
       id: 'number',
@@ -108,6 +147,17 @@ export class AccountSection {
     effect(() => {
       this.store.load(this.customerNumber());
     });
+  }
+
+  protected readonly isExpanded = (account: AccountResponse): boolean =>
+    this.expanded().has(account.accountNumber);
+
+  protected toggleExpanded(account: AccountResponse): void {
+    const next = new Set(this.expanded());
+    if (!next.delete(account.accountNumber)) {
+      next.add(account.accountNumber);
+    }
+    this.expanded.set(next);
   }
 
   /** Localized DISPLAY of the wire status ("Active"/"Passive" stay the data). */

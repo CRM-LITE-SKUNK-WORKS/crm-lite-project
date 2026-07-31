@@ -11,6 +11,16 @@ enters buildable scope, and a "Coming soon" behaviour rule supersedes §d for
 the Customer Info product section. Per ADR discipline the original wording
 below is retained and marked, never rewritten.
 
+**Amended again 2026-07-31** — `product-service` shipped on `dev`
+(`docs/api/product-service.md`), so the FR-PROD premise no longer holds either
+for the two viewing requirements. See **§Amendment B (2026-07-31)**: FR-PROD-01
+and FR-PROD-02 enter buildable scope and the product section stops being
+"Coming soon"; the FR-PROD/FR-SALE *screens* stay out, now for a sharper reason
+than "no service" — they are one selection-and-order flow whose backend
+(order-service) does not exist. §Amendment A3's "Coming soon" rule is
+**superseded for the product section** but remains binding wherever else it is
+used. Earlier wording is retained and marked throughout, never rewritten.
+
 ## Context
 The analyst mock contains **seven** screens. The backend implements the customer
 aggregate (FR-CUST, FR-ADDR, FR-CNTC) and authentication, and nothing else.
@@ -49,6 +59,12 @@ into "apparently broken" for anyone who tries it.
 > to "Coming soon" per §Amendment A3. The `accountNumber` search-filter row is
 > **unchanged** — customer-service still returns `501` (follow-up PR pending).
 > The table is kept as accepted on 2026-07-23.
+>
+> ⚠️ **Superseded further (2026-07-31).** The FR-PROD product-section row is
+> now superseded outright by §Amendment B1: product-service exists, the section
+> is IN scope, and it is neither hidden nor "Coming soon" — it is built. Only
+> its `Deactivate product` action stays inert (§Amendment B3). The three
+> FR-PROD/FR-SALE **screen** rows are unchanged and stay out (§Amendment B2).
 
 | Item | Domain | Backend status |
 |---|---|---|
@@ -67,6 +83,11 @@ carries them (FE-ADR-008 §6 treats a `501` reaching the interceptor as a
 frontend bug).
 
 ### (c) Currently IN scope
+
+> ⚠️ **Extended twice.** FR-ACCT joined this list on 2026-07-24 (§Amendment A1)
+> and FR-PROD-01..02 on 2026-07-31 (§Amendment B1). The list below is the
+> 2026-07-23 wording, kept as accepted.
+
 - **Customer Search** — `GET /api/customers` (browse + filter, ADR-005)
 - **Create Customer** — `POST /api/customers` (3-step wizard, atomic create)
 - **Customer Info** — demographic, address and contact sections only:
@@ -190,6 +211,13 @@ PR (`docs/api/account-service.md` §Deliberate limitations).
   not rendered — §d's rule continues to apply to whole screens.
 
 ### A3. "Coming soon" behaviour rule — a defined, narrow exception to §d
+
+> ⚠️ **Its original subject is gone (2026-07-31).** The Customer Info product
+> section is now BUILT (§Amendment B1), so this amendment no longer governs it.
+> The **rule itself stands unchanged** and remains binding wherever "Coming
+> soon" is used — currently one control: the `Deactivate product` action
+> (§Amendment B3).
+
 §d's "hidden, not stubbed" rule is superseded **for the Customer Info product
 section** (`Product offer`, `Campaign`, `View product`, `Deactivate product`):
 it is now rendered as a visible but inert **"Coming soon"** section.
@@ -212,3 +240,112 @@ working software, which is what §a actually forbids.
    (FE-ADR-012 §b) — including the "Coming soon" text itself.
 5. **`data-testid` attributes are still added** (FE-ADR-009 §1), so E2E tests
    can assert the section is present and inert.
+
+---
+
+## Amendment B (2026-07-31): FR-PROD-01..02 enter scope; the sale flow does not
+
+### Status
+Accepted (2026-07-31). Supersedes the FR-PROD product-section rows of §b and
+§d, and retires §Amendment A3's *subject* while keeping its *rule* (all marked
+in place). §a — no fake data, no pretend behaviour — stands in full force and is
+the reason the exclusions in B2/B3 below are exclusions rather than stubs.
+
+### Context
+`product-service` merged to `dev`: a **deliberately read-only Phase A** slice
+implementing FR-PROD-01..02 with a complete, documented contract
+(`docs/api/product-service.md`) — `GET /api/products?accountNumber=`,
+`GET /api/products/{id}`, plus the catalog reads `GET /api/offers` and
+`GET /api/campaigns`. The document is explicit about what is absent: *"No
+product creation, provisioning, basket, order, Kafka or Redis exists here.
+Product cancellation is explicitly out of phase."*
+
+So FR-PROD is no longer one undifferentiated gap. It splits cleanly:
+**viewing** now has a backend; **buying, configuring and cancelling** do not.
+This amendment follows that split exactly rather than treating "FR-PROD exists"
+as permission to build the whole domain.
+
+### B1. Customer Info product viewing enters buildable scope
+- Implemented as the new sibling feature **`features/product/`** — the third
+  instance of the evolution FE-ADR-003 §Consequences predicted.
+- **Location: inside an EXPANDED account row.** The mock puts the product
+  sub-table there and AC-PROD-01-01 calls it an *"expandable per-account
+  sub-table"*; the list endpoint is keyed by `accountNumber`, so no
+  section-level placement could even know which account to list. This is the
+  deferral recorded in `scope-and-conflicts.md` §4.23/2 and §4.24/4 coming due.
+- **The two sibling features never import each other.** `AccountSection` takes
+  an optional `rowExpansion` **`TemplateRef`** whose context is the
+  `accountNumber` **string** and nothing more; Customer Info projects the
+  product section into it. `accountNumber` is the product feature's own contract
+  parameter, not a borrowed account type. The composition lives in exactly one
+  place, which is the direction FE-ADR-003 §Consequences sanctions.
+- **No pagination, ever.** FR-PROD-01 defines no pagination rule and the
+  endpoint returns a plain array. `shared/patterns/Pagination` is not used, no
+  `page`/`size` is sent, and the mock's 4/8/12 selector is not reproduced — the
+  same call already made for the account table (scope §4.24/5).
+- **Passive products stay listed** (AC-PROD-01-03) in server order. The client
+  neither filters by status nor re-sorts — the same stance the account section
+  takes on Active-then-Passive rows.
+- **`campaignId` is the public `campaign_code`.** Internal campaign ids never
+  leave the service, so it is the only campaign identity any UI surface shows.
+  A campaign-less product arrives with both campaign fields `null`; rendering
+  `"-"` is documented as the frontend's job and is done in the template.
+- **Server-derived values are displayed, never recomputed** — product status,
+  service type and campaign totals are all computed backend-side. A child
+  product's Service Address is its parent's, resolved by walking the parent
+  chain server-side: the detail modal is ONE `GET`, and the client never
+  fetches a parent or an address itself.
+- **FR-PROD-02 is a modal**, not a routed screen: AC-PROD-02-01 is recorded as
+  a "detail modal" in `traceability-matrix.md`, the API document names the
+  endpoint the same way, and the mock triggers it from a row-level `eye` action
+  — every row-level detail interaction in Customer Info is a modal. Its layout
+  follows Customer Info's documented read grid, because the mock's own product
+  markup is not recoverable (the bundled mock contains no product markup;
+  verified 2026-07-31, recorded in scope §4.28/4 and `mock-ui-analysis.md` §6.4).
+- **Message keys.** `MSG-PROD-NONE` is FRONTEND-ONLY — a product-less account is
+  a `200 []` and the backend never emits the key, so the empty state produces
+  it. `MSG-PROD-NOT-FOUND` (404) is a documented **project addition** the
+  backend does return, added to the catalogue and to the `i18n.spec.ts`
+  backend-key list; `MSG-PROD-NONE` deliberately is not.
+- Tracking rows: `docs/frontend/scope-and-conflicts.md` §1B and §4.28.
+
+### B2. Offer Selection / Product Configuration / Submit Order stay OUT
+§d's rule for whole screens continues to apply, and the reason is now sharper
+than "the service does not exist":
+
+These three screens are **one flow**, not three views of the product catalog.
+The mock's Offer Selection is a *selection* step — a basket, then
+configuration, then order submission. `docs/api/product-service.md` §Deliberate
+limitations is explicit that none of it exists: *"no basket, no order, no
+involvement write command on account-service. The §2.7 sale flow (FR-SALE) needs
+the order domain and a command boundary on account-service — neither exists."*
+Building the first screen alone would produce a basket that can never be
+submitted: working software by appearance, a dead end in fact — precisely what
+§a forbids. The three screens will be built **together with order-service**.
+
+Consequently `GET /api/offers` and `GET /api/campaigns` — which DO exist and are
+gateway-routed — are **not consumed** in this round. No client wrapper was
+written for them: unused code for an unbuilt screen is the same debt §a exists
+to prevent. The campaign information in the product detail modal comes from
+`GET /api/products/{id}`'s own `campaign` field (contract-verified), so the
+catalog endpoints are not needed for anything in scope.
+
+### B3. "Deactivate product" stays inert — the one remaining A3 subject
+`Deactivate product` is a WRITE, and Phase A has no write endpoint at all;
+AC-PROD-01-04 states outright that the Action column offers only a view icon.
+The mock's `ban` control is therefore rendered for layout fidelity but is
+**disabled and wired to nothing**, with a catalogue-sourced accessible name that
+says "coming soon" and a `data-testid` — i.e. §Amendment A3's rule applied to a
+single control rather than a whole section. Nothing about it is faked, and no
+request can originate from it (asserted in the spec).
+
+### B4. Offer prices: shown as returned, not adjudicated by the UI
+`docs/api/product-service.md` §Recorded deviations 1 marks the seeded offer
+prices (299.00 / 149.00 / 49.00, campaign total 497.00 derived) as **"Analyst
+approval pending"**. Decision: **the UI displays whatever the backend returns**
+— it neither invents a price nor renders an "awaiting approval" caveat, because
+a caveat would be UI-authored commentary on data the backend owns. In practice
+no price is on screen at all this round: prices exist only in the offer/campaign
+catalog responses, and those endpoints are not consumed (B2). When the analysts
+confirm or change the figures, zero frontend lines change. Recorded in
+`scope-and-conflicts.md` §1B.9.

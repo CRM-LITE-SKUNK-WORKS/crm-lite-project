@@ -1,0 +1,102 @@
+<!-- Products of one billing account (FR-PROD-01) — the mock's sub-table inside
+     an EXPANDED account row (mock-ui-analysis §6.4 tab 2 / AC-PROD-01-01).
+     NO pagination: FR-PROD-01 defines none and the endpoint returns a plain
+     array, so shared/patterns/Pagination is deliberately absent here. -->
+<div class="border-t border-line bg-sunken px-5 py-4" data-testid="customer-detail-product-section">
+  <h3 class="mb-3 text-body-sm font-semibold tracking-label text-ink-soft">
+    {{ 'UI-PRODUCT-HEADING' | t }}
+  </h3>
+
+  @if (store.isLoading() || store.status() === 'idle') {
+    <app-skeleton
+      [label]="'UI-PRODUCT-LOADING' | t"
+      [lines]="3"
+      testId="customer-detail-product-loading"
+    />
+  } @else if (errorText(); as text) {
+    <!-- The backend's messageKey, translated — e.g. MSG-ACCT-NOT-FOUND (unknown
+         account number) or MSG-SERVICE-UNAVAILABLE. The raw `message` never
+         reaches the DOM (FE-ADR-008 §2). -->
+    <div
+      class="flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+      role="alert"
+      data-testid="customer-detail-product-error-banner"
+    >
+      <span class="text-body-sm text-danger-fg">{{ text }}</span>
+      <app-button
+        variant="secondary"
+        size="sm"
+        testId="customer-detail-product-retry-button"
+        (action)="store.reload()"
+      >
+        {{ 'UI-COMMON-RETRY' | t }}
+      </app-button>
+    </div>
+  } @else if (store.isEmpty()) {
+    <!-- AC-PROD-01-02: a product-less account is a 200 [] — MSG-PROD-NONE is a
+         FRONTEND-ONLY key, produced here because the backend never sends it. -->
+    <app-empty-state
+      icon="inbox"
+      [title]="'UI-PRODUCT-EMPTY-TITLE' | t"
+      [body]="'MSG-PROD-NONE' | t"
+      testId="customer-detail-product-empty-state"
+    />
+  } @else {
+    <!-- Server order, unfiltered: Passive products STAY listed (AC-PROD-01-03). -->
+    <div class="overflow-x-auto rounded-md border border-line bg-surface">
+      <app-table
+        [columns]="columns()"
+        [rows]="store.products()"
+        [rowTestId]="rowTestIdFor"
+        testId="customer-detail-product-table"
+      >
+        <ng-template appTableCell="productId" let-product>
+          {{ product.productId }}
+        </ng-template>
+        <ng-template appTableCell="productName" let-product>
+          {{ product.productName }}
+        </ng-template>
+        <ng-template appTableCell="campaignName" let-product>
+          <!-- null → "-" : the rendering rule is explicitly the frontend's. -->
+          {{ display(product.campaignName) }}
+        </ng-template>
+        <ng-template appTableCell="campaignId" let-product>
+          <!-- PUBLIC campaign code (cmpg.campaign_code) — never an internal id. -->
+          {{ display(product.campaignId) }}
+        </ng-template>
+        <ng-template appTableCell="status" let-product>
+          <app-status-badge
+            [variant]="product.productStatus === 'Active' ? 'success' : 'neutral'"
+            [label]="statusLabel(product)"
+            [testId]="'customer-detail-product-row-' + product.productId + '-status'"
+          />
+        </ng-template>
+        <ng-template appTableCell="actions" let-product>
+          <!-- AC-PROD-01-04: VIEW ONLY. The eye opens the FR-PROD-02 modal; the
+               mock's `ban` (Deactivate product) is a WRITE with no backend, so
+               it stays inert under FE-ADR-013 §Amendment A3 — visible, disabled,
+               catalogue-labelled, testid'd, and wired to nothing. -->
+          <div class="flex items-center justify-end gap-2">
+            <app-icon-button
+              icon="eye"
+              [ariaLabel]="'UI-PRODUCT-VIEW' | t"
+              [testId]="'customer-detail-product-row-' + product.productId + '-view'"
+              (action)="openDetail(product)"
+            />
+            <app-icon-button
+              icon="ban"
+              [disabled]="true"
+              [ariaLabel]="'UI-PRODUCT-DEACTIVATE-COMING-SOON' | t"
+              [testId]="'customer-detail-product-row-' + product.productId + '-deactivate'"
+            />
+          </div>
+        </ng-template>
+      </app-table>
+    </div>
+  }
+</div>
+
+<!-- FR-PROD-02 detail modal (AC-PROD-02-01). Opened from a row the user just
+     saw, so the product's name/id come from that row; the modal fetches only
+     the five contract fields. -->
+<app-product-detail-dialog [product]="detailTarget()" (closed)="closeDetail()" />

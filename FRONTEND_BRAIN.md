@@ -6,7 +6,36 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-29 (**🐞 HATA DÜZELTME TURU** — 6 bulgunun 4'ü
+> **Son güncelleme:** 2026-07-31 (**📦 ÜRÜN GÖRÜNTÜLEME CANLI (FR-PROD-01..02)**
+> — `product-service` dev'e girdi (salt okunur Faz A), Customer Info'nun ürün
+> bölümü **"Coming soon"dan çıkıp gerçek işlevine kavuştu**. Yeni kardeş feature
+> **`features/product/`** (model / data / state / section), hesap modülünün
+> kalıbı birebir izlendi. Ürünler **mock'taki yerinde** duruyor: genişleyen
+> hesap satırının içinde (AC-PROD-01-01) — bunun için `shared/patterns/Table`'a
+> **eklemeli** satır genişletme (`appTableExpansion` + `isExpanded`) geldi;
+> şablon projelenmezse desen eskisiyle birebir aynı. **İki kardeş feature
+> birbirini görmüyor:** `AccountSection` bir `rowExpansion` TemplateRef'i alıyor,
+> context'i yalnız `accountNumber` **string**'i; kompozisyon tek yerde, Customer
+> Info'da. **Sayfalama YOK** (FR-PROD-01 tanımlamıyor, uç düz dizi döndürüyor —
+> `Pagination` kullanılmadı, `page`/`size` gönderilmiyor); **pasif ürünler
+> listede kalıyor** (AC-PROD-01-03, istemci filtrelemiyor/sıralamıyor);
+> kampanya kimliği **yalnız public `campaign_code`**; türetilen alanlar
+> (durum/servis tipi/kampanya toplamı) sunucuda hesaplanıyor, istemci geleni
+> gösteriyor; alt ürün ebeveyninin Service Address'ini gösteriyor — zincir
+> backend'de yürünüyor, detay **tek GET**. FR-PROD-02 **modal** (AC-PROD-02-01
+> "detail modal" olarak kayıtlı; mock'un ürün markup'ı bundle'da yok, düzen
+> Customer Info'nun dokümante okuma grid'inden türetildi — kayıt: scope §4.28/4).
+> `MSG-PROD-NONE` frontend-only (200 `[]`), `MSG-PROD-NOT-FOUND` (404) proje
+> eklentisi olarak kataloğa + `i18n.spec.ts` backend listesine eklendi.
+> **Kapsam dışı bırakıldı:** `Deactivate product` (yazma ucu yok → disabled,
+> A3 kuralı tek kontrole uygulandı), Offer Selection / Product Configuration /
+> Submit Order (üçü **tek bir satış akışı** — order-service yok, birlikte
+> yapılacak), `GET /api/offers` + `/api/campaigns` (hazır ama tek tüketicisi o
+> akış → istemci sarmalayıcısı yazılmadı). Teklif fiyatları **analist onayı
+> bekliyor**; karar: UI backend ne dönerse gösterir (bu turda hiçbir fiyat
+> ekranda yok). **301/301 test** (+25), lint + konvansiyon + prod build yeşil;
+> kayıtlar: scope §1B, §4.28 + **FE-ADR-013 §Amendment B**.
+> Önceki: 2026-07-29 (**🐞 HATA DÜZELTME TURU** — 6 bulgunun 4'ü
 > düzeltildi, 2'si backend bağımlılığı olarak kayda geçti. Düzeltilenler:
 > Customer Search'ün sonuç başlığı artık browse modunda **"All customers"**
 > (yeni anahtar `UI-SEARCH-BROWSE-HEADING`; arama yapılınca "Search results");
@@ -100,9 +129,10 @@ yeşil**. Ekranlar/bileşenler henüz yazılmadı (bir sonraki faz).
 - **Konum:** `frontend/` (bu repo; ayrı repo DEĞİL)
 - **Kapsam:** Customer Search + Create Customer + Customer Info
   (demografik/adres/iletişim) + **hesap bölümü (FR-ACCT — 2026-07-24'te kapsama
-  girdi; FE-ADR-013 §Amendment, `scope-and-conflicts.md` §1A)**. Satış/ürün
-  ekranları kapsam dışı; Customer Info ürün bölümü **"Coming soon"** (görünür,
-  etkileşimsiz — FE-ADR-013 §Amendment A3).
+  girdi; FE-ADR-013 §Amendment A, `scope-and-conflicts.md` §1A)** + **ürün
+  görüntüleme (FR-PROD-01..02 — 2026-07-31'de girdi; §Amendment B, §1B)**.
+  **Satış ekranları (Offer Selection / Product Configuration / Submit Order)
+  kapsam dışı** — üçü tek bir akış ve order-service yok; birlikte yapılacak.
 
 **Doküman dili konvansiyonu** (bilinçli, backend'i taklit ediyor):
 `FRONTEND_BRAIN.md` ve `docs/frontend/*.md` **Türkçe** (PROJECTBRAIN ile aynı);
@@ -204,6 +234,8 @@ frontend/
         │   │   └── index.ts     # barrel; metinler ÇÖZÜLMÜŞ girer (§4.14) — bileşen çeviri yapmaz
         │   └── [✓] patterns/    # ✅ 2026-07-25: DS'de olmayan kompozit desenler (FE-ADR-011 §d, mock §7.2)
         │       ├── table/ empty-state/ skeleton/ pagination/   # Customer Search tüketiyor
+        │       │                    #   table: 2026-07-31 opsiyonel satır genişletme
+        │       │                    #   (appTableExpansion + isExpanded) — eklemeli, §4.28/2
         │       ├── toast/ modal/ tabs/ confirm-dialog/   # Customer Info tüketiyor (modal: headerless varyantlı)
         │       ├── status-badge/    # ✅ 2026-07-25 (F6): nokta+metin durum rozeti (mock §6.4)
         │       ├── stepper/         # ✅ 2026-07-25 (F7): pasif wizard göstergesi (mock §6.3)
@@ -225,13 +257,24 @@ frontend/
             │   ├── [✓] data/                # ✅ CustomerApiService (liste+filtre, CRUD, adres, iletişim) (+spec)
             │   └── [✓] state/               # ✅ CustomerListStore (+spec) · CustomerDetailStore (3 bağımsız
             │                                #   bölüm okuması + mutasyonlar) · CustomerFlashService (eds_flash karşılığı)
-            └── [✓] account/                 # ✅ 2026-07-25: FR-ACCT (kardeş feature) — F6'da bölüm canlı
-                ├── [✓] model/               #   AccountResponse/Create/Update — K-8: 223 YOK, KR-11 salt okunur
-                ├── [✓] data/                #   AccountApiService (/api/accounts/**, 224-only) (+spec)
-                ├── [✓] state/               #   AccountListStore (+mutasyonlar: create/update/delete → reload) (+spec)
-                └── [✓] section/             # ✅ F6: AccountSection + AccountFormDialog (+spec) — Customer
-                                             #   Info'nun hesap sekmesine expose edilen bileşen (FE-ADR-003
-                                             #   §Consequences); adresler BillingAddressOption ile yukarıdan girer
+            ├── [✓] account/                 # ✅ 2026-07-25: FR-ACCT (kardeş feature) — F6'da bölüm canlı
+            │   ├── [✓] model/               #   AccountResponse/Create/Update — K-8: 223 YOK, KR-11 salt okunur
+            │   ├── [✓] data/                #   AccountApiService (/api/accounts/**, 224-only) (+spec)
+            │   ├── [✓] state/               #   AccountListStore (+mutasyonlar: create/update/delete → reload) (+spec)
+            │   └── [✓] section/             # ✅ F6: AccountSection + AccountFormDialog (+spec) — Customer
+            │                                #   Info'nun hesap sekmesine expose edilen bileşen (FE-ADR-003
+            │                                #   §Consequences); adresler BillingAddressOption ile yukarıdan girer.
+            │                                #   2026-07-31: opsiyonel `rowExpansion` TemplateRef girdisi —
+            │                                #   context YALNIZ accountNumber string'i (product'ı hiç görmez)
+            └── [✓] product/                 # ✅ 2026-07-31: FR-PROD-01..02 (kardeş feature) — SALT OKUNUR
+                ├── [✓] model/               #   ProductRow / ProductDetail / ProductServiceAddress —
+                │                            #   sayfalama zarfı YOK, yazma tipi YOK (Faz A)
+                ├── [✓] data/                #   ProductApiService — tam 2 GET (+spec); /api/offers ve
+                │                            #   /api/campaigns bilinçle sarmalanmadı (§1B.10)
+                ├── [✓] state/               #   ProductListStore (+spec) · ProductDetailStore (404 notFound
+                │                            #   ayrı durum) — filtreleme/sıralama/sayfalama YOK
+                └── [✓] section/             #   ProductSection (+spec) + ProductDetailDialog — genişleyen
+                                             #   hesap satırının içinde render edilir; girdi tek: accountNumber
 ```
 
 **Katman lint'i doğrulandı:** `shared/`'dan `core/`'a import denemesi ESLint
@@ -397,6 +440,17 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
       KR-11 numara dialog'da salt metin), sil=pasifleştir (ConfirmDialog; 409
       `MSG-ACCT-HAS-PRODUCTS`/`MSG-ACCT-NOT-ACTIVE` dialog hata durumunda —
       istemci taklit etmez). Kayıt: scope §4.24
+- [x] ~~**Ürün görüntüleme (Customer Info ürün bölümü)**~~ ✅ **YAZILDI
+      (2026-07-31, FR-PROD-01..02)** — `features/product/`: liste genişleyen
+      hesap satırının içinde (AC-PROD-01-01), kolonlar Product ID / Product name
+      / Campaign name / Campaign ID (public `campaign_code`) / Status / Action;
+      **pasifler listede kalır**, **sayfalama yok**, kampanyasız üründe `-`.
+      `eye` → FR-PROD-02 detay **modal**'ı (offer name/id, spec id, campaign,
+      service address — alt üründe ebeveynin adresi, tek GET); `ban`
+      (Deactivate) **disabled** (yazma ucu yok). Boş hesap → `MSG-PROD-NONE`
+      (frontend-only), bilinmeyen ürün → 404 `MSG-PROD-NOT-FOUND`.
+      `shared/patterns/Table`'a eklemeli satır genişletme geldi. Kayıtlar:
+      scope §1B + §4.28, FE-ADR-013 §Amendment B
 
 ### 5.5 Container
 - [x] ~~`frontend/Dockerfile` (multi-stage) + `nginx.conf`~~ ✅ 2026-07-24
@@ -586,7 +640,7 @@ her metin geçersizdir.
 | **FE-ADR-010** | Multi-stage container; compose'a **yalnız ekleme** |
 | **FE-ADR-011** | Tailwind + gerçek EDS token'ları; bileşen kütüphanesi yok |
 | **FE-ADR-012** | Runtime i18n; iki katalog, tek çatı |
-| **FE-ADR-013** | Kapsam yönetimi: mock backend'den geniş. **+ Amendment (2026-07-24):** FR-ACCT kapsama girdi (account-service geldi); ürün bölümü için "Coming soon" davranış kuralı tanımlandı |
+| **FE-ADR-013** | Kapsam yönetimi: mock backend'den geniş. **+ Amendment A (2026-07-24):** FR-ACCT kapsama girdi (account-service geldi); ürün bölümü için "Coming soon" davranış kuralı tanımlandı. **+ Amendment B (2026-07-31):** FR-PROD-01..02 (görüntüleme) kapsama girdi (product-service geldi) — ürün bölümü "Coming soon"dan çıktı; satış akışının üç ekranı order-service'e bağlı olarak birlikte ertelendi |
 
 **Kapsam ve çelişki kaydı:** `docs/frontend/scope-and-conflicts.md` — backend'in
 `document-delta.md` disiplininin karşılığı. Her satır bir durum etiketi taşır
@@ -697,20 +751,22 @@ Bu bölüm **teknik olmayan okuyucu** içindir: projeyi çekip çalıştırmak,
 
 | ✅ Çalışıyor | ❌ Henüz yok |
 |---|---|
-| Keycloak üzerinden **giriş** (CRM Lite temalı login sayfası) | Ürün bölümü ("Çok yakında" olarak görünür) |
+| Keycloak üzerinden **giriş** (CRM Lite temalı login sayfası) | Ürün **pasifleştirme** ("Deactivate product" — arka uçta yazma işlemi yok, buton kapalı) |
 | **Müşteri Arama** — giriş sonrası ana ekran: tüm müşteriler listelenir, filtrelenir, sayfalanır | Arama'daki "Account number"/"Order number" filtreleri (arka uç entegrasyonu bekliyor) |
 | **Müşteri Oluşturma** — "Create new customer" ile açılan 3 adımlı sihirbaz: kimlik bilgileri, adres(ler), iletişim; kayıt tek işlemde oluşur, kimlik doğrulaması (MERNİS) otomatik yapılır | |
 | **Müşteri Bilgisi** — satırdaki müşteri numarasına tıklayınca açılır: bilgileri görüntüleme/düzenleme, adres ekleme/düzenleme/silme/birincil yapma, iletişim güncelleme, müşteri silme (onaylı) | |
-| **Fatura hesapları** — Müşteri Bilgisi'nin "Customer account" sekmesi: listeleme (silinen hesaplar "Pasif" olarak listede kalır), hesap oluşturma, ad/adres güncelleme, silme (onaylı; hesap numarası hiçbir zaman düzenlenemez) | |
+| **Fatura hesapları** — Müşteri Bilgisi'nin "Customer account" sekmesi: listeleme (silinen hesaplar "Pasif" olarak listede kalır), hesap oluşturma, ad/adres güncelleme, silme (onaylı; hesap numarası hiçbir zaman düzenlenemez) | Satış ekranları (Teklif seçimi / Ürün konfigürasyonu / Sipariş gönderimi) — üçü tek bir akış, sipariş servisi geldiğinde birlikte yapılacak |
+| **Ürünler** — hesap satırındaki oku tıklayınca o hesabın ürünleri açılır (pasif ürünler de listede kalır); göz ikonuyla ürün detayı (teklif adı/ID, spesifikasyon ID, kampanya, servis adresi) görüntülenir | |
 | Uygulama **çerçevesi**: üst bar, sol menü, kullanıcı adı, çıkış | |
 | **TR/EN dil değiştirici** — anında, tercih hatırlanıyor | |
 | **Yetki reddi** (403) ve **oturum kapatıldı** sayfaları | |
 | Backend'e güvenli erişim (oturum + CSRF + hata çevirisi) | |
 
 > "Account number" ve "Order number" arama filtreleri hesap/sipariş arama
-> entegrasyonu gelene kadar kapalı. Müşteri Bilgisi'ndeki **ürün bölümü**
-> "Çok yakında" etiketiyle görünür ve tıklanamaz (ürün servisi henüz yok).
-> Bunların dışında **kapsam içi tüm ekranlar canlıdır.**
+> entegrasyonu gelene kadar kapalı. Ürün tablosundaki **"Deactivate product"**
+> düğmesi kapalıdır: ürün servisi bu aşamada **yalnız okuma** yapıyor, hiçbir
+> değiştirme işlemi tanımlı değil. Bunların dışında **kapsam içi tüm ekranlar
+> canlıdır.**
 
 ### 10.2 Gereksinimler (tek seferlik)
 

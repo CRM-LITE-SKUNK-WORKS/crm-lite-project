@@ -192,8 +192,9 @@ export const UI = {
     tr: 'İletişim bilgisi yükleniyor…',
   },
   'UI-DETAIL-ACCOUNTS-HEADING': { en: 'Customer accounts', tr: 'Müşteri hesapları' },
-  // Product section — "Coming soon" per FE-ADR-013 §Amendment A3.
-  'UI-DETAIL-PRODUCTS-HEADING': { en: 'Products', tr: 'Ürünler' },
+  // (`UI-DETAIL-PRODUCTS-HEADING` was removed 2026-07-31: the "Coming soon"
+  //  block it titled is gone, and the live section owns `UI-PRODUCT-HEADING`
+  //  under its own feature prefix — same call as §4.24/8's placeholder removal.)
   // Success toasts (mock §6.3 flash pattern; §4.3 toast contract) — PROJECT-AUTHORED.
   'UI-DETAIL-TOAST-INFO-SAVED': {
     en: 'Customer updated successfully.',
@@ -268,6 +269,50 @@ export const UI = {
   'UI-ACCOUNT-TOAST-UPDATED': {
     en: 'Billing account updated successfully.',
     tr: 'Fatura hesabı başarıyla güncellendi.',
+  },
+  // Row expander (mock §6.4 tab 2: products open inside the account row).
+  'UI-ACCOUNT-EXPAND': { en: 'Show products', tr: 'Ürünleri göster' },
+  'UI-ACCOUNT-COLLAPSE': { en: 'Hide products', tr: 'Ürünleri gizle' },
+
+  // ---- Product section (mock §6.4 tab 2 sub-table; FR-PROD-01..02 —
+  //      PROJECT-AUTHORED. The backend messageKeys MSG-PROD-NONE (analyst,
+  //      frontend-only) and MSG-PROD-NOT-FOUND (project addition, 404) live in
+  //      messages.ts under their contract names and are NOT duplicated here. ----
+  'UI-PRODUCT-HEADING': { en: 'Products', tr: 'Ürünler' },
+  // AC-PROD-01-03 columns, in contract order.
+  'UI-PRODUCT-COL-ID': { en: 'Product ID', tr: 'Ürün ID' },
+  'UI-PRODUCT-COL-NAME': { en: 'Product name', tr: 'Ürün adı' },
+  'UI-PRODUCT-COL-CAMPAIGN-NAME': { en: 'Campaign name', tr: 'Kampanya adı' },
+  // The PUBLIC campaign code (cmpg.campaign_code) — the only campaign identity
+  // the UI ever shows; internal campaign ids never leave the service.
+  'UI-PRODUCT-COL-CAMPAIGN-ID': { en: 'Campaign ID', tr: 'Kampanya ID' },
+  'UI-PRODUCT-COL-STATUS': { en: 'Status', tr: 'Durum' },
+  'UI-PRODUCT-COL-ACTION': { en: 'Action', tr: 'İşlem' },
+  // Status DISPLAY labels — wire values stay "Active"/"Passive" (contract).
+  'UI-PRODUCT-STATUS-ACTIVE': { en: 'Active', tr: 'Aktif' },
+  'UI-PRODUCT-STATUS-PASSIVE': { en: 'Passive', tr: 'Pasif' },
+  'UI-PRODUCT-LOADING': { en: 'Loading products…', tr: 'Ürünler yükleniyor…' },
+  // AC-PROD-01-02 empty state; the body is the ANALYST key MSG-PROD-NONE.
+  'UI-PRODUCT-EMPTY-TITLE': { en: 'No products', tr: 'Ürün yok' },
+  // AC-PROD-01-04: the Action column is view-only.
+  'UI-PRODUCT-VIEW': { en: 'View product', tr: 'Ürünü görüntüle' },
+  // "Deactivate product" is a WRITE and product-service Phase A has none, so the
+  // control is inert; the label says so (FE-ADR-013 §Amendment A3 rule 4).
+  'UI-PRODUCT-DEACTIVATE-COMING-SOON': {
+    en: 'Deactivate product (coming soon)',
+    tr: 'Ürünü pasifleştir (çok yakında)',
+  },
+  // ---- FR-PROD-02 detail modal (AC-PROD-02-01 fields) ----
+  'UI-PRODUCT-DETAIL-TITLE': { en: 'Product detail', tr: 'Ürün detayı' },
+  'UI-PRODUCT-DETAIL-LOADING': { en: 'Loading product…', tr: 'Ürün yükleniyor…' },
+  'UI-PRODUCT-FIELD-OFFER-NAME': { en: 'Product offer name', tr: 'Ürün teklifi adı' },
+  'UI-PRODUCT-FIELD-OFFER-ID': { en: 'Product offer ID', tr: 'Ürün teklifi ID' },
+  'UI-PRODUCT-FIELD-SPEC-ID': { en: 'Product spec ID', tr: 'Ürün spesifikasyon ID' },
+  'UI-PRODUCT-FIELD-CAMPAIGN': { en: 'Campaign', tr: 'Kampanya' },
+  'UI-PRODUCT-FIELD-SERVICE-ADDRESS': { en: 'Service address', tr: 'Servis adresi' },
+  'UI-PRODUCT-SERVICE-ADDRESS-NONE': {
+    en: 'No service address',
+    tr: 'Servis adresi yok',
   },
 
   // ---- DatePicker aria labels (first consumer: demographic edit dialog) ----

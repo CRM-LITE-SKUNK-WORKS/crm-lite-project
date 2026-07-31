@@ -4,6 +4,7 @@ import {
   Directive,
   TemplateRef,
   computed,
+  contentChild,
   contentChildren,
   inject,
   input,
@@ -30,6 +31,21 @@ export interface TableColumn {
 /** Template context of an `appTableCell` template: `$implicit` is the row. */
 export interface TableCellContext<T> {
   readonly $implicit: T;
+}
+
+/**
+ * Marks the OPTIONAL expansion template rendered in a full-width row beneath an
+ * expanded row: `<ng-template appTableExpansion let-row>…</ng-template>`.
+ *
+ * Added 2026-07-31 for the mock's expandable account rows (mock-ui-analysis
+ * §6.4 tab 2 / AC-PROD-01-01). Strictly additive: a table without this template
+ * behaves exactly as before, and the pattern still decides nothing — WHICH rows
+ * are expanded is the caller's `isExpanded` predicate, and the expander control
+ * itself is an ordinary column cell the caller renders.
+ */
+@Directive({ selector: 'ng-template[appTableExpansion]' })
+export class TableExpansionDef<T> {
+  readonly template = inject<TemplateRef<TableCellContext<T>>>(TemplateRef);
 }
 
 /**
@@ -63,6 +79,9 @@ export class TableCellDef<T> {
  *   caller's `rowTestId` function — never an array index (FE-ADR-009 §5).
  * - Styling is the mock's verbatim table spec: sunken header row, zebra body
  *   rows (odd `bg-page`, even `bg-surface`), 1px top borders.
+ * - OPTIONAL row expansion via {@link TableExpansionDef} + `isExpanded`
+ *   (added 2026-07-31): opt-in, and the caller still owns both the expanded set
+ *   and the expander control.
  *
  * Scrolling stays with the caller (wrap in an `overflow-auto` container) —
  * layout inside a card is the screen's concern, not the pattern's.
@@ -101,6 +120,23 @@ export class TableCellDef<T> {
               </td>
             }
           </tr>
+          <!-- OPTIONAL expansion: rendered only when the caller projected an
+               appTableExpansion template AND its predicate says so. The row
+               keeps the parent's zebra shade so the pair reads as one unit. -->
+          @if (expansionTemplate(); as expansion) {
+            @if (isExpanded()(row)) {
+              <tr
+                class="border-t border-line"
+                [class.bg-page]="odd"
+                [class.bg-surface]="!odd"
+                [attr.data-testid]="rowTestId()(row) + '-expansion'"
+              >
+                <td class="p-0" [attr.colspan]="columns().length">
+                  <ng-container *ngTemplateOutlet="expansion; context: { $implicit: row }" />
+                </td>
+              </tr>
+            }
+          }
         }
       </tbody>
     </table>
@@ -113,8 +149,18 @@ export class Table<T> {
    *  `(c) => 'customer-search-results-row-' + c.customerNumber`. */
   readonly rowTestId = input.required<(row: T) => string>();
   readonly testId = input.required<string>();
+  /** OPTIONAL expansion predicate; only consulted when the caller projected an
+   *  `appTableExpansion` template. Default: nothing expands (previous behaviour). */
+  readonly isExpanded = input<(row: T) => boolean>(() => false);
 
   private readonly cellDefs = contentChildren<TableCellDef<T>>(TableCellDef);
+  private readonly expansionDef = contentChild<TableExpansionDef<T>>(TableExpansionDef);
+
+  /** `null` when the caller projected no expansion template — the table then
+   *  renders exactly the markup it did before expansion existed. */
+  protected readonly expansionTemplate = computed(
+    () => this.expansionDef()?.template ?? null,
+  );
 
   private readonly templatesById = computed(() => {
     const map = new Map<string, TemplateRef<TableCellContext<T>>>();

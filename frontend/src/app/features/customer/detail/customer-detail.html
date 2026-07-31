@@ -108,32 +108,24 @@
              cross-feature type. K-8: 224 Billing Accounts only, ever. -->
         @case ('account') {
           <div data-testid="customer-detail-account-section">
+            <!-- THE composition point of two sibling features. Customer Info
+                 imports both exposed sections; neither imports the other. The
+                 account section owns expand/collapse, the product section owns
+                 its own data — they meet only through the accountNumber string
+                 the expansion template carries (FE-ADR-003 §Consequences). -->
             <app-account-section
               [customerNumber]="customer.customerNumber"
               [addressOptions]="billingAddressOptions()"
+              [rowExpansion]="productExpansion"
             />
-
-            <!-- Product section — "Coming soon" (FE-ADR-013 §Amendment A3):
-                 visible, inert, catalogue-labelled, testid'd; no API, no data.
-                 Mock places products inside EXPANDED account rows — the row
-                 expansion arrives with product-service (scope §4.23/2, §4.24). -->
-            <div class="p-6 pt-4">
-              <div
-                class="flex items-center gap-3 rounded-lg border border-line bg-sunken p-5"
-                aria-disabled="true"
-                data-testid="customer-detail-products-coming-soon"
-              >
-                <app-icon name="shopping-cart" [size]="20" class="text-ink-muted" />
-                <span class="text-body font-medium text-ink-soft">
-                  {{ 'UI-DETAIL-PRODUCTS-HEADING' | t }}
-                </span>
-                <span
-                  class="rounded-sm bg-surface px-2 py-0.5 text-caption font-medium text-ink-muted"
-                >
-                  {{ 'UI-COMMON-COMING-SOON' | t }}
-                </span>
-              </div>
-            </div>
+            <!-- FR-PROD-01 (2026-07-31): replaces the former "Coming soon"
+                 block — product-service exists, so §Amendment A3 no longer
+                 applies to this section (FE-ADR-013 §Amendment B). The mock
+                 puts products inside the EXPANDED account row; this is that
+                 place (mock §6.4 tab 2, AC-PROD-01-01). -->
+            <ng-template #productExpansion let-accountNumber>
+              <app-product-section [accountNumber]="accountNumber" />
+            </ng-template>
           </div>
         }
 

@@ -664,12 +664,17 @@ sayfa yenilenmesi yok.
 | 1 | **Login v2** | Keycloak teması TAMAMLANDI | ❌ Angular'da yazılmayacak |
 | 2 | **Customer Search** | ✅ `GET /api/customers` hazır (ADR-005) | ✅ **EVET — golden path** |
 | 3 | **Create Customer** | ✅ `POST /api/customers` hazır | ✅ EVET |
-| 4 | **Customer Info v2** | ⚠️ KISMEN — müşteri/adres/iletişim hazır; hesap/ürün YOK | ⚠️ 4 sekmeden 3'ü |
-| 5 | **Offer Selection** | ❌ FR-PROD — servis yok | ❌ HAYIR |
-| 6 | **Product Configuration** | ❌ FR-PROD — servis yok | ❌ HAYIR |
-| 7 | **Submit Order** | ❌ FR-SALE — servis yok | ❌ HAYIR |
+| 4 | **Customer Info v2** | ~~⚠️ KISMEN~~ → ✅ **4 sekmenin dördü de hazır** — müşteri/adres/iletişim + hesap (`/api/accounts/**`, 2026-07-24) + ürün görüntüleme (`/api/products`, 2026-07-31) | ✅ **EVET — tamamı** (yalnız `Deactivate product` yazma ucu yok) |
+| 5 | **Offer Selection** | ❌ FR-PROD + FR-SALE — **katalog uçları var** (`/api/offers`, `/api/campaigns`) ama sepet/sipariş için **order-service YOK** | ❌ HAYIR — order-service ile birlikte |
+| 6 | **Product Configuration** | ❌ FR-PROD — karakteristik şeması var, **endpoint yok** (product-service Faz A) | ❌ HAYIR — order-service ile birlikte |
+| 7 | **Submit Order** | ❌ FR-SALE — servis yok | ❌ HAYIR — order-service ile birlikte |
 
 ### ⚠️ Kapsam Uyarısı: Mock UI backend'den GENİŞ
+
+> ⚠️ **Güncellendi (2026-07-31).** Aşağıdaki 2026-07-23 tarihli karar iki kez
+> aşıldı: hesap tarafı 2026-07-24'te (FE-ADR-013 §Amendment A1), ürün
+> **görüntüleme** tarafı 2026-07-31'de (§Amendment B1) kapsama girdi. Özgün
+> metin ADR disipliniyle korunuyor.
 
 `Customer Info v2` ekranındaki **"Customer account" sekmesinin tamamı** var olmayan
 domain'lere ait: hesap CRUD (FR-ACCT), ürün listesi/deaktivasyon/görüntüleme
@@ -679,6 +684,11 @@ Backend dokümanı bunu `traceability-matrix.md` "Deferred" bölümünde kaydetm
 **Karar:** Customer Info sadece **Customer info / Address / Contact medium**
 sekmeleriyle yapılır; "Customer account" sekmesi ilgili servisler gelene kadar
 render edilmez (bkz. §9 açık soru 4).
+
+**Bugünkü durum (2026-07-31):** sekme **dört sekmeyle** canlı. Hâlâ kapsam dışı
+kalanlar: `Deactivate product` (yazma ucu yok), FR-SALE satır aksiyonları
+(`Start new sale` / `Transfer` / `Service address change` — API bilinçle
+`Action` alanı döndürmüyor) ve üç satış ekranı (order-service bekliyor).
 
 ---
 
@@ -1186,15 +1196,67 @@ başlık `Customer info update`, gövde Create adım 1'in birebir aynısı
    `Since the customer has active products, the customer cannot be deleted.`
    (renk `text-danger`), tek buton `[Close]` (secondary)
 
-#### Sekme 2 — Customer account ❌ backend'de YOK (yazılmayacak)
+#### Sekme 2 — Customer account ✅ backend'de var (2026-07-24 hesap, 2026-07-31 ürün)
 
-Referans için düzen: başlık `Customer accounts` + `[+ Create new account]`
+> ⚠️ **Başlıktaki "backend'de YOK (yazılmayacak)" ibaresi geçersiz.**
+> `account-service` 2026-07-24'te, `product-service` 2026-07-31'de geldi; sekme
+> hem hesap hem ürün tarafıyla **yazıldı** (FE-ADR-013 §Amendment A1 ve §B1).
+> Aşağıdaki düzen tanımı **bağlayıcı tasarım referansı olarak aynen geçerli.**
+
+Düzen: başlık `Customer accounts` + `[+ Create new account]`
 (primary). Tablo kolonları: *(genişleme oku 44px)*, `Account status`
 (rozet+nokta), `Account number` (tabular), `Account name`, `Account type`,
 `Actions` (sağa hizalı: `pencil` ghost + `trash-2` danger-ghost).
 Satır genişleyince ürün alt tablosu açılır: `Product ID`, `Product name`,
 `Campaign name`, `Campaign ID`, `Status`, `Action` (`eye` + `ban`).
 Sayfalama: 4 / 8 / 12.
+
+> 🔴 **Sayfalama UYGULANMADI** (bilinçli, iki bağımsız gerekçe): hesap listesi
+> ve ürün listesi **ikisi de zarfsız düz dizi** döndürüyor, ve **FR-PROD-01
+> hiçbir sayfalama kuralı tanımlamıyor**. 4/8/12 seçicisi bu yüzden
+> reprodüksiyona alınmadı (`scope-and-conflicts.md` §4.24/5, §1B.2). Backend
+> kontratı kazanır (§5A, FE-ADR-013 §e).
+
+**Ürün alt tablosu — kolon → alan eşlemesi** (`GET /api/products?accountNumber=`,
+`docs/api/product-service.md`):
+
+| Mock kolonu | Yanıt alanı | Not |
+|---|---|---|
+| `Product ID` | `productId` | `tabular-nums`; public ürün tanımlayıcısı (`prod.id`). **KR-11 benzeri ürün numarası YOK** — iş numarası yalnız hesaplarda var |
+| `Product name` | `productName` | |
+| `Campaign name` | `campaignName` | Kampanyasız üründe `null` → **`-`** (render kuralı açıkça frontend'in işi) |
+| `Campaign ID` | `campaignId` | **Public kampanya kodu** (`cmpg.campaign_code`, ör. `CMP-ADSL-01`) — iç `cmpg.id` asla dönmez. `null` → `-` |
+| `Status` | `productStatus` | `Active` / `Passive`, backend'de türetilir. **Pasif ürün listede KALIR** (AC-PROD-01-03) — StatusBadge deseni (yukarıdaki rozet spesifikasyonu) |
+| `Action` | *(alan yok)* | Saf UI kolonu (AC-PROD-01-04). `eye` = ürünü görüntüle (aktif); `ban` = pasifleştir → **yazma ucu yok, disabled** (FE-ADR-013 §Amendment B3) |
+
+#### Sekme 2 devamı — "View product" modal'ı (FR-PROD-02) ⚠️ mock markup'ı YOK
+
+> 🔴 **Bu bölüm mock'tan çıkarılamadı.** `docs/source/mock-ui/`ndaki bundle
+> (`Guncel_Etiya_CRM_Lite_Full_App.html`) ürün ekranlarının markup'ını
+> **taşımıyor**: "Campaign", "View product", "Product ID", "Prod offer" gibi
+> hiçbir metin dosyada geçmiyor (2026-07-31 doğrulandı; §1'de listelenen ayrı
+> `Customer Info v2.dc.html` dosyası repoda mevcut değil). Modal'a dair mock'ta
+> **yalnız** §8'deki `View product` aria-label çapası kaldı.
+>
+> **Uygulanan karar (uydurma değil, kayıtlı türetme):** düzen Customer Info'nun
+> **dokümante okuma grid'ini** izliyor (yukarıdaki Sekme 1 gövdesi: `1fr 1fr`,
+> etiket caption/`text-tertiary` + değer body/medium, boş değer `—`); modal
+> ölçüsü `560px` (§7.2 `md`), footer tek `[Close]` (secondary). Alanlar
+> AC-PROD-02-01'in kendi listesi. Gerekçe ve alternatiflerin elenmesi:
+> `scope-and-conflicts.md` §4.28/4, FE-ADR-013 §Amendment B1.
+
+Alanlar (`GET /api/products/{id}`):
+
+| Sıra | Etiket | Yanıt alanı | Not |
+|---|---|---|---|
+| 1 | `Product offer name` | `productOfferName` | |
+| 2 | `Product offer ID` | `productOfferId` | `tabular-nums` |
+| 3 | `Product spec ID` | `productSpecId` | `tabular-nums` |
+| 4 | `Campaign` | `campaign` | Kampanya **ADI** (bu uç kampanya kodu döndürmez); `null` → `—` |
+| 5 | `Service address` | `serviceAddress` | `{addressId, street, houseFlatNumber, districtName, cityName}` → iki satır: `street houseFlatNumber` / `districtName, cityName`. **Alt ürün ebeveyninin adresini gösterir** — zincir backend'de yürünür, istemci ek çağrı YAPMAZ. `null` (adres yok/silinmiş) → "Servis adresi yok", modal yine açılır |
+
+Başlık, kullanıcının az önce tıkladığı **satırın ürün adıdır**: detay yanıtı
+bilinçli olarak ürün kimliği (`productId`/`productName`) taşımıyor.
 
 **Durum rozeti (StatusBadge deseni — diğer sekmelerde de kullanılabilir):**
 ```

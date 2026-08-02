@@ -176,8 +176,19 @@ class AccountServiceIntegrationTest {
         return count == null ? -1 : count;
     }
 
+    // customerNumber added by the ADR-013 §3.6 amendment: a PUBLIC business number
+    // (the same one the list endpoint takes as customerId), never an internal id.
     private static final Set<String> CONTRACT_KEYS = Set.of(
-            "accountNumber", "accountName", "accountTypeCode", "accountTypeName", "billingAddressId", "accountStatus");
+            "accountNumber", "customerNumber", "accountName", "accountTypeCode", "accountTypeName",
+            "billingAddressId", "accountStatus");
+
+    private int involvementCount(String accountNumber) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM cust_acct_prod_invl i JOIN cust_acct a ON a.id = i.customer_account_id "
+                        + "WHERE a.account_number = ? AND i.deleted_date IS NULL",
+                Integer.class, accountNumber);
+        return count == null ? -1 : count;
+    }
 
     // ---------------------------------------------------------------- security (ADR-009)
 
@@ -711,6 +722,153 @@ class AccountServiceIntegrationTest {
         ResponseEntity<List> multiFamily = getList("/api/accounts/1261000127/product-ids");
         assertThat(multiFamily.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(multiFamily.getBody()).containsExactly(13, 14, 15, 16);
+    }
+
+    // -------------------------------- involvement WRITE command (ADR-013 §8, FR-SALE-01)
+
+    @Test
+    @Order(26)
+    @DisplayName("involvement write: bulk link on an Active 224 -> 201 with the resulting ids; ACCT_PROD + ACTV + JWT-sub audit")
+    void involvementWriteLinksProducts() {
+        // 1261000176 (customer 1011) is the V4 product-less fixture — it starts empty,
+        // which is what makes the before/after assertion meaningful.
+        assertThat(involvementCount("1261000176")).isZero();
+
+        ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts/1261000176/product-involvements",
+                """
+                {"productIds": [31, 30, 32]}
+                """);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(response.getBody().get("accountNumber")).isEqualTo("1261000176");
+        // Resulting state, product_id ascending — same shape/ordering as the §7 read side.
+        assertThat((List<Integer>) response.getBody().get("productIds")).containsExactly(30, 31, 32);
+
+        // The read side (§7) and the command agree — one projection, two doors.
+        assertThat(getList("/api/accounts/1261000176/product-ids").getBody()).containsExactly(30, 31, 32);
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(
+                "SELECT i.product_id, i.short_code, i.status_id, i.created_by, i.deleted_date "
+                        + "FROM cust_acct_prod_invl i JOIN cust_acct a ON a.id = i.customer_account_id "
+                        + "WHERE a.account_number = '1261000176' ORDER BY i.product_id");
+        assertThat(rows).hasSize(3);
+        assertThat(rows).allSatisfy(row -> {
+            // ADR-013 §8.3: the workbook's per-table constant, NOT a campaign/offer code.
+            assertThat(row.get("short_code")).isEqualTo("ACCT_PROD");
+            assertThat(((Number) row.get("status_id")).longValue()).isEqualTo(1L);   // ACTV
+            assertThat(row.get("created_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+            assertThat(row.get("deleted_date")).isNull();
+        });
+    }
+
+    @Test
+    @Order(27)
+    @DisplayName("involvement write is idempotent per (account, product): retries and in-body duplicates never double-link")
+    void involvementWriteIsIdempotent() {
+        // The caller is a compensating orchestrator (ADR-016 §5) that may retry, and a
+        // duplicate row would silently corrupt the AC-ACCT-04-03 guard's meaning.
+        ResponseEntity<Map> retry = send(HttpMethod.POST, "/api/accounts/1261000176/product-involvements",
+                """
+                {"productIds": [30, 31, 32]}
+                """);
+        assertThat(retry.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat((List<Integer>) retry.getBody().get("productIds")).containsExactly(30, 31, 32);
+        assertThat(involvementCount("1261000176")).isEqualTo(3);
+
+        // A partial overlap adds only what is genuinely new.
+        ResponseEntity<Map> overlap = send(HttpMethod.POST, "/api/accounts/1261000176/product-involvements",
+                """
+                {"productIds": [32, 33]}
+                """);
+        assertThat(overlap.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat((List<Integer>) overlap.getBody().get("productIds")).containsExactly(30, 31, 32, 33);
+        assertThat(involvementCount("1261000176")).isEqualTo(4);
+
+        // The same id repeated inside ONE body must not create two rows either.
+        ResponseEntity<Map> duped = send(HttpMethod.POST, "/api/accounts/1261000176/product-involvements",
+                """
+                {"productIds": [34, 34, 34]}
+                """);
+        assertThat(duped.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(involvementCount("1261000176")).isEqualTo(5);
+    }
+
+    @Test
+    @Order(28)
+    @DisplayName("involvement write rejections: Passive 409, unknown/223 404, empty or malformed body 400")
+    void involvementWriteRejections() {
+        // AC-SALE-02-01 enforced server-side: 1261000036 was passivated earlier. A
+        // Passive account stays READABLE (§7) but must never acquire products (§8.2).
+        assertThat(getList("/api/accounts/1261000036/product-ids").getStatusCode()).isEqualTo(HttpStatus.OK);
+        ResponseEntity<Map> passive = send(HttpMethod.POST, "/api/accounts/1261000036/product-involvements",
+                """
+                {"productIds": [40]}
+                """);
+        assertThat(passive.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(passive.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-ACTIVE");
+        assertThat(involvementCount("1261000036")).isZero();
+
+        // Same visibility rule as everywhere else (ADR-013 §4.5): unknown and the K-8
+        // 223 are indistinguishable.
+        ResponseEntity<Map> unknown = send(HttpMethod.POST, "/api/accounts/1999999999/product-involvements",
+                """
+                {"productIds": [40]}
+                """);
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknown.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+
+        ResponseEntity<Map> hidden223 = send(HttpMethod.POST, "/api/accounts/1261000002/product-involvements",
+                """
+                {"productIds": [40]}
+                """);
+        assertThat(hidden223.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(hidden223.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-FOUND");
+
+        // An empty command is a client defect, not a no-op success.
+        ResponseEntity<Map> empty = send(HttpMethod.POST, "/api/accounts/1261000135/product-involvements",
+                """
+                {"productIds": []}
+                """);
+        assertThat(empty.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(empty.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        ResponseEntity<Map> negative = send(HttpMethod.POST, "/api/accounts/1261000135/product-involvements",
+                """
+                {"productIds": [-1]}
+                """);
+        assertThat(negative.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(negative.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        assertThat(involvementCount("1261000135")).isZero();
+    }
+
+    @Test
+    @Order(29)
+    @DisplayName("involvement write fails closed: catalog down -> 503 MSG-SERVICE-UNAVAILABLE, nothing persisted")
+    void involvementWriteFailsClosed() {
+        Mockito.when(lookupCatalogClient.fetchStatus("ACTV"))
+                .thenThrow(new LookupCatalogUnavailableException("catalog down", null));
+
+        ResponseEntity<Map> response = send(HttpMethod.POST, "/api/accounts/1261000135/product-involvements",
+                """
+                {"productIds": [50, 51]}
+                """);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+        assertThat(involvementCount("1261000135")).isZero();
+    }
+
+    @Test
+    @Order(30)
+    @DisplayName("AC-ACCT-04-03 guard now fires for a REAL sale: a just-sold-into account can no longer be passivated")
+    void soldIntoAccountCannotBePassivated() {
+        // Until this slice the delete guard was only ever triggered by seed fixtures.
+        // 1261000176 acquired live involvements in the tests above.
+        ResponseEntity<Map> response = delete("/api/accounts/1261000176");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-ACCT-HAS-PRODUCTS");
+
+        // Still Active — the refused delete changed nothing.
+        assertThat(get("/api/accounts/1261000176").getBody().get("accountStatus")).isEqualTo("Active");
     }
 
     @Test

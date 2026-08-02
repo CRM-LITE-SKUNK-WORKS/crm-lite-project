@@ -15,6 +15,7 @@ public class AccountMapper {
     public AccountResponse toResponse(CustomerAccount account) {
         return new AccountResponse(
                 account.getAccountNumber(),
+                account.getCustomerNumber(),
                 account.getAccountName(),
                 account.getAccountType().getAccountTypeCode(),
                 account.getAccountType().getName(),

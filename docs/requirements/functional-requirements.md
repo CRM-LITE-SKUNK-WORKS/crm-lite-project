@@ -32,6 +32,20 @@ Details: `docs/api/account-service.md`; decisions: ADR-013/ADR-014 +
 `docs/architecture/account-service-decisions.md` (K-8 analyst approval, Passive
 policy, seed regeneration).
 
+## Implemented (FR-SALE §2.7 — 2026-08-02, ADR-015/016)
+
+| FR | Capability | Notes |
+|---|---|---|
+| FR-SALE-01 | Product sale, end to end | `POST /api/orders` (order-service, :8087) — **one atomic Submit command carrying the whole basket**. Orchestrates across three databases with no distributed transaction: local order write (`MIDLWARE`) → products created **PNDG** in product-service → product ids + amount snapshots attached locally → products confirmed to `ACTV` → **account-service's involvement command, the commit point**. Every earlier failure discards the products and marks the order `CANCELLED` (ADR-016 §5) |
+| FR-SALE-01 (basket) | AC-SALE-01-03..08 basket assembly + validation | **The basket is never persisted** — it is frontend/session state, which is what makes AC-SALE-01-16 true by construction. Composition rules (all offers Active; exactly one INTERNET/RESOURCE/ACTIVATION; no duplicate offer) are enforced **server-side in product-service** (ADR-015 §6), which alone knows offer status and service type; order-service relays `MSG-SALE-*` unchanged |
+| FR-SALE-01 (configuration) | AC-SALE-01-10/17/18/19/20/21 characteristics | `GET /api/offers/{id}/characteristics` serves the schema (name, dataType, mandatory) through the offer's spec; values are validated against the declared `data_type` on write (`MSG-VAL-CHAR-REQUIRED` / `MSG-VAL-CHAR-FORMAT`). An offer with no characteristics is `200 []` |
+| FR-SALE-01 (amounts) | AC-SALE-01-12 Total Amount | **Snapshot** columns `cust_ord.total_amount` / `cust_ord_item.amount` — project additions (ADR-016 §2.4): a past order's total must not move when the price list does. **The prices feeding them await analyst approval** (document-delta P1/P5) |
+| FR-SALE-02 | Sale only from an **Active** billing account | AC-SALE-02-01 enforced server-side twice — at the precondition read and again by account-service's involvement command (409 `MSG-ACCT-NOT-ACTIVE`). The FR states it only as a disabled UI action |
+| KR-12 *(project-proposed)* | Order Number | `[T][YY][SSSSSS][C]`, Luhn, per-segment/per-year sequence — the KR-11 shape reused. Immutable, never reused, including after a compensated sale. **Awaiting analyst sign-off** (ADR-016 §4) |
+
+Details: `docs/api/order-service.md`; decisions: **ADR-015** (product boundary +
+write slice), **ADR-016** (order boundary, KR-12, orchestration), **ADR-013 §3.6/§7/§8**.
+
 ## Implemented (authentication/security milestone, 2026-07-17 — ADR-006..011)
 
 | FR | Capability | Notes |
@@ -75,27 +89,42 @@ From the analyst catalog: `MSG-ACCT-HAS-PRODUCTS` (409);
 `MSG-ACCT-DELETE-CONFIRM`/`MSG-ACCT-DELETED` are frontend-only and never
 produced by the backend.
 
+FR-SALE §2.7 keys **from the analyst catalog**, all 400 and all produced by
+**product-service** (ADR-015 §6), relayed unchanged by order-service:
+`MSG-SALE-OFFER-INACTIVE`, `MSG-SALE-NO-INTERNET`, `MSG-SALE-NO-RESOURCE`,
+`MSG-SALE-NO-ACTIVATION`, `MSG-SALE-MULTI-INTERNET`, `MSG-SALE-MULTI-RESOURCE`,
+`MSG-SALE-MULTI-ACTIVATION`, `MSG-SALE-DUP-OFFER`, `MSG-VAL-CHAR-REQUIRED`,
+`MSG-VAL-CHAR-FORMAT`. `MSG-SALE-ORDER-CONFIRM` is frontend-only (the AC-SALE-01-15
+modal) and never produced by any backend.
+Order/product **project additions** (ADR-015 §7, ADR-016 §7 — the analyst catalog
+names no order outcomes): `MSG-ORDER-NOT-FOUND` (404), `MSG-ORDER-DUP-NUMBER` (409),
+`MSG-ORDER-NUMBER-CAPACITY-EXCEEDED` (409), `MSG-PROD-NOT-FOUND` (404),
+`MSG-PROD-NOT-PENDING` (409).
+
 **Retired:** `MSG-SEARCH-CRITERIA-REQUIRED` — removed together with the mandatory
 search-criteria rule (ADR-005); no endpoint uses it anymore.
 
 ## Intentionally deferred (explicit TODOs, never silent)
 
 - `accountNumber` / `orderNumber` search → **501 MSG-FEATURE-NOT-IMPLEMENTED** in
-  customer-service. account-service now exists, so wiring `accountNumber` search to it
-  (KR-02) is a **separate customer-service follow-up PR** — this sprint did not modify
-  customer-service; `orderNumber` still waits for the order domain.
+  customer-service. Both target services now exist (account-service 2026-07-23,
+  order-service 2026-08-02 with `GET /api/orders/{orderNumber}`), so KR-02 is
+  unblocked on both counts — but wiring it stays a **separate customer-service
+  follow-up PR**; neither sprint modified customer-service.
 - Active-product check on customer delete (AC-CUST-05-03) and billing-account
   passivation on customer delete (part of AC-CUST-05-04) → still customer-service
   no-ops; converting them to real account-service calls is the same follow-up PR.
 - Address in-use check (AC-ADDR-04-04, MSG-ADDR-IN-USE) → still a customer-service
   no-op; billing accounts now reference addresses (`cust_acct.address_id`), so the
   real check becomes possible in that follow-up PR.
-- **Product involvement sync**: `cust_acct_prod_invl` is real, queried guard state
-  populated only by seed/test data until product-service exists; future population
-  goes through an account-service command/API or a consumed event — never direct
-  `account_db` writes by product/order/sale services (ADR-013 §5).
-- **PROD** (FR-PROD-01..02) and **SALE** (FR-SALE-01..02, KR-06/KR-7 basket+order flow)
-  → planned product/order services.
+- ~~**Product involvement sync**~~ — **done 2026-08-02** (ADR-013 §7/§8):
+  `cust_acct_prod_invl` is now populated by real sales through account-service's own
+  command endpoint. It remains **single-writer**; no other service writes `account_db`.
+  There is deliberately **no removal** path — KR-7 leaves product cancellation out of
+  phase (ADR-013 §8.6).
+- ~~**PROD** (FR-PROD-01..02)~~ — implemented 2026-07-29 (read) + 2026-08-02 (write
+  slice, ADR-015). ~~**SALE** (FR-SALE-01..02)~~ — implemented 2026-08-02 (ADR-016);
+  see the FR-SALE section above.
 - **LANG** (FR-LANG-01: TR/EN label+message catalogs, **default language English** per
   the 16.07.2026 revision) → frontend + planned localization capability; the backend
   deliberately returns `messageKey`s so localization stays a catalog concern.

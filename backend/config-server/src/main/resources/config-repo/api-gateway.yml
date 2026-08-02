@@ -154,6 +154,20 @@ spring:
               filters:
                 - TokenRelay=
                 - RemoveRequestHeader=Cookie
+            # Product sale / orders (FR-SALE-01..02, ADR-016). Same BFF contract.
+            # NOTE, as with product-ids above: product-service's internal write
+            # commands (POST /api/products, /confirm, /cancel) are matched by the
+            # products route — acceptable for the same reason, they require the same
+            # crm-user JWT, and order-service calls them directly via Eureka rather
+            # than through the gateway (ADR-010). The same applies to
+            # account-service's POST /api/accounts/{n}/product-involvements.
+            - id: order-service
+              uri: lb://order-service
+              predicates:
+                - Path=/api/orders/**
+              filters:
+                - TokenRelay=
+                - RemoveRequestHeader=Cookie
             # Unified Swagger UI (ADR-012): proxy each service's OpenAPI JSON under this
             # gateway's own origin so springdoc.swagger-ui.urls below can list them. Both
             # services permit /v3/api-docs anonymously (crm.security.permit-paths), so no
@@ -194,6 +208,14 @@ spring:
                 - RewritePath=/v3/api-docs/product-service, /v3/api-docs
                 - AddRequestHeader=X-Forwarded-Host, localhost:8080
                 - AddRequestHeader=X-Forwarded-Proto, http
+            - id: order-service-docs
+              uri: lb://order-service
+              predicates:
+                - Path=/v3/api-docs/order-service
+              filters:
+                - RewritePath=/v3/api-docs/order-service, /v3/api-docs
+                - AddRequestHeader=X-Forwarded-Host, localhost:8080
+                - AddRequestHeader=X-Forwarded-Proto, http
 
 eureka:
   client:
@@ -219,6 +241,8 @@ springdoc:
         url: /v3/api-docs/account-service
       - name: product-service
         url: /v3/api-docs/product-service
+      - name: order-service
+        url: /v3/api-docs/order-service
 
 # 2c) Actuator exposure.
 # NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway

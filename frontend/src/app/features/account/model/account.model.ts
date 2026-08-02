@@ -23,9 +23,9 @@ export type AccountStatus = 'Active' | 'Passive';
  * verified against the documented JSON — AND the exact key set is additionally
  * pinned by the Postman list test (docs/postman), which asserts
  * `Object.keys(r).sort() === ["accountName","accountNumber","accountStatus",
- * "accountTypeCode","accountTypeName","billingAddressId"]`: this type matches
- * it 1:1. The service never exposes internal ids or an "Action" field
- * (ADR-013 §3).
+ * "accountTypeCode","accountTypeName","billingAddressId","customerNumber"]`:
+ * this type matches it 1:1. The service never exposes internal ids or an
+ * "Action" field (ADR-013 §3).
  */
 export interface AccountResponse {
   /**
@@ -35,6 +35,14 @@ export interface AccountResponse {
    * appears in an update request (see {@link UpdateAccountRequest}).
    */
   readonly accountNumber: string;
+  /**
+   * The account owner's PUBLIC business customer number (the same value the list
+   * endpoint takes as `customerId`) — never an internal id. Added by the ADR-013
+   * §3.6 amendment for order-service (FR-SALE); the UI already knows which
+   * customer it is showing, so nothing here needs to read it yet. It is typed
+   * because the exact key set above is contract-pinned.
+   */
+  readonly customerNumber: number;
   /** User-facing name; the only freely editable field besides the address. */
   readonly accountName: string;
   /** Always `"224"` in responses — the 223 is never surfaced (K-8). Typed as the

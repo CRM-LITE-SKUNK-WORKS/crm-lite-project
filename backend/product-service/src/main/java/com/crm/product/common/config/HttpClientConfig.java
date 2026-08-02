@@ -2,6 +2,7 @@ package com.crm.product.common.config;
 
 import com.crm.product.account.AccountServiceProperties;
 import com.crm.product.customer.CustomerServiceProperties;
+import com.crm.product.lookup.LookupCatalogProperties;
 import com.crm.security.starter.BearerTokenPropagationInterceptor;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.loadbalancer.LoadBalancerClient;
@@ -24,8 +25,23 @@ import org.springframework.web.client.RestClient;
  * scoped to exactly these integrations.
  */
 @Configuration
-@EnableConfigurationProperties({AccountServiceProperties.class, CustomerServiceProperties.class})
+@EnableConfigurationProperties({AccountServiceProperties.class, CustomerServiceProperties.class,
+        LookupCatalogProperties.class})
 public class HttpClientConfig {
+
+    @Bean
+    public RestClient lookupRestClient(LoadBalancerClient loadBalancerClient, LookupCatalogProperties properties,
+                                       BearerTokenPropagationInterceptor bearerTokenPropagation) {
+        // ADR-010: the catalog call is strictly request-bound and the user's crm-user
+        // role legitimately covers catalog reads, so the end-user token is propagated
+        // (same reasoning as customer-service → lookup-service). Added with the
+        // FR-SALE write slice — Phase A resolved no status, so it needed no client.
+        return RestClient.builder()
+                .requestInterceptor(bearerTokenPropagation)
+                .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
+                .baseUrl(properties.baseUrl())
+                .build();
+    }
 
     @Bean
     public RestClient accountRestClient(LoadBalancerClient loadBalancerClient, AccountServiceProperties properties,

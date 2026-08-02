@@ -4,7 +4,28 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-29 (**product-service UYGULANDI — salt-okunur FR-PROD-01..02
+> **Son güncelleme:** 2026-08-02 (**FR-SALE §2.7 UYGULANDI — satış akışı uçtan uca:**
+> YENİ `order-service` (port 8087, `order_db`, `com.crm.order`) FR-SALE-01/02'yi
+> hayata geçirdi (**ADR-016**); product-service'e **yazma dilimi** (**ADR-015**),
+> account-service'e **involvement yazma komutu** eklendi (**ADR-013 §3.6/§7/§8**).
+> **2026-07-29'dan beri kayıtlı ADR borcu KAPANDI.** Satış üç veritabanına yazıyor
+> ve **dağıtık transaction YOK**: akış tek bir *commit point* etrafında
+> sıralandı — yerel sipariş yazımı (MIDLWARE) → ürünler **PNDG** olarak yaratılır →
+> product_id + tutar snapshot'ları yerel olarak eklenir → ürünler ACTV'ye yükseltilir →
+> **account-service involvement komutu** (satışı görünür kılan adım; FR-PROD-01
+> involvement güdümlü). Commit point'ten ÖNCEKİ her hata: ürünler atılır, sipariş
+> CANCELLED olur. Sonrasında adım yok, dolayısıyla geri alınacak şey de yok —
+> involvement-delete komutu bu yüzden YAZILMADI (ADR-013 §8.6). **Sepet backend'de
+> hiç saklanmıyor** (AC-SALE-01-16 yapısal olarak sağlanıyor); sepet/karakteristik
+> doğrulaması **product-service'te** yaşıyor (ADR-015 §6), order-service anahtarları
+> değiştirmeden aktarıyor. **KR-12** (sipariş numarası) proje-önerisi, analist onayı
+> BEKLİYOR. Uygulama sırasında bulunan iki kusur ADR-016'ya işlendi: `@Transactional`
+> self-invocation ile hiç çalışmıyordu (yerel yazmalar `OrderPersistence` bean'ine
+> taşındı) ve httpclient5'in 503'te otomatik retry'ı tek POST'u iki siparişe
+> çeviriyordu (giden client'larda kapatıldı — `POST /api/products` idempotent değil).
+> Test kanıtı: order-service 25/25, product-service 33/33, account-service 51/51.
+> Detay: §4.10, `docs/api/order-service.md`.)
+> Önceki durum: 2026-07-29 (**product-service UYGULANDI — salt-okunur FR-PROD-01..02
 > dilimi:** FR §2.6 kapsamı `backend/product-service`'te (port 8086, `product_db`,
 > `com.crm.product`) hayata geçti: 10 workbook tablosu (V1) + seed (V2),
 > `GET /api/products?accountNumber=`, `GET /api/products/{id}`, `GET /api/offers`,
@@ -142,7 +163,8 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 | `lookup-service` | 8083 | **Paylaşılan GNL_ST/GNL_TP kataloglarının TEK sahibi** (`lookup_db`, ADR-002) — **JWT resource server** | ✅ Çalışıyor — Postgres gerekli |
 | `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL, **CRM token'ı görmez (ADR-010)** | ✅ Çalışıyor |
 | `account-service` | 8085 | Fatura hesapları: FR-ACCT-01..04 + KR-11 (`account_db` — ADR-013/014) — **JWT resource server**; K-8 tembel 223; silme = pasifleştirme | ✅ Uygulandı (2026-07-23) — Postgres + lookup-service + customer-service (yazma işlemleri için) |
-| `product-service` | 8086 | Ürün görüntüleme + salt-okunur katalog: FR-PROD-01..02 (`product_db`) — **JWT resource server**; liste account-service'in `product-ids` ucu üzerinden kompoze; `account_db`'ye ASLA dokunmaz | ✅ Uygulandı (2026-07-29, salt-okunur dilim) — Postgres + account-service + customer-service |
+| `product-service` | 8086 | Ürün görüntüleme + katalog + **FR-SALE yazma dilimi**: FR-PROD-01..02 & ürün yaratma/confirm/cancel + karakteristik şeması (`product_db`) — **JWT resource server**; liste account-service'in `product-ids` ucu üzerinden kompoze; `account_db`'ye ASLA dokunmaz; sepet/karakteristik doğrulaması burada | ✅ Uygulandı (2026-07-29 okuma + 2026-08-02 yazma, ADR-015) — Postgres + account + customer + **lookup** |
+| `order-service` | 8087 | **Satış orkestrasyonu + siparişler:** FR-SALE-01..02 (`order_db` — ADR-016) — **JWT resource server**; KR-12 sipariş numarası; üç DB'ye dağıtık transaction olmadan yazar, telafi adımlarıyla | ✅ Uygulandı (2026-08-02) — Postgres + lookup + account + product |
 | ~~`auth-service`~~ | ~~8081~~ | ~~Kimlik doğrulama~~ | 🗑️ **SİLİNDİ (2026-07-17, ADR-007)** — BFF gateway'de, kimlik Keycloak'ta; iskelet geri getirilmeyecek |
 
 **Planlanan servisler (henüz YOK — analist/mimari onayı bekliyor; ayrıntı:
@@ -153,8 +175,8 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 | ~~auth/security milestone~~ | Keycloak tek otorite + gateway BFF + zero-trust resource server + JWT-sub audit (ADR-006..011). auth-service iskeleti SİLİNDİ | ✅ **UYGULANDI (2026-07-17)** |
 | localization-service | FR-LANG merkezi etiket/mesaj kataloğu (varsayılan dil artık **İngilizce**, 16.07.2026). Backend zaten dil-bağımsız `messageKey` dönüyor | 🗓️ Planlı, başlanmadı |
 | ~~account-service~~ | ACCT_TP + CUST_ACCT (fatura hesapları) — ADR-013/014 | ✅ **UYGULANDI (2026-07-23)** — bkz. §2 tablo + §4.8 |
-| ~~product-service~~ | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* (product+catalog birleşik) | ✅ **UYGULANDI (2026-07-29, salt-okunur FR-PROD-01..02 dilimi)** — bkz. §2 tablo + §4.9. Yazma tarafı (FR-SALE §2.7) hâlâ yok; **ADR-015 borçlu** |
-| order-service | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + satış orkestrasyonu (FR-SALE) | 🗓️ Planlı, sınır analist-final değil |
+| ~~product-service~~ | PROD_SPEC/PROD_OFR/PROD/CMPG*/PROD_CATAL* (product+catalog birleşik) | ✅ **UYGULANDI** — okuma 2026-07-29, **yazma dilimi 2026-08-02 (ADR-015)**; bkz. §4.9/§4.10 |
+| ~~order-service~~ | BSN_INTER, CUST_ORD, CUST_ORD_ITEM + satış orkestrasyonu (FR-SALE) | ✅ **UYGULANDI (2026-08-02, ADR-016)** — bkz. §2 tablo + §4.10 |
 
 **address-service / contact-service ASLA ayrı deployable OLMAYACAK** — ADR-001 gereği
 customer-service'in iç modülleri.
@@ -673,6 +695,85 @@ crm-lite-project-dev/
   yeni birim test sınıfı `ProductBusinessRulesTest` (çok seviyeli ebeveyn zinciri).
 
 
+### 4.10 order-service ✅ + product/account yazma dilimleri (YENİ — 2026-08-02, ADR-015/016)
+- Port 8087, DB `order_db`, paket kökü `com.crm.order`. Kapsam: **FR-SALE-01/02
+  (§2.7 Ürün Satışı)**. Compose'da host portu YAYINLANMAZ (ADR-009); gateway route'u
+  `/api/orders/**`; birleşik Swagger dropdown'ında kayıtlı (ADR-012 4-adım listesi).
+- **Tablolar (Flyway V1/V2):** `bsn_inter`, `cust_ord`, `cust_ord_item`,
+  `order_number_seq`. Lokal `gnl_*` tablosu ve cross-database FK YOK (ADR-002,
+  testle kanıtlı). `customer_number`, `customer_account_number`, `product_offer_id`,
+  `product_id` FK'sız dış referanslar.
+- **Sadece İKİ uç:** `POST /api/orders` (Submit — tüm sepet tek gövdede) ve
+  `GET /api/orders/{orderNumber}`. **Sepet tablosu YOK, sipariş-iptal ucu YOK
+  (KR-7 kapsam dışı), sipariş listesi YOK** (hiçbir FR istemiyor).
+- **KR-12 sipariş numarası (proje-önerisi, analist onayı BEKLİYOR):**
+  `[T][YY][SSSSSS][C]` — KR-11'in şeklini birebir koruyor, Luhn, `order_number_seq`
+  ADR-014 desenine paralel. Üreteç account-service'ten **kopyalandı** (paylaşılan
+  iş-mantığı kütüphanesi yok; iki kopya aynı test vektörleriyle sabitlendi).
+  ⚠️ **Sipariş ve hesap numaraları aynı değer uzayında** — seed sipariş numarası
+  `1261000002`, hesap `1261000002` ile aynı. Kabul edildi (ayrı DB/servis, ortak
+  namespace yok; KR-02 iki ayrı arama alanıyla ayırıyor); analist notu (ADR-016 §8.1).
+- **Orkestrasyon (ADR-016 §5) — üç DB, dağıtık transaction YOK:**
+  (0) hesap ön koşulu (var mı/224 mü/**Active** mi — AC-SALE-02-01) →
+  (1) `order_db`'ye tek yerel transaction, MIDLWARE →
+  (2) product-service'te ürünler **PNDG** →
+  (3) `product_id` + tutar snapshot'ları yerel olarak doldurulur →
+  (4) ürünler ACTV'ye yükseltilir →
+  (5) **account-service involvement komutu = COMMIT POINT.**
+  (5)'ten önceki her hata: ürünler atılır (hâlâ PNDG — product-service'in PNDG-only
+  guard'ı hiç ihlal edilmiyor), sipariş **CANCELLED** olur, kullanıcıya hata döner.
+  (5)'ten sonra adım yok → geri alınacak şey yok → **involvement-delete komutu
+  YAZILMADI** (ADR-013 §8.6). Numara asla serbest bırakılmaz.
+- **Adım 3 neden var:** workbook'un `CUST_ORD_ITEM`'ı `product_id` taşıyor ama başlık
+  yazılırken ürün henüz yok. Kolon nullable yapıldı ve ikinci bir yerel
+  transaction'da dolduruluyor — ürünleri önce yaratmak, "ilk yazma tek başına
+  güvenli bir yerel transaction" özelliğini yok ederdi (ADR-016 §5.2).
+- **product-service yazma dilimi (ADR-015):** ilk yazma kodundan ÖNCE tam
+  `LookupCatalogClient` sınırı kuruldu (§9.1b'nin uyarısı — ADR-002 fail-closed).
+  `POST /api/products` (PNDG, ana ürün INTERNET servis tipinden **türetilir**,
+  servis adresi yalnız ana üründe), `/confirm`, `/cancel` (**yalnız PNDG** — aksi
+  KR-7'nin kapsam dışı bıraktığı ürün iptali olurdu), `GET /api/offers/{id}/characteristics`.
+  Sepet (AC-SALE-01-05/08) ve karakteristik (AC-SALE-01-18/19) doğrulaması burada:
+  bunlar `PROD_OFR`/`PROD_SPEC` soruları ve **persist noktasında** doğrulanınca
+  atlanamaz hale geliyor. **PNDG ürünler FR-PROD-01/02'de görünmez** — mevcut mapper
+  ACTV olmayan her şeyi "Passive" render ediyor, sızan satır müşteriye hiç almadığı
+  pasif ürün gösterirdi.
+- **account-service involvement komutu (ADR-013 §8):**
+  `POST /api/accounts/{n}/product-involvements` — toplu, **(hesap, ürün) bazında
+  idempotent** (çağıran telafi eden bir orkestratör, retry edebilir), yalnız Active
+  224 (Passive → 409 `MSG-ACCT-NOT-ACTIVE`), `short_code = 'ACCT_PROD'` (workbook
+  tablo sabiti — kampanya/teklif kodu DEĞİL, V1 default + tüm seed satırlarıyla
+  doğrulandı). Ayrıca `AccountResponse`'a `customerNumber` eklendi (ADR-013 §3.6).
+- **⚠️ Uygulama sırasında bulunan iki kusur (ADR-016'da kayıtlı):**
+  1. **`@Transactional` hiç çalışmıyordu** — yerel yazmalar `OrderServiceImpl`'in
+     `protected` metotlarıydı ve `this.` ile çağrılıyordu; Spring'in proxy tabanlı
+     AOP'sinde self-invocation proxy'yi atlar. `OrderPersistence` bean'ine taşındı.
+  2. **httpclient5 503'te otomatik retry yapıyor** (runtime classpath'te, Eureka
+     üzerinden transitif) → tek POST iki sipariş + iki ürün seti yaratıyordu.
+     `POST /api/products` idempotent DEĞİL: retry ikinci bir PNDG seti yaratıp
+     ilkini öksüz bırakırdı. Üç giden client'ta da `disableAutomaticRetries()`
+     (ADR-016 §5.3b). Retry orkestrasyonun kararıdır, transport'un değil.
+- **Kullanılmayan katalog satırları (bilinçli):** GNL_ST `WAIT`(3) hiç yazılmaz;
+  `CANCELLED`(5) yalnız sistem telafisinde; GNL_TP `TRANSFER`(8)/`CANCEL`(9) için FR
+  yok. `bsn_inter_type_id` kolonu var ve NEWSALE(7) yazılıyor — gelecek bir akış
+  migration gerektirmesin diye.
+- **Testler:** `OrderServiceIntegrationTest` (15 IT — şema/seed, happy path, ön
+  koşullar, gövde doğrulama, **her adımın telafi yolu**, CANCELLED siparişin
+  numarasını koruması ve görünür kalması, fail-closed, gapless sequence) +
+  `OrderNumberFormatTest` (6) + `LuhnCheckDigitTest` (4) = **25/25**.
+  product-service **33/33** (IT 16→24 + yeni `CharacteristicValidationRulesTest`),
+  account-service **51/51** (IT 25→30). Üç dış client da yalnız **arayüz** seviyesinde
+  mock'lanır — "adım 4 patlarsa" senaryosu canlı bir stack'ten istenemezdi.
+- **Yeni fixture:** product-service `V4__seed_passive_offer_fixture.sql` — tek pasif
+  teklif (id 11). `MSG-SALE-OFFER-INACTIVE` dalının verisi yoktu; V2'nin pasif *ürün*
+  fixture'ıyla (document-delta P3) aynı gerekçe. `GET /api/offers` ACTV filtreli
+  olduğu için mevcut hiçbir kontrat değişmedi. **document-delta P10.**
+- **Analist onayı bekleyenler:** KR-12 (ADR-016 §4), teklif fiyatları (P1/P5),
+  AC-SALE-01-12'nin "Order ID submit'ten önce" ifadesi (ADR-016 §8.3), transfer/
+  service-address-change akışları (§8.2), PNDG'nin anlamı (ADR-015 §8.3).
+
+---
+
 ## 5. Alınan Kararlar ve Gerekçeleri
 
 Bu bölüm "neden böyle yapıldı" sorusunun cevabıdır. Değiştirmeden önce gerekçeyi oku.
@@ -1134,31 +1235,41 @@ milestone'u ✅ (2026-07-17, ADR-006..011 — detay §4.3)**. Milestone'un tasar
 auth-service iskeleti KALDIRILDI; BFF gateway'de, kimlik Keycloak'ta.
 **account-service ✅ (2026-07-23, ADR-013/014 — §4.8)** ve **product-service'in
 salt-okunur FR-PROD-01..02 dilimi ✅ (2026-07-29 — §4.9)** de tamamlandı.
-**Sıradaki adaylar:** product yazma tarafı + **order-service** (FR-SALE §2.7 satış
-orkestrasyonu; §9.1b'deki borçlarla birlikte), FR-LANG lokalizasyon (varsayılan dil
-İngilizce), frontend ürün ekranları ve Keycloak login sayfası proje teması.
+**FR-SALE §2.7 ✅ (2026-08-02, ADR-015/016 — §4.10):** order-service + product yazma
+dilimi + account involvement komutu; §9.1b'deki ADR borcu kapandı.
+**Sıradaki adaylar:** §2.7'nin üç frontend ekranı (Offer Selection / Product
+Configuration / Submit Order), customer-service takip PR'ı (KR-02 `accountNumber` ve
+artık `orderNumber` araması, aktif-ürün guard'ı, `MSG-ADDR-IN-USE`), FR-LANG
+lokalizasyon (varsayılan dil İngilizce), Keycloak login sayfası proje teması.
+**Analist onayı bekleyen iki kural artık kritik yolda:** KR-12 ve teklif fiyatları.
 **Adres/iletişim için ayrı servis YOK ve PLANLANMIYOR** (ADR-001).
 
-### 9.1b product-service diliminden kalan işler (2026-07-29 — takip)
-- [ ] **ADR-015 (product boundary) yazılacak** + **ADR-013'e "read-side" fıkrası** —
-  `product-ids` ucu ve kompozisyon deseni bugün yalnız `docs/api/product-service.md`'de
-  belgeli, mimari olarak onaylı DEĞİL. `service-boundaries.md`'nin "analyst/architecture
-  sign-off eksik" uyarısı product domain'i için geçerli.
+### 9.1b ~~product-service diliminden kalan işler~~ — KAPANDI (2026-08-02), kalanlar aşağıda
+- [x] ~~**ADR-015 (product boundary)** + **ADR-013 "read-side" fıkrası**~~ — **YAZILDI**
+  (ADR-015; ADR-013 §7 okuma, §8 yazma, §3.6 `customerNumber`). ADR-016 (order boundary)
+  da eklendi. `service-boundaries.md`'nin "sign-off eksik" uyarısı artık yalnız
+  **içerik** için geçerli (KR-12 + fiyatlar), sınırlar için değil.
+- [x] ~~**Yazma tarafı (FR-SALE §2.7)**~~ — **UYGULANDI** (§4.10): order-service +
+  product-service yazma dilimi + account-service involvement komutu.
+- [x] ~~**Karakteristik endpoint'leri**~~ — `GET /api/offers/{id}/characteristics`.
+- [x] ~~**`LookupCatalogClient` sınırı yazma diliminden ÖNCE**~~ — ilk yazma kodundan
+  önce kuruldu (ADR-015 §4.1).
 - [ ] **Teklif fiyatları analist onayı** — `PROD_OFR.product_offer_total_price`
-  (299/149/49) uydurulmuş fixture; workbook kolonu boş, AC-SALE-01-12 ise tutar istiyor
-  (document-delta P1).
-- [ ] **Yazma tarafı (FR-SALE §2.7):** ürün yaratma/provizyon, sepet, sipariş,
-  karakteristik değer girişi → order-service + product-service yazma dilimi. Bununla
-  birlikte account-service'e **involvement yazma komutu/event'i** gerekecek
-  (`account_db`'ye doğrudan yazım kalıcı olarak YASAK — ADR-013 §5).
-- [ ] **Karakteristik endpoint'leri** — `prod_spec_char*`/`prod_char_val` şema+seed
-  olarak var, Faz A'da API'si yok (§2.7 Product Configuration ekranları tüketecek).
-- [ ] **Yazma dilimi gelmeden ÖNCE `LookupCatalogClient` sınırı kurulmalı** —
-  product-service'te bugün lookup HTTP client'ı yok (salt-okunur olduğu için); statü
-  persist eden ilk kod, customer/account-service'teki client→service→cache desenini
-  kurmadan yazılmamalı (ADR-002 fail-closed kuralı).
-- [ ] **Frontend ürün ekranları** — `MSG-PROD-NONE` metni, `"-"` kampanya gösterimi ve
-  Action (göz) ikonu frontend'e ait; backend kontratı hazır.
+  (299/149/49 + P5 eklemeleri) uydurulmuş fixture (document-delta P1/P5).
+  **Artık daha kritik:** bu değerler `cust_ord_item.amount`'a snapshot'lanıyor, yani
+  provizyonel fiyatlar kalıcı sipariş geçmişine dönüşüyor (ADR-016 §2.4).
+- [ ] **KR-12 (sipariş numarası) analist onayı** — proje-önerisi kural (ADR-016 §4).
+  Aynı pakette: sipariş/hesap numarası çakışması (§8.1) ve AC-SALE-01-12'nin
+  "Order ID submit'ten önce gösterilir" ifadesi (§8.3).
+- [ ] **Takılı kalan PNDG için süpürücü YOK** — confirm telafisi de patlarsa ürünler
+  PNDG kalır: müşteriye görünmez ama hesap silme guard'ını bloklar. Tek sorguyla
+  bulunabilir (`status_id = PNDG`); spekülatif bir reconciliation job yazılmadı
+  (ADR-015 §8.4).
+- [ ] **Transfer / service address change akışları** — mock UI'da hesap satırı
+  aksiyonu olarak var, **hiçbir FR/AC kapsamıyor** (ADR-016 §8.2). Analist sorusu.
+- [ ] **Frontend ürün + satış ekranları** — `MSG-PROD-NONE` metni, `"-"` kampanya
+  gösterimi, Action (göz) ikonu, ve §2.7'nin üç ekranı (Offer Selection / Product
+  Configuration / Submit Order). Backend kontratı hazır; ayrı takip işi (ADR-016 §9).
 
 ### 9.2 Auth milestone'undan kalan işler (implementasyon bitti, bunlar takip)
 - [ ] **ADR-011 analist onayı** — workbook USERS tablosunun Keycloak lehine terk edilmesi.

@@ -39,6 +39,26 @@ public class AccountBusinessRules {
     }
 
     /**
+     * ADR-013 §8.2: an account may only acquire new products while it is Active.
+     * A Passive 224 stays readable (AC-ACCT-04-02) but selling into it would
+     * resurrect a passivated account through the side door — this is the
+     * server-side enforcement of AC-SALE-02-01, which the FR states only as a
+     * disabled UI action.
+     *
+     * <p>Separate from {@link #checkAccountIsActive} on purpose: that one answers
+     * "may the user edit this account?", this one "may a sale attach products to
+     * it?". They share a message key today because the cause is the same, but they
+     * are different questions and a future divergence must not have to untangle one
+     * method serving two callers.
+     */
+    public void checkAccountCanReceiveProducts(CustomerAccount account) {
+        if (!account.isActive()) {
+            throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.ACCT_NOT_ACTIVE,
+                    "Account " + account.getAccountNumber() + " is passive and cannot receive products");
+        }
+    }
+
+    /**
      * AC-ACCT-04-03 delete guard against the LOCAL involvement projection (ADR-013 §5)
      * — the sole source of truth until product-service exists.
      */

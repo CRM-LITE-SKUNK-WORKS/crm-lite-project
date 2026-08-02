@@ -9,6 +9,15 @@ sprint decision record `docs/architecture/account-service-decisions.md`
 are the long-term authorities, the sprint record only documents how the
 questions were resolved).
 
+**Amended 2026-08-01 (§3.6, §7, §8 — Proposed):** §5.2 promised that future
+product/order services would reach `cust_acct_prod_invl` "exclusively through an
+account-service command/API". §7 and §8 discharge that promise: §7 formalizes the
+**read** side that shipped undocumented with the product-service slice
+(2026-07-29), §8 decides the **write** command required by FR-SALE-01 (§2.7).
+§3.6 adds `customerNumber` to the account representation. The FR-ACCT-01..04
+contract in §1–§6 is otherwise unchanged. Companions: **ADR-015**
+(product-service boundary), **ADR-016** (order-service boundary).
+
 ## Context
 FR v8-1 documents billing accounts (FR-ACCT-01..04) and the KR-11 Account
 Number contract. The entity workbook defines `ACCT_TP`, `CUST_ACCT` and
@@ -97,6 +106,21 @@ accountTypeName, billingAddressId, accountStatus` ("Active"/"Passive").
 They never expose internal ids (`cust_acct.id`, `acct_tp.id`), and there is
 no API "Action" field (UI concern).
 
+#### 3.6 `customerNumber` added to the representation (amendment, 2026-08-01)
+The representation gains one **additive** field, `customerNumber` — the same
+public business number the list endpoint already requires as its `customerId`
+query parameter (§2.3). Rationale: order-service must record
+`cust_ord.customer_number` (ADR-016 §2.3) but only knows the account it is
+selling into, and `GET /api/accounts/{accountNumber}` is the natural,
+already-authenticated precondition call for that flow — it also yields the
+224/Active checks AC-SALE-02-01 needs. Exposing it leaks nothing new: it is a
+public business number, not an internal id, and the caller must already hold an
+account number belonging to that customer. The alternative — a dedicated
+`/api/accounts/{n}/owner` endpoint returning a single field — was rejected as
+endpoint sprawl for no privacy gain. **This changes a shipped response shape**,
+additively only (no field removed or renamed), so existing consumers are
+unaffected.
+
 ### 4. Automatic 223 Customer Account (K-8, approved)
 Per the approved use-case flow (FR-ACCT-02 steps 8–8.3):
 
@@ -153,6 +177,84 @@ Plus the established shared keys: `MSG-VALIDATION-ERROR`,
 customer-service unreachable during a write; fail closed, nothing persisted),
 `MSG-INTERNAL-ERROR`, `MSG-AUTH-UNAUTHORIZED`, `MSG-AUTH-FORBIDDEN`.
 
+### 7. Read side of the involvement projection (amendment, 2026-08-01)
+Shipped 2026-07-29 with the product-service read-only slice but never recorded
+architecturally (the ADR debt named in PROJECTBRAIN §9.1b). It is hereby part of
+the boundary, not an undocumented convenience:
+
+1. **`GET /api/accounts/{accountNumber}/product-ids` → `200 [Long]`** is the
+   **single public reading point** of `cust_acct_prod_invl`. No other service
+   reads `account_db` — not through a replica, not through a shared schema, not
+   through a direct JDBC connection.
+2. It returns `product_id` for rows with **`deleted_date IS NULL`**, ascending.
+   It is **deliberately not filtered by the involvement's own `status_id`**:
+   AC-PROD-01-03 lists both Active and Passive products and the *displayed*
+   status is the product's, not the involvement's. The ACTV-only filter stays
+   exclusive to the AC-ACCT-04-03 delete guard (§5.1) — the two must not be
+   conflated.
+3. Visibility follows §3.3/§4.5 exactly: **224 only**, so an unknown number and a
+   K-8 223's number are both `404 MSG-ACCT-NOT-FOUND`; a **Passive** 224 stays
+   readable (AC-ACCT-04-02). An account with no involvements is `200 []`, never
+   404.
+4. It is reached **directly via Eureka (`lb://account-service`) with the user's
+   token propagated** (ADR-010) — never through the gateway, which is the browser
+   edge (ADR-007). It is nonetheless matched by the existing `/api/accounts/**`
+   gateway route; accepted, because it exposes only ids and demands the same
+   `crm-user` JWT as every other account endpoint.
+5. This endpoint carries **no product semantics**. It does not know what a
+   product is, whether it is active, or what it costs; product-service joins the
+   returned ids against `product_db` itself (ADR-015 §3).
+
+### 8. Write side — the involvement command (amendment, 2026-08-01)
+§5.2 deferred this ("a future account-service command/API or an event consumed
+by account-service"). FR-SALE-01 forces the decision. **A synchronous REST
+command is chosen; no event, no broker** — the platform has no message broker and
+one is not being introduced for a single request-bound hop, which would trade a
+two-hour integration for an infrastructure component, an outbox, and an
+eventual-consistency window the sale flow cannot observe anyway (the user is
+waiting on the HTTP response).
+
+1. **`POST /api/accounts/{accountNumber}/product-involvements`**, body
+   `{"productIds": [21, 22, 23]}` → **`201`** with the resulting id list.
+   The call is **bulk and single-shot**: one call per sale, never N calls, so the
+   whole projection update is one local ACID transaction in `account_db` and a
+   partial link set can never be observed.
+2. **Target validation** — the same visibility rules as everywhere else, plus an
+   activity rule the read side does not have:
+   - unknown number, or a K-8 223's number → **404 `MSG-ACCT-NOT-FOUND`**;
+   - a **Passive** 224 → **409 `MSG-ACCT-NOT-ACTIVE`**. A Passive account is
+     readable (§3.3) but must never acquire new products; this is the
+     server-side enforcement of AC-SALE-02-01, which the UI states only as a
+     disabled action.
+3. **What is written:** one `cust_acct_prod_invl` row per product id, with
+   `short_code = 'ACCT_PROD'` — verified against the V1 DDL default and every
+   V2/V3/V4 seed row: it is the workbook's per-table short-code constant (the
+   same convention as `acct_tp.short_code`), **not** a campaign or offer code.
+   Nothing else may be inferred into it. `status_id` is `ACTV`, resolved through
+   lookup-service, **failing closed with 503 `MSG-SERVICE-UNAVAILABLE`** if the
+   catalog is unreachable and uncached (ADR-002 §7) — nothing is persisted.
+4. **Idempotent per (account, product):** if a non-deleted row already exists for
+   that pair it is left untouched rather than duplicated or rejected. The caller
+   is a compensating orchestrator (ADR-016 §5) that may retry; duplicate
+   involvement rows would corrupt the AC-ACCT-04-03 guard's meaning.
+5. **`product_id` is accepted as an opaque external reference.** account-service
+   does **not** call product-service to verify it — that would invert the
+   dependency direction (product-service already depends on account-service, §7)
+   and create a call cycle. The caller owns the guarantee that the ids exist;
+   account-service owns only the projection. This is a deliberate, recorded
+   trade-off, symmetrical to `customer_number`/`address_id` being FK-less
+   external references (§2.3/§2.4).
+6. **No involvement *delete* command is added.** Nothing in FR-SALE or KR-7
+   removes a product from an account — KR-7 leaves product cancellation out of
+   phase entirely. In ADR-016 §5 the involvement write is the **commit point** of
+   the sale: every step that can still fail *before* it is compensated by
+   discarding never-committed product rows, and the one step *after* it
+   (activating those rows, §5 step 4) is a status refinement whose failure does
+   not un-sell the order and therefore never needs the involvement rolled back.
+   Adding a delete command would create a write path with no requirement behind
+   it — and, being indistinguishable from the KR-7 cancellation that is out of
+   phase, it would be the wrong thing to have lying around.
+
 ## Consequences
 - customer-service keeps its documented 501/no-op TODOs (`accountNumber`
   search, active-product guard, billing-account passivation on customer
@@ -164,3 +266,17 @@ customer-service unreachable during a write; fail closed, nothing persisted),
   `docs/requirements/document-delta.md` — the workbook itself is never edited.
 - Future services needing account-product involvement integrate through
   account-service's boundary (§5), keeping `account_db` single-writer.
+- **(2026-08-01)** With §7 and §8 in place, `cust_acct_prod_invl` is fully
+  boundary-served in both directions and §5.2's "documented follow-up TODO" is
+  discharged: the projection is no longer seed-only, and `account_db` remains
+  single-writer with the write path now exercised by a real caller
+  (order-service, ADR-016) rather than by fixtures.
+- **(2026-08-01)** account-service gains **no** dependency on product-service or
+  order-service. Its outbound dependency set is unchanged (lookup-service,
+  customer-service), so the service graph stays acyclic: order → account,
+  order → product, product → account, product → customer, account → customer,
+  account → lookup.
+- **(2026-08-01)** The AC-ACCT-04-03 delete guard becomes reachable in real use
+  for the first time: an account that has just been sold into can no longer be
+  passivated (409 `MSG-ACCT-HAS-PRODUCTS`). That is the intended requirement, but
+  it was previously only ever triggered by seed data.

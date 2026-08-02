@@ -20,9 +20,10 @@ spring:
 
 # Outbound integration boundaries. Base URLs use Eureka service names resolved by the
 # load-balanced RestClient; override with concrete http://host:port when running
-# without discovery. NOTE: no crm.lookup client here — Phase A is read-only and uses
-# only the LookupContract constants locally (ADR-002 stays intact: no local catalog
-# tables/seeds either).
+# without discovery. crm.lookup arrived with the FR-SALE write slice (ADR-015 §4.1):
+# persisting a status_id requires resolving it through the catalog owner, fail-closed.
+# ADR-002 is otherwise unchanged — still no local gnl_* tables or seeds here, and
+# READS still use the local LookupContract constants (no remote call per row).
 crm:
   security:
     # Canonical issuer (ADR-006): must equal the JWT `iss` claim exactly. Keycloak's
@@ -39,9 +40,11 @@ crm:
       - /actuator/health
       - /v3/api-docs/**
   account:
-    base-url: http://account-service    # FR-PROD-01 composition (ADR-013 §5 read side)
+    base-url: http://account-service    # FR-PROD-01 composition (ADR-013 §7 read side)
   customer:
     base-url: http://customer-service   # FR-PROD-02 service-address resolution (ADR-010)
+  lookup:
+    base-url: http://lookup-service     # shared GNL_ST owner (ADR-002); writes only
 
 eureka:
   client:

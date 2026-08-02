@@ -24,4 +24,12 @@ public final class AccountContract {
     /** UI-facing status labels (AC-ACCT-01-02): derived, never stored. */
     public static final String STATUS_LABEL_ACTIVE = "Active";
     public static final String STATUS_LABEL_PASSIVE = "Passive";
+
+    /**
+     * cust_acct_prod_invl.short_code (ADR-013 §8.3). Verified against the V1 DDL
+     * default and every V2/V3/V4 seed row: this is the workbook's per-table
+     * short-code constant — the same convention as acct_tp.short_code — and is
+     * emphatically NOT a campaign or offer code. Nothing may be inferred into it.
+     */
+    public static final String INVOLVEMENT_SHORT_CODE = "ACCT_PROD";
 }

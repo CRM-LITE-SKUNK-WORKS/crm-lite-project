@@ -2,7 +2,9 @@ package com.crm.account.account.controller;
 
 import com.crm.account.account.dto.request.AccountCreateRequest;
 import com.crm.account.account.dto.request.AccountUpdateRequest;
+import com.crm.account.account.dto.request.ProductInvolvementRequest;
 import com.crm.account.account.dto.response.AccountResponse;
+import com.crm.account.account.dto.response.ProductInvolvementResponse;
 import com.crm.account.account.service.AccountService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -21,9 +23,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * FR-ACCT-01..04 (ADR-013 §3). Exactly these five endpoints — no pagination,
- * filters, exports or bulk operations. {@code customerId} is always the public
- * business customer number; {@code accountNumber} the KR-11 public identifier.
+ * FR-ACCT-01..04 (ADR-013 §3): exactly the five public endpoints — no pagination,
+ * filters or exports — plus the two service-to-service involvement endpoints that
+ * ADR-013 §7/§8 add to the boundary (the read side for product-service's FR-PROD-01
+ * composition, the write side for order-service's FR-SALE-01 commit point).
+ * {@code customerId} is always the public business customer number;
+ * {@code accountNumber} the KR-11 public identifier.
  */
 @RestController
 @RequestMapping("/api/accounts")
@@ -55,6 +60,18 @@ public class AccountController {
     @GetMapping("/{accountNumber}/product-ids")
     public ResponseEntity<List<Long>> productIds(@PathVariable String accountNumber) {
         return ResponseEntity.ok(accountService.listProductIds(accountNumber));
+    }
+
+    // ADR-013 §8 write side: the involvement command order-service invokes at the
+    // commit point of a sale (ADR-016 §5.1 step 4). Bulk — one call per sale, never
+    // N calls. Like the read side above it is reached directly via Eureka with the
+    // user's token (ADR-010), not through the gateway.
+    @PostMapping("/{accountNumber}/product-involvements")
+    public ResponseEntity<ProductInvolvementResponse> addProductInvolvements(
+            @PathVariable String accountNumber,
+            @Valid @RequestBody ProductInvolvementRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(accountService.addProductInvolvements(accountNumber, request));
     }
 
     @PutMapping("/{accountNumber}")

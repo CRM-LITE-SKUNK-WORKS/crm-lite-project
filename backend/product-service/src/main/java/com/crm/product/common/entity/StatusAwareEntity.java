@@ -24,6 +24,15 @@ public abstract class StatusAwareEntity extends AuditableEntity {
     }
 
     /**
+     * PNDG — reserved by an in-flight sale, not yet committed (ADR-015 §5.2). Rows in
+     * this state are invisible to FR-PROD-01/02 (§5.5) and are the only rows the
+     * compensation command may passivate (§5.7).
+     */
+    public boolean isPending() {
+        return getDeletedDate() == null && Long.valueOf(LookupContract.STATUS_PENDING_ID).equals(statusId);
+    }
+
+    /**
      * Applies the full soft-delete invariant: PASV status reference + deleted/updated
      * audit metadata. The passive status id is passed in by the caller because it must
      * come from (and be validated by) the shared catalog contract, not be invented here.

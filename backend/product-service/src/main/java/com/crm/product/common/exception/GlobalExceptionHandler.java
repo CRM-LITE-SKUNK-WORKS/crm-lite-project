@@ -2,6 +2,8 @@ package com.crm.product.common.exception;
 
 import com.crm.product.account.AccountServiceUnavailableException;
 import com.crm.product.customer.CustomerServiceUnavailableException;
+import com.crm.product.lookup.LookupCatalogUnavailableException;
+import com.crm.product.lookup.UnknownLookupCodeException;
 import jakarta.servlet.http.HttpServletRequest;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -10,15 +12,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
- * Same error contract as the other domain services. Phase A is read-only, so the
- * write-side handlers of the account/customer templates (body validation, data
- * integrity, ...) are deliberately absent — there is no request body to validate.
+ * Same error contract as the other domain services. The write-side handlers (body
+ * validation, catalog outages) arrived with the FR-SALE slice — the Phase A note
+ * that "there is no request body to validate" no longer holds.
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -54,6 +58,51 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({AccountServiceUnavailableException.class, CustomerServiceUnavailableException.class})
     public ResponseEntity<ErrorResponse> handleUpstreamUnavailable(RuntimeException ex, HttpServletRequest request) {
         log.error("Upstream dependency unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
+                ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body(HttpStatus.SERVICE_UNAVAILABLE,
+                MessageKeys.SERVICE_UNAVAILABLE,
+                "A required service is unavailable; the operation was not performed", request, null));
+    }
+
+    // Bean validation on the write-slice request bodies (ADR-015 §5): shape only —
+    // the business rules with their own analyst keys (MSG-SALE-*, MSG-VAL-CHAR-*)
+    // are thrown as BusinessExceptions above and never collapse into this generic
+    // 400, or the frontend could not render the specific text the catalog defines.
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleBodyValidation(MethodArgumentNotValidException ex,
+                                                              HttpServletRequest request) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        ex.getBindingResult().getFieldErrors()
+                .forEach(error -> validationErrors.putIfAbsent(error.getField(), error.getDefaultMessage()));
+        return badRequest(request, validationErrors);
+    }
+
+    // A malformed/unparseable JSON body is a client defect, not a server error.
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ErrorResponse> handleUnreadableBody(HttpMessageNotReadableException ex,
+                                                              HttpServletRequest request) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        validationErrors.put("body", "is missing or malformed");
+        return badRequest(request, validationErrors);
+    }
+
+    // ADR-002 §5: an unknown short code or a code in the wrong domain is a 400 with
+    // field-level detail — never a silent acceptance.
+    @ExceptionHandler(UnknownLookupCodeException.class)
+    public ResponseEntity<ErrorResponse> handleUnknownLookupCode(UnknownLookupCodeException ex,
+                                                                 HttpServletRequest request) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        validationErrors.put(ex.getField(), ex.getMessage());
+        return badRequest(request, validationErrors);
+    }
+
+    // ADR-002 §7 fail-closed: the shared catalog is unreachable and the value was not
+    // cached, so no status can be resolved — nothing is persisted. Reads are
+    // unaffected (they use the local LookupContract constants).
+    @ExceptionHandler(LookupCatalogUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleCatalogUnavailable(LookupCatalogUnavailableException ex,
+                                                                   HttpServletRequest request) {
+        log.error("Shared catalog unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
                 ex.getMessage(), ex);
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body(HttpStatus.SERVICE_UNAVAILABLE,
                 MessageKeys.SERVICE_UNAVAILABLE,

@@ -99,6 +99,37 @@ customer-service clients are mocked at their interfaces only).
 | ADR-009 zero trust | starter chain (401/403; only `/actuator/health` + `/v3/api-docs/**` anonymous) | PROD-IT `securityChecks` |
 | Internal address resolution (customer-service, **NEW**) | `GET /api/addresses/{addressId}` → active address; soft-deleted/unknown → 404 `MSG-CUST-NOT-FOUND`; not gateway-routed | IT `internalAddressResolution` |
 
+## Implemented (FR-SALE §2.7 — 2026-08-02, ADR-015/016)
+
+`ORD-IT` = `OrderServiceIntegrationTest` (order-service; Testcontainers, real
+PostgreSQL + HTTP, real crm-security-starter chain, real orchestration/KR-12
+generator/persistence — the lookup, account and product clients are mocked at their
+interfaces only, which is what makes "step 4 fails" testable at all).
+`PROD-IT` = `ProductServiceIntegrationTest`, `ACCT-IT` = `AccountServiceIntegrationTest`.
+
+| Requirement | Implementation | Test |
+|---|---|---|
+| FR-SALE-01 / AC-SALE-01-15 Submit Order | `POST /api/orders` — one atomic command carrying the whole basket; order created `MIDLWARE`, the status AC-SALE-01-15 describes and the only one a user sees | ORD-IT `submitCreatesOrder` |
+| AC-SALE-01-01 products linked to the originating Billing Account | the orchestration's **commit point**: account-service's involvement command (ADR-013 §8) | ORD-IT `submitCreatesOrder`, ACCT-IT `involvementWriteLinksProducts` |
+| FR-SALE-02 / AC-SALE-02-01 only an **Active** account may be sold into | enforced twice server-side: precondition (step 0) and again by account-service | ORD-IT `preconditionsRejectBeforeWriting`, `involvementWriteRefusedSurfacesAsConflict`; ACCT-IT `involvementWriteRejections` |
+| AC-SALE-01-03/04/06/07/13/14 basket assembly, LBL-CLEAR/NEXT/PREVIOUS | **frontend/session state — no backend representation** (ADR-016 §2.6); the backend learns of the sale once, at Submit | — (by design) |
+| AC-SALE-01-05 duplicate offer → `MSG-SALE-DUP-OFFER` | `BasketValidationRules.checkNoDuplicateOffers` (product-service) | PROD-IT `basketCompositionRules` |
+| AC-SALE-01-08 all offers Active + exactly one INTERNET/RESOURCE/ACTIVATION | `BasketValidationRules` in **product-service** (ADR-015 §6 — only it knows offer status and service type); order-service relays the key unchanged | PROD-IT `basketCompositionRules`; ORD-IT `basketRejectionIsRelayedVerbatim` |
+| AC-SALE-01-09 internet offer = main product, others its children | **derived from the service type**, never declared by the caller; only the main row stores `service_address_id` | PROD-IT `createProductsAsPending` |
+| AC-SALE-01-10/17/20 characteristic fields per product | `GET /api/offers/{id}/characteristics` (name, dataType, mandatory) reached through the offer's spec | PROD-IT `offerCharacteristicSchema` |
+| AC-SALE-01-11 service address for the main product | `serviceAddressId` in the request → the main `PROD` row | PROD-IT `createProductsAsPending` |
+| AC-SALE-01-12 Total Amount + per-offer amounts | **snapshot** columns `cust_ord.total_amount` / `cust_ord_item.amount` (project addition, ADR-016 §2.4); total derived at creation | ORD-IT `submitCreatesOrder` |
+| AC-SALE-01-12 "Order ID shown on the Submit screen" | shown **after** submission, from the 201 (ADR-016 §8.3) — reserving a number earlier would burn KR-12 values on abandoned sales and create the backend trace AC-SALE-01-16 forbids. **Flagged for analysts** | ORD-IT `submitCreatesOrder` |
+| AC-SALE-01-16 an abandoned sale is never processed later | true **by construction**: no basket is ever persisted, so there is nothing to abandon | — (by design) |
+| AC-SALE-01-18 mandatory characteristic blank → `MSG-VAL-CHAR-REQUIRED` | `CharacteristicValidationRules` (product-service) | PROD-IT `characteristicValidationRules`, `CharacteristicValidationRulesTest` |
+| AC-SALE-01-19 value must match its data type → `MSG-VAL-CHAR-FORMAT` | same; BOOLEAN is strict and an unknown `data_type` is rejected rather than waved through | `CharacteristicValidationRulesTest` |
+| AC-SALE-01-21 offer with no characteristics | `200 []` — a valid answer, not a 404; the block renders without fields | PROD-IT `offerCharacteristicSchema` |
+| KR-12 Order Number (**project-proposed**, analyst sign-off pending) | `[T][YY][SSSSSS][C]`, Luhn, `order_number_seq`; immutable, never reused — including after a compensated sale | `OrderNumberFormatTest`, `LuhnCheckDigitTest`, ORD-IT `sequenceIsGaplessAcrossCompensations` |
+| Sale orchestration across three databases without a distributed transaction | ADR-016 §5: local order write → products PNDG → attach → confirm → **involvement (commit point)**; every earlier failure compensated | ORD-IT `basketRejectionIsRelayedVerbatim`, `productServiceUnavailableAtCreate`, `confirmFailureCompensates`, `involvementWriteUnavailableCompensates`, `involvementWriteRefusedSurfacesAsConflict` |
+| GNL_ST `CANCELLED` used only by system compensation; `WAIT` never used | ADR-016 §6; no user-facing cancel endpoint (KR-7 out of phase) | ORD-IT `cancelledOrderKeepsItsNumberAndStaysVisible` |
+| ADR-002 in order_db (no gnl tables/seeds/FKs) + fail closed | V1 schema; catalog outage → 503, **nothing persisted** (statuses resolve before any write) | ORD-IT `schemaContainsOnlyOrderTables`, `writeFailsClosedWhenCatalogUnavailable` |
+| ADR-009 zero trust | starter chain (401/403; only `/actuator/health` + `/v3/api-docs/**` anonymous) | ORD-IT `securityChecks` |
+
 ## Removed by the 16.07.2026 revision
 
 | Item | Was | Now |
@@ -120,8 +151,10 @@ customer-service clients are mocked at their interfaces only).
 | AC-AUTH-01-02/06/07/08/09 login-page UI details (button state, masking, 64-char cap) + LBL-LANGUAGE on the login screen | Keycloak **project theme** (future work) | standard Keycloak login page + built-in EN/TR i18n serve the flow today |
 | ~~FR-ACCT-01..04 + KR-11~~ | — | ✅ **implemented 2026-07-23** (ADR-013/014) — see the account-service section above; this row was a stale leftover |
 | ~~FR-PROD-01..02 (PROD_*, CMPG*, PROD_CATAL*)~~ | — | ✅ **implemented 2026-07-29** (read-only slice) — see the product-service section above |
-| FR-PROD product **write** side (creation/provisioning, characteristic values) | product-service + order-service (§2.7 sale flow) | not implemented; `prod_spec_char*`/`prod_char_val` exist as schema + seed with no endpoint |
-| FR-SALE-01..02 (BSN_INTER, CUST_ORD, CUST_ORD_ITEM, basket validation MSG-SALE-*) | planned order-service | not implemented |
+| ~~FR-PROD product **write** side (creation/provisioning, characteristic values)~~ | — | ✅ **implemented 2026-08-02** (ADR-015 §5/§6): `POST /api/products` creates the installation as PNDG, `/confirm` and `/cancel` drive its lifecycle, `GET /api/offers/{id}/characteristics` serves the Product Configuration schema |
+| ~~FR-SALE-01..02 (BSN_INTER, CUST_ORD, CUST_ORD_ITEM, basket validation MSG-SALE-*)~~ | — | ✅ **implemented 2026-08-02** (ADR-016): `order-service` (:8087, `order_db`) — see the FR-SALE section above |
+| Product involvement **removal** | nobody — deliberately does not exist | KR-7 leaves product cancellation out of phase; no API removes a product from an account (ADR-013 §8.6) |
+| Transfer / service-address-change flows (GNL_TP `TRANSFER`/`CANCEL`) | not assigned | not implemented — **no FR/AC covers them** although the mock UI offers them as account-row actions (ADR-016 §8.2). Analyst question, not a build task |
 | FR-LANG-01 (TR/EN catalogs, **default EN** per 16.07.2026) | frontend + planned localization capability | backend returns language-neutral `messageKey`s |
 
 ## Known document conflicts (recorded, not silently resolved)

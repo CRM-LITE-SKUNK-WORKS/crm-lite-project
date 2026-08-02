@@ -24,3 +24,12 @@ crm:
     base-url: http://localhost:1     # never reached; AccountServiceClient is mocked in tests
   customer:
     base-url: http://localhost:1     # never reached; CustomerServiceClient is mocked in tests
+  lookup:
+    base-url: http://localhost:1     # never reached; LookupCatalogClient is mocked in tests
+    # The real LookupCatalogService (validation + contract assertion + cache) still
+    # runs — only the transport is mocked, same pattern as account-service.
+    # cache-ttl 0s forces every resolve through the mocked client, so a value cached
+    # by an earlier test cannot make a later "catalog unavailable" scenario pass for
+    # the wrong reason (the same setting account-service's test config uses).
+    cache-ttl: 0s
+    cache-max-size: 256

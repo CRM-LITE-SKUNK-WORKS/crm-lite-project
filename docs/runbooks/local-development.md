@@ -53,8 +53,16 @@ account-service require **lookup-service** and **customer-service** (address
 validation, ADR-013). Business APIs additionally require a **Keycloak login**
 (401 without a session/token).
 
+The FR-SALE sale flow (ADR-016) adds the longest dependency chain in the platform:
+**order-service** writes through **product-service** (product creation) and
+**account-service** (the involvement command), and all three need
+**lookup-service** for status resolution. A submit with any of them down fails
+closed with 503 and the order is left `CANCELLED` — correct, but not what you want
+while demoing.
+
 1. PostgreSQL + Keycloak 2. config-server 3. discovery-server 4. lookup-service
 5. mernis-stub 6. api-gateway 7. customer-service 8. account-service
+9. product-service 10. order-service
 
 customer-service and account-service still *boot* and serve reads if their write
 dependencies are down — but every create/update/delete will fail closed with 503

@@ -6,6 +6,7 @@ import { AccountApiService } from './account-api.service';
 
 const ACCOUNT: AccountResponse = {
   accountNumber: '1261000010',
+  customerNumber: 1001,
   accountName: '1261000010',
   accountTypeCode: '224',
   accountTypeName: 'Billing Account',

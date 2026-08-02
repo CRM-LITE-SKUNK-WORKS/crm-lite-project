@@ -13,10 +13,37 @@ public final class MessageKeys {
     // an unknown — or K-8-hidden 223 — account number is 404 MSG-ACCT-NOT-FOUND.
     public static final String ACCT_NOT_FOUND = "MSG-ACCT-NOT-FOUND";
 
+    // §2.7 basket validation table (AC-SALE-01-05/08). All 400. These live HERE and
+    // not in order-service because they are PROD_OFR/PROD_SPEC questions — "is this
+    // offer active?", "which service type does it derive from?" — and validating at
+    // the point of persistence makes them unbypassable (ADR-015 §6).
+    public static final String SALE_OFFER_INACTIVE = "MSG-SALE-OFFER-INACTIVE";
+    public static final String SALE_NO_INTERNET = "MSG-SALE-NO-INTERNET";
+    public static final String SALE_NO_RESOURCE = "MSG-SALE-NO-RESOURCE";
+    public static final String SALE_NO_ACTIVATION = "MSG-SALE-NO-ACTIVATION";
+    public static final String SALE_MULTI_INTERNET = "MSG-SALE-MULTI-INTERNET";
+    public static final String SALE_MULTI_RESOURCE = "MSG-SALE-MULTI-RESOURCE";
+    public static final String SALE_MULTI_ACTIVATION = "MSG-SALE-MULTI-ACTIVATION";
+    public static final String SALE_DUP_OFFER = "MSG-SALE-DUP-OFFER";
+
+    // §2.7 characteristic validation (AC-SALE-01-18/19). Analyst catalog keys.
+    public static final String VAL_CHAR_REQUIRED = "MSG-VAL-CHAR-REQUIRED";
+    public static final String VAL_CHAR_FORMAT = "MSG-VAL-CHAR-FORMAT";
+
+    // MSG-SALE-ORDER-CONFIRM is frontend-only (the AC-SALE-01-15 modal) and is
+    // deliberately ABSENT here, same reasoning as MSG-PROD-NONE above.
+
     // Documented project addition (NOT in the analyst catalog — see
     // docs/api/product-service.md): FR-PROD-02's detail modal needs a clean
-    // unknown-product outcome.
+    // unknown-product outcome. Also answers a PNDG product, which is not yet a
+    // product the customer owns (ADR-015 §5.5).
     public static final String PROD_NOT_FOUND = "MSG-PROD-NOT-FOUND";
+
+    // Documented project addition: `cancel` refused because the product is not PNDG.
+    // The guard matters — an endpoint able to passivate a COMMITTED product would be
+    // the KR-7 product cancellation that is out of phase, arriving by the back door
+    // (ADR-015 §5.7).
+    public static final String PROD_NOT_PENDING = "MSG-PROD-NOT-PENDING";
 
     // Established platform keys (same semantics as the other domain services).
     public static final String VALIDATION_ERROR = "MSG-VALIDATION-ERROR";

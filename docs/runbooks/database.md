@@ -8,7 +8,8 @@ databases per service:
 | `customer_db` | customer-service | its Flyway (V1 tables/indexes, V2 seed, V3 fixture expansion) |
 | `lookup_db` | lookup-service | its Flyway (V1 gnl_st/gnl_tp, V2 contract seed) |
 | `account_db` | account-service | its Flyway (V1 acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq, V2 KR-11 seed, V3 involvement seed, V4 fixture expansion — ADR-013/014) |
-| `product_db` | product-service | its Flyway (V1 tables, V2 seed, V3 fixture expansion) |
+| `product_db` | product-service | its Flyway (V1 tables, V2 seed, V3 fixture expansion, V4 passive-offer fixture) |
+| `order_db` | order-service | its Flyway (V1 bsn_inter/cust_ord/cust_ord_item/order_number_seq, V2 KR-12 seed — ADR-016) |
 | `keycloak_db` | keycloak (infra) | Keycloak-managed |
 | `crm_admin` | — | compose default DB only |
 
@@ -20,10 +21,16 @@ fixture prices there are development data only, never commercial tariff data.
 `infra/postgres/init/01-create-databases.sql` creates the databases **only on first
 volume initialization**. Hibernate validates; it never creates or alters schema.
 
-> **Existing volume predating account-service?** The init script will not re-run;
-> create the database once by hand (same situation as `keycloak_db`):
-> `podman exec postgres psql -U crmlite -d crm_admin -c 'CREATE DATABASE account_db;'`
-> then (re)start account-service so Flyway applies V1/V2.
+> **Existing volume predating a service?** The init script will not re-run; create
+> the database once by hand (same situation as `keycloak_db`), then (re)start the
+> owning service so its Flyway applies:
+> ```bash
+> docker exec postgres psql -U crmlite -d crm_admin -c 'CREATE DATABASE account_db;'
+> docker exec postgres psql -U crmlite -d crm_admin -c 'CREATE DATABASE product_db;'
+> docker exec postgres psql -U crmlite -d crm_admin -c 'CREATE DATABASE order_db;'
+> ```
+> (`podman exec …` on Podman. `CREATE DATABASE` fails harmlessly with "already
+> exists" if it is there — run all three and ignore those.)
 
 ## DBeaver connection
 
@@ -58,6 +65,35 @@ SELECT id, short_code, type_domain  FROM gnl_tp ORDER BY id;
 -- account_db: expected tables (and ONLY these + flyway_schema_history; ADR-013)
 SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1;
 -- acct_number_seq, acct_tp, cust_acct, cust_acct_prod_invl, flyway_schema_history
+
+-- order_db: expected tables (and ONLY these + flyway_schema_history; ADR-016)
+SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1;
+-- bsn_inter, cust_ord, cust_ord_item, order_number_seq, flyway_schema_history
+
+-- order_db: the seeded order — KR-12 number regenerated from the workbook's 5001,
+-- MIDLWARE (4) = "Siparis Alindi Isleniyor...", three items, total 497.00
+SELECT o.order_number, o.status_id, o.total_amount, o.customer_number,
+       b.customer_account_number, b.bsn_inter_type_id
+FROM cust_ord o JOIN bsn_inter b ON b.id = o.bsn_inter_id;
+
+-- order_db: KR-12 sequence state. next_value is the NEXT value to be issued, so
+-- after the seed (which consumed 100000) it is 100001 -> first new order 1261000010.
+SELECT * FROM order_number_seq;
+
+-- order_db: every order number must be distinct and never reused, INCLUDING after a
+-- compensated (CANCELLED = 5) sale. This must always return zero rows.
+SELECT order_number, COUNT(*) FROM cust_ord GROUP BY order_number HAVING COUNT(*) > 1;
+
+-- account_db: what a completed sale actually wrote — the involvement rows are the
+-- ONLY link between a product and a billing account (ADR-013 §5).
+SELECT a.account_number, i.product_id, i.short_code, i.status_id
+FROM cust_acct_prod_invl i JOIN cust_acct a ON a.id = i.customer_account_id
+WHERE i.deleted_date IS NULL ORDER BY a.account_number, i.product_id;
+
+-- product_db: after a successful sale nothing should be left PNDG (status 6).
+-- Rows here mean a confirm step failed mid-flight (ADR-015 §8.4) — they are
+-- invisible to the customer but block their account's passivation.
+SELECT id, name, status_id FROM prod WHERE status_id = 6;
 
 -- account_db MUST have no shared-catalog tables either (ADR-002)
 SELECT table_name FROM information_schema.tables

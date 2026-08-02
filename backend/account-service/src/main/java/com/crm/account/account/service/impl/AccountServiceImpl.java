@@ -3,7 +3,9 @@ package com.crm.account.account.service.impl;
 import com.crm.account.account.AccountContract;
 import com.crm.account.account.dto.request.AccountCreateRequest;
 import com.crm.account.account.dto.request.AccountUpdateRequest;
+import com.crm.account.account.dto.request.ProductInvolvementRequest;
 import com.crm.account.account.dto.response.AccountResponse;
+import com.crm.account.account.dto.response.ProductInvolvementResponse;
 import com.crm.account.account.entity.AccountType;
 import com.crm.account.account.entity.CustomerAccount;
 import com.crm.account.account.mapper.AccountMapper;
@@ -23,6 +25,8 @@ import com.crm.account.customer.CustomerSummary;
 import com.crm.account.lookup.LookupCatalogService;
 import com.crm.account.lookup.LookupContract;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -81,6 +85,68 @@ public class AccountServiceImpl implements AccountService {
                 .stream()
                 .map(ProductInvolvement::getProductId)
                 .toList();
+    }
+
+    /**
+     * ADR-013 §8 write side — the involvement command, the commit point of a sale
+     * (ADR-016 §5.1 step 4). Bulk and single-shot: every requested product is linked
+     * in THIS one local transaction, so a partial link set can never be observed.
+     *
+     * <p>Beyond the usual visibility rule the target must also be <b>Active</b>: a
+     * Passive account stays readable (AC-ACCT-04-02) but must never acquire new
+     * products. This is the server-side enforcement of AC-SALE-02-01, which the UI
+     * states only as a disabled action — and a disabled button is not a check.
+     *
+     * <p>Idempotent per (account, product): a product already linked by a non-deleted
+     * row is left untouched rather than duplicated or rejected. The caller is a
+     * compensating orchestrator that may legitimately retry, and duplicate rows would
+     * corrupt the meaning of the AC-ACCT-04-03 delete guard.
+     *
+     * <p>{@code productId} is accepted as an opaque external reference — account-service
+     * deliberately does NOT call product-service to verify it (that would invert the
+     * dependency direction and create a call cycle; ADR-013 §8.5).
+     */
+    @Override
+    @Transactional
+    public ProductInvolvementResponse addProductInvolvements(String accountNumber, ProductInvolvementRequest request) {
+        CustomerAccount account = findVisibleAccount(accountNumber);
+        rules.checkAccountCanReceiveProducts(account);
+
+        // Distinct: a caller repeating an id within one body must not create two rows.
+        List<Long> requestedIds = request.getProductIds().stream().distinct().toList();
+        Set<Long> alreadyLinked = involvementRepository
+                .findByCustomerAccountIdAndProductIdInAndDeletedDateIsNull(account.getId(), requestedIds)
+                .stream()
+                .map(ProductInvolvement::getProductId)
+                .collect(Collectors.toSet());
+
+        // Resolved through the shared catalog even when every id is already linked:
+        // fail closed is a property of the write path, not of whether it had work to do
+        // (ADR-002 §7).
+        long activeStatusId = lookupCatalog.resolveStatusId("status",
+                LookupContract.STATUS_ACTIVE, LookupContract.STATUS_DOMAIN_GENERAL);
+        String actor = actorProvider.get();
+
+        for (Long productId : requestedIds) {
+            if (alreadyLinked.contains(productId)) {
+                continue;
+            }
+            ProductInvolvement involvement = new ProductInvolvement();
+            involvement.setCustomerAccountId(account.getId());
+            involvement.setProductId(productId);
+            involvement.setShortCode(AccountContract.INVOLVEMENT_SHORT_CODE);
+            involvement.setStatusId(activeStatusId);
+            involvement.markCreated(actor);
+            involvementRepository.save(involvement);
+        }
+
+        // Return the resulting state (same shape/ordering as the §7 read side) rather
+        // than an insert count, so a retry answers identically — observable idempotency.
+        return new ProductInvolvementResponse(account.getAccountNumber(),
+                involvementRepository.findByCustomerAccountIdAndDeletedDateIsNullOrderByProductIdAsc(account.getId())
+                        .stream()
+                        .map(ProductInvolvement::getProductId)
+                        .toList());
     }
 
     /**

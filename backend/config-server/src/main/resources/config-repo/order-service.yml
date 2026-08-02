@@ -1,0 +1,62 @@
+server:
+  port: 8087
+  # ADR-012: springdoc reads X-Forwarded-* for its self-detected server URL; the real
+  # "Try it out" fix is the relative-server OpenApiConfig bean (see PROJECTBRAIN §4.7),
+  # this setting is kept for parity with the other domain services.
+  forward-headers-strategy: framework
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/order_db
+    username: crmlite
+    password: crmlite
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+
+# Outbound integration boundaries (ADR-016 §5). Base URLs use Eureka service names
+# resolved by the load-balanced RestClient; override with concrete http://host:port
+# when running without discovery. All three carry the end-user's token (ADR-010) and
+# are reached DIRECTLY, never through the gateway — the gateway is the browser edge.
+crm:
+  security:
+    # Canonical issuer (ADR-006): must equal the JWT `iss` claim exactly. Keycloak's
+    # KC_HOSTNAME pins tokens to this value in every topology. In the compose
+    # network, JWKS is fetched via the internal DNS name instead
+    # (CRM_SECURITY_JWKSETURI env override); issuer validation stays canonical.
+    issuer: http://localhost:8180/realms/crm-lite
+    # audience: crm-api and required-role: crm-user are the starter defaults.
+    # Overrides (not extends) the starter's default permit-paths list, so
+    # /actuator/health must be repeated here. /v3/api-docs is the OpenAPI JSON the
+    # gateway proxies into the unified Swagger UI (ADR-012) — schema metadata only,
+    # no business data, safe to leave anonymous like the docs page itself.
+    permit-paths:
+      - /actuator/health
+      - /v3/api-docs/**
+  account:
+    base-url: http://account-service    # precondition read + involvement command (ADR-013 §7/§8)
+  product:
+    base-url: http://product-service    # product creation / confirm / cancel (ADR-015 §5)
+  lookup:
+    base-url: http://lookup-service     # shared GNL_ST + GNL_TP owner (ADR-002); writes only
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
+
+# Only the OpenAPI JSON is served here; the gateway hosts the actual Swagger UI
+# and proxies this service's /v3/api-docs into it (ADR-012).
+springdoc:
+  swagger-ui:
+    enabled: false
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

@@ -2233,7 +2233,7 @@
                   "    pm.expect(rows).to.be.an(\"array\");",
                   "    rows.forEach(r => {",
                   "        pm.expect(r.accountTypeCode).to.eql(\"224\");",
-                  "        pm.expect(Object.keys(r).sort()).to.eql([\"accountName\",\"accountNumber\",\"accountStatus\",\"accountTypeCode\",\"accountTypeName\",\"billingAddressId\"]);",
+                  "        pm.expect(Object.keys(r).sort()).to.eql([\"accountName\",\"accountNumber\",\"accountStatus\",\"accountTypeCode\",\"accountTypeName\",\"billingAddressId\",\"customerNumber\"]);",
                   "    });",
                   "    pm.expect(rows.map(r => r.accountNumber)).to.not.include(\"1261000002\");",
                   "    const firstPassive = rows.findIndex(r => r.accountStatus === \"Passive\");",

@@ -46,6 +46,7 @@
         <module>backend/mernis-stub</module>
         <module>backend/account-service</module>
         <module>backend/product-service</module>
+        <module>backend/order-service</module>
     </modules>
 
     <dependencyManagement>

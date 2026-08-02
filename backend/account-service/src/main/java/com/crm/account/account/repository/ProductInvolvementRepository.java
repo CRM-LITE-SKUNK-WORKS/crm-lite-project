@@ -1,6 +1,7 @@
 package com.crm.account.account.repository;
 
 import com.crm.account.account.entity.ProductInvolvement;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -21,4 +22,14 @@ public interface ProductInvolvementRepository extends JpaRepository<ProductInvol
      * belongs exclusively to the AC-ACCT-04-03 delete guard.
      */
     List<ProductInvolvement> findByCustomerAccountIdAndDeletedDateIsNullOrderByProductIdAsc(Long customerAccountId);
+
+    /**
+     * ADR-013 §8.4 idempotency support: which of the requested products are already
+     * linked to this account by a non-deleted row. Re-posting an existing pair must
+     * leave it untouched — duplicate involvement rows would corrupt the meaning of
+     * the AC-ACCT-04-03 delete guard, and the caller is a compensating orchestrator
+     * (ADR-016 §5) that may legitimately retry.
+     */
+    List<ProductInvolvement> findByCustomerAccountIdAndProductIdInAndDeletedDateIsNull(
+            Long customerAccountId, Collection<Long> productIds);
 }

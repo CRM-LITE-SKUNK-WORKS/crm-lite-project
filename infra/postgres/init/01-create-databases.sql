@@ -8,3 +8,6 @@ CREATE DATABASE account_db;
 -- Same first-init caveat: existing dev volumes need a one-time manual
 -- `CREATE DATABASE product_db;`.
 CREATE DATABASE product_db;
+-- Same first-init caveat: existing dev volumes need a one-time manual
+-- `CREATE DATABASE order_db;`.
+CREATE DATABASE order_db;

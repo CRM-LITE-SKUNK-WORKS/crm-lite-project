@@ -147,6 +147,77 @@ require a new shared `GNL_TP` `SERVICE_TYPE` row and a change to
 a fixture-volume expansion and does not fit AC-SALE-01-08's three-service-type
 basket rule — flagged here for analysts, not built.
 
+### Implementation record (2026-08-02 — FR-SALE §2.7 built: order-service + the product/account write slices)
+
+`backend/order-service` (port 8087, `order_db`, `com.crm.order`) implements FR §2.7
+(FR-SALE-01, FR-SALE-02), together with a write slice on product-service and the
+involvement command on account-service. **No FR/AC text changed** — this section
+records the *workbook* deviations and the project decisions the FR does not name.
+Architecture: **ADR-015** (product boundary), **ADR-016** (order boundary), plus the
+**ADR-013 §3.6/§7/§8** amendments. Full contracts:
+[`docs/api/order-service.md`](../api/order-service.md).
+
+**Workbook deviations (workbook NOT edited):**
+
+| # | Deviation | Why | Where |
+|---|---|---|---|
+| P10 | **Passive-offer fixture:** new `PROD_OFR` row 11 (`ADSL 4MB Offer (retired)`), `status_id = 2` (PASV) with full soft-delete metadata | AC-SALE-01-08 requires every basket offer to be Active and names `MSG-SALE-OFFER-INACTIVE`, but every seeded offer (workbook V2 + the V3 expansion) is ACTV — the branch had no fixture. Exactly the same gap and remedy as P3's passive *product*. Invisible to `GET /api/offers` (ACTV-filtered), so no existing contract changed. Price 199.00 follows the P1/P5 provisional convention | `product-service` `V4__seed_passive_offer_fixture.sql` — **analyst approval pending, same as P1** |
+| P11 | **`CUST_ORD.order_number` 5001 regenerated to KR-12 `1261000002`** | The workbook's legacy value satisfies no format rule; regenerated from the production generator (segment 1, year 2026, first sequence value). Exactly how ADR-014 §8 regenerated the `CUST_ACCT` seed. ⚠️ The value collides with account `1261000002` — accepted and recorded (ADR-016 §8.1) | `order-service` `V2__seed_order_data.sql` |
+| P12 | **`CUST_ORD.customer_id` → `customer_number`; `BSN_INTER.customer_account_id` → `customer_account_number`** | Internal ids never leave the service that owns them, so they are not observable here; the public business number is the only stable cross-service reference. The identical reasoning ADR-013 §2.3 applied to `cust_acct.customer_number` | `order-service` `V1`/`V2` |
+| P13 | **Amount snapshot columns added** — `cust_ord.total_amount`, `cust_ord_item.amount` (neither is in the workbook) | AC-SALE-01-12 requires a Total Amount and per-offer amounts, and `PROD_OFR.product_offer_total_price` is a *current catalog price*: reading it back later would silently rewrite the history of a past order whenever a price changes. **The columns are sound; the values feeding them are provisional** (P1/P5, conflict #10) | `order-service` `V1`, ADR-016 §2.4 |
+| P14 | **`order_number_seq` table added** | Required by KR-12; the workbook has no sequence table — the same project addition ADR-014 §3 recorded as `acct_number_seq` | `order-service` `V1` |
+| P15 | **`cust_ord_item.product_id` is nullable** | The workbook carries the column, but the product does not exist when the order header is written. Making it nullable and filling it in a second local transaction preserves the property the whole orchestration rests on: the sale's first write is one self-contained local transaction (ADR-016 §5.2). The intermediate state is never observable | `order-service` `V1` |
+| P16 | **`PROD.transaction_id` stays NULL** even though the order domain now exists | Its only plausible meaning is a `BSN_INTER` reference, but that would be a `product_db → order_db` link in the *opposite* direction to the one that already exists (`cust_ord_item.product_id`) — two unsynchronised copies of one relationship. **Open analyst question**, not a blocker: order → product is already navigable | ADR-015 §8.2 |
+
+**Project decisions the FR/AC catalog does not name:**
+
+- **KR-12 (project-proposed): the Order Number format.** `[T][YY][SSSSSS][C]`, Luhn
+  check digit, per-segment/per-year sequence — deliberately the KR-11 shape.
+  AC-SALE-01-12 requires a displayable Order ID and the analyst document defines no
+  rule. **Awaiting analyst sign-off**, at the same level as the invented prices, and
+  labelled "project-proposed" wherever it appears.
+- **New message keys** (none exist in the analyst catalog, which never describes an
+  order being looked up or refused): `MSG-ORDER-NOT-FOUND` (404),
+  `MSG-ORDER-DUP-NUMBER` (409), `MSG-ORDER-NUMBER-CAPACITY-EXCEEDED` (409),
+  `MSG-PROD-NOT-PENDING` (409, product-service's PNDG-only compensation guard).
+- **`GNL_ST` PNDG (id 6, PROD domain) is written for the first time.** The workbook
+  has reserved it since day one and no code had ever used it. ADR-015 §5.2 gives it
+  the meaning *"reserved by an in-flight sale, not yet committed"*. No catalog row was
+  invented — but the **semantics** are a project decision, flagged for analysts.
+- **`customerNumber` added to account-service's representation** (ADR-013 §3.6):
+  additive, a public business number, needed because order-service must record
+  `cust_ord.customer_number` while knowing only an account number.
+
+**Interpretation decisions where the FR is silent or self-contradictory** (recorded so
+they are not mistaken for requirements):
+
+- **AC-SALE-01-12 lists an "Order ID" on the Submit screen, i.e. before submission.**
+  No order — and therefore no number — can exist before LBL-SUBMIT under the
+  basket-is-frontend-state decision. A reservation endpoint was rejected twice over: it
+  would burn a gapless KR-12 number on every abandoned sale, **and** create exactly the
+  backend trace of an incomplete sale that AC-SALE-01-16 forbids. Resolved as an
+  editorial ordering slip: the Order ID is rendered from the 201, in the AC-SALE-01-15
+  *"Sipariş Alındı, İşleniyor…"* state. **Flagged for analysts** (ADR-016 §8.3).
+- **The order response carries only what `order_db` owns.** AC-SALE-01-12's field list
+  describes a *screen*, not a payload: offer names, campaign and Service Address are
+  catalog/session facts the client already holds (ADR-016 §3).
+- **`GNL_ST WAIT`(3) and `GNL_TP TRANSFER`(8)/`CANCEL`(9) are never written.** No AC
+  references them (ADR-016 §6). The `bsn_inter_type_id` column exists and carries
+  NEWSALE, so a future flow needs no migration.
+- **PNDG products are invisible to FR-PROD-01/02.** The Status column has exactly two
+  values and the mapper renders anything non-ACTV as "Passive", so a leaked PNDG row
+  would show the customer a passive product they never bought (ADR-015 §5.5).
+
+**Open conflict restated:** the mock UI's account-row actions (*Start new sale*,
+*Transfer*, *Service address change*) do not line up with the `BSN_INTER_TYPE` catalog
+(NEWSALE/TRANSFER/CANCEL), and **no FR/AC covers transfer or cancellation**. Only
+*Start new sale* (NEWSALE) is implemented; the other two are flagged for analysts, not
+built (ADR-016 §8.2).
+
+**ADR debt discharged:** ADR-015 (product boundary) and the ADR-013 read-side clause —
+outstanding since 2026-07-29 (PROJECTBRAIN §9.1b) — are now written, together with
+ADR-013 §8 (write side) and ADR-016.
+
 ### Accepted changes (documented 23.07.2026 morning; since implemented — see the implementation record above)
 
 | # | Change | Source | Action taken |

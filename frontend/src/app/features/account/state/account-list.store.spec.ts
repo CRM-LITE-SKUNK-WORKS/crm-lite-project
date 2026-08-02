@@ -7,6 +7,7 @@ import { AccountListStore } from './account-list.store';
 
 const ACTIVE: AccountResponse = {
   accountNumber: '1261000010',
+  customerNumber: 1001,
   accountName: 'Ali Billing',
   accountTypeCode: '224',
   accountTypeName: 'Billing Account',

@@ -7,6 +7,9 @@ import com.crm.product.account.AccountServiceUnavailableException;
 import com.crm.product.customer.CustomerAddress;
 import com.crm.product.customer.CustomerServiceClient;
 import com.crm.product.customer.CustomerServiceUnavailableException;
+import com.crm.product.lookup.LookupCatalogClient;
+import com.crm.product.lookup.LookupCatalogUnavailableException;
+import com.crm.product.lookup.LookupStatusResponse;
 import com.crm.product.testsecurity.TestSecurity;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +25,7 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -78,6 +82,11 @@ class ProductServiceIntegrationTest {
     @MockitoBean
     CustomerServiceClient customerServiceClient;
 
+    // ADR-015 §4.1: only the TRANSPORT is mocked — the real LookupCatalogService
+    // (domain validation, contract-ID assertion, TTL cache) still runs.
+    @MockitoBean
+    LookupCatalogClient lookupCatalogClient;
+
     @Autowired
     JdbcTemplate jdbcTemplate;
 
@@ -92,6 +101,17 @@ class ProductServiceIntegrationTest {
                 .build();
         stubAccountService();
         stubCustomerService();
+        stubHealthyCatalog();
+    }
+
+    private void stubHealthyCatalog() {
+        Mockito.when(lookupCatalogClient.fetchStatus("ACTV"))
+                .thenReturn(Optional.of(new LookupStatusResponse(1L, "ACTV", "Active", "GENERAL")));
+        Mockito.when(lookupCatalogClient.fetchStatus("PASV"))
+                .thenReturn(Optional.of(new LookupStatusResponse(2L, "PASV", "Passive", "GENERAL")));
+        // PNDG lives in the PROD domain, not GENERAL (workbook GNL_ST id 6).
+        Mockito.when(lookupCatalogClient.fetchStatus("PNDG"))
+                .thenReturn(Optional.of(new LookupStatusResponse(6L, "PNDG", "Pending", "PROD")));
     }
 
     private void stubAccountService() {
@@ -141,6 +161,26 @@ class ProductServiceIntegrationTest {
     private ResponseEntity<List> getList(String path) {
         return http.get().uri(path).retrieve().toEntity(List.class);
     }
+
+    private ResponseEntity<Map> post(String path, String json) {
+        return http.post().uri(path)
+                .headers(h -> h.setContentType(MediaType.APPLICATION_JSON))
+                .body(json).retrieve().toEntity(Map.class);
+    }
+
+    private Long statusOf(long productId) {
+        return jdbcTemplate.queryForObject("SELECT status_id FROM prod WHERE id = ?", Long.class, productId);
+    }
+
+    /** A complete, valid ADSL basket: offers 1 (INTERNET) + 2 (RESOURCE) + 3 (ACTIVATION). */
+    private static final String VALID_BASKET = """
+            {"serviceAddressId": 1, "campaignId": "CMP-ADSL-01", "items": [
+              {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"},
+                                                 {"characteristicId": 2, "value": "true"}]},
+              {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
+              {"offerId": 3, "characteristics": []}
+            ]}
+            """;
 
     private static final Set<String> ROW_KEYS = Set.of(
             "productId", "productName", "campaignName", "campaignId", "productStatus");
@@ -434,5 +474,317 @@ class ProductServiceIntegrationTest {
         assertThat(((Number) campaigns.get(1).get("totalPrice")).doubleValue()).isEqualTo(727.00); // CMP-FIBER-01
         assertThat(((Number) campaigns.get(2).get("totalPrice")).doubleValue()).isEqualTo(927.00); // CMP-FIBER-02
         assertThat(((Number) campaigns.get(3).get("totalPrice")).doubleValue()).isEqualTo(547.00); // CMP-ADSL-02
+    }
+
+    // ================================================== FR-SALE-01 write slice (ADR-015)
+
+    @Test
+    @DisplayName("characteristics: schema comes through the offer's SPEC; an offer with none is 200 [] (AC-SALE-01-21)")
+    void offerCharacteristicSchema() {
+        // Offer 1 -> spec 1 (ADSL Internet): chars 1 (NUMBER, mandatory), 2 (BOOLEAN), 4 (DATE).
+        List<Map<String, Object>> internet = getList("/api/offers/1/characteristics").getBody();
+        assertThat(internet).hasSize(3);
+        assertThat(internet.get(0).keySet()).isEqualTo(Set.of(
+                "characteristicId", "name", "description", "dataType", "mandatory"));
+        assertThat(internet).extracting(row -> row.get("dataType")).containsExactly("NUMBER", "BOOLEAN", "DATE");
+        assertThat(internet).extracting(row -> row.get("mandatory")).containsExactly(true, false, false);
+
+        // Offer 2 -> spec 2 (modem): one mandatory TEXT characteristic.
+        List<Map<String, Object>> modem = getList("/api/offers/2/characteristics").getBody();
+        assertThat(modem).hasSize(1);
+        assertThat(modem.get(0).get("name")).isEqualTo("MAC Address");
+
+        // AC-SALE-01-21: offer 3 (activation) has NO characteristics — an empty list
+        // is the valid answer, not a 404. The screen renders the block without fields.
+        assertThat(getList("/api/offers/3/characteristics").getBody()).isEmpty();
+
+        ResponseEntity<Map> unknown = get("/api/offers/999/characteristics");
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknown.getBody().get("messageKey")).isEqualTo("MSG-PROD-NOT-FOUND");
+    }
+
+    @Test
+    @DisplayName("create: main/child derived from service type, PNDG, char values persisted, total derived")
+    void createProductsAsPending() {
+        ResponseEntity<Map> response = post("/api/products", VALID_BASKET);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        Map<String, Object> body = response.getBody();
+        assertThat(body.get("campaignId")).isEqualTo("CMP-ADSL-01");     // public code, never cmpg.id
+        assertThat(body.get("campaignName")).isEqualTo("ADSL Hosgeldin Kampanyasi");
+        // AC-SALE-01-12 Total Amount, derived: 299 + 149 + 49.
+        assertThat(((Number) body.get("totalAmount")).doubleValue()).isEqualTo(497.00);
+
+        List<Map<String, Object>> products = (List<Map<String, Object>>) body.get("products");
+        assertThat(products).hasSize(3);
+        // AC-SALE-01-09: the INTERNET offer is the main product — DERIVED from the
+        // service type, never declared by the caller.
+        assertThat(products.get(0).get("offerId")).isEqualTo(1);
+        assertThat(products.get(0).get("main")).isEqualTo(true);
+        assertThat(products).filteredOn(p -> Boolean.TRUE.equals(p.get("main"))).hasSize(1);
+
+        long mainProductId = ((Number) body.get("mainProductId")).longValue();
+        assertThat(((Number) products.get(0).get("productId")).longValue()).isEqualTo(mainProductId);
+
+        // Every row PNDG (6) — reserved, not yet committed.
+        for (Map<String, Object> product : products) {
+            assertThat(statusOf(((Number) product.get("productId")).longValue())).isEqualTo(6L);
+        }
+
+        // Only the MAIN product stores the service address; children resolve it by
+        // walking up the parent chain (FR-PROD-02), so a stored copy would be a
+        // second truth that could drift.
+        Map<String, Object> mainRow = jdbcTemplate.queryForMap(
+                "SELECT parent_prod_id, service_address_id, campaign_id, transaction_id, created_by "
+                        + "FROM prod WHERE id = ?", mainProductId);
+        assertThat(mainRow.get("parent_prod_id")).isNull();
+        assertThat(((Number) mainRow.get("service_address_id")).longValue()).isEqualTo(1L);
+        assertThat(((Number) mainRow.get("campaign_id")).longValue()).isEqualTo(1L);
+        assertThat(mainRow.get("transaction_id")).isNull();               // ADR-015 §8.2
+        assertThat(mainRow.get("created_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+
+        long childId = ((Number) products.get(1).get("productId")).longValue();
+        Map<String, Object> childRow = jdbcTemplate.queryForMap(
+                "SELECT parent_prod_id, service_address_id FROM prod WHERE id = ?", childId);
+        assertThat(((Number) childRow.get("parent_prod_id")).longValue()).isEqualTo(mainProductId);
+        assertThat(childRow.get("service_address_id")).isNull();
+
+        // Characteristic values persisted, PNDG like their product. The optional DATE
+        // (char 4) was not submitted and must NOT be written as an empty row.
+        List<Map<String, Object>> values = jdbcTemplate.queryForList(
+                "SELECT product_spec_char_id, val, status_id FROM prod_char_val WHERE product_id = ? "
+                        + "ORDER BY product_spec_char_id", mainProductId);
+        assertThat(values).hasSize(2);
+        assertThat(values.get(0).get("val")).isEqualTo("16");
+        assertThat(values.get(1).get("val")).isEqualTo("true");
+        assertThat(values).allSatisfy(v -> assertThat(((Number) v.get("status_id")).longValue()).isEqualTo(6L));
+
+        // ADR-015 §5.5: a PNDG product is not yet a product the customer owns.
+        ResponseEntity<Map> detail = get("/api/products/" + mainProductId);
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(detail.getBody().get("messageKey")).isEqualTo("MSG-PROD-NOT-FOUND");
+    }
+
+    @Test
+    @DisplayName("confirm: PNDG -> ACTV incl. characteristic values; idempotent on retry; product becomes visible")
+    void confirmPromotesPendingProducts() {
+        Map<String, Object> created = post("/api/products", VALID_BASKET).getBody();
+        List<Map<String, Object>> products = (List<Map<String, Object>>) created.get("products");
+        List<Long> ids = products.stream().map(p -> ((Number) p.get("productId")).longValue()).toList();
+        long mainProductId = ((Number) created.get("mainProductId")).longValue();
+
+        ResponseEntity<Map> confirm = post("/api/products/confirm", "{\"productIds\": " + ids + "}");
+        assertThat(confirm.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        ids.forEach(id -> assertThat(statusOf(id)).isEqualTo(1L));
+
+        // Values follow their product — leaving them PNDG would make the
+        // "find incomplete sales" query lie (ADR-015 §8.4).
+        List<Long> valueStatuses = jdbcTemplate.queryForList(
+                "SELECT status_id FROM prod_char_val WHERE product_id = ?", Long.class, mainProductId);
+        assertThat(valueStatuses).isNotEmpty().allMatch(status -> status == 1L);
+
+        // Idempotent: ADR-016 §5.3 retries confirm, so a second call must not fail.
+        assertThat(post("/api/products/confirm", "{\"productIds\": " + ids + "}").getStatusCode())
+                .isEqualTo(HttpStatus.NO_CONTENT);
+        ids.forEach(id -> assertThat(statusOf(id)).isEqualTo(1L));
+
+        // Now a real product: the detail modal answers.
+        ResponseEntity<Map> detail = get("/api/products/" + mainProductId);
+        assertThat(detail.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(detail.getBody().keySet()).isEqualTo(DETAIL_KEYS);
+    }
+
+    @Test
+    @DisplayName("cancel: PNDG-only compensation, full soft-delete invariant; a committed product -> 409")
+    void cancelPassivatesOnlyPendingProducts() {
+        Map<String, Object> created = post("/api/products", VALID_BASKET).getBody();
+        List<Map<String, Object>> products = (List<Map<String, Object>>) created.get("products");
+        List<Long> ids = products.stream().map(p -> ((Number) p.get("productId")).longValue()).toList();
+        long mainProductId = ((Number) created.get("mainProductId")).longValue();
+
+        assertThat(post("/api/products/cancel", "{\"productIds\": " + ids + "}").getStatusCode())
+                .isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Full invariant, never a physical delete: PASV + deleted/updated metadata.
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT status_id, deleted_date, deleted_by, updated_date FROM prod WHERE id = ?", mainProductId);
+        assertThat(((Number) row.get("status_id")).longValue()).isEqualTo(2L);
+        assertThat(row.get("deleted_date")).isNotNull();
+        assertThat(row.get("deleted_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
+        assertThat(row.get("updated_date")).isNotNull();
+
+        List<Long> valueStatuses = jdbcTemplate.queryForList(
+                "SELECT status_id FROM prod_char_val WHERE product_id = ?", Long.class, mainProductId);
+        assertThat(valueStatuses).isNotEmpty().allMatch(status -> status == 2L);
+
+        // ADR-015 §5.7: the guard is the point. Cancelling a COMMITTED product would
+        // be the KR-7 cancellation that is out of phase, arriving by the back door.
+        ResponseEntity<Map> committed = post("/api/products/cancel", "{\"productIds\": [1]}");
+        assertThat(committed.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(committed.getBody().get("messageKey")).isEqualTo("MSG-PROD-NOT-PENDING");
+        assertThat(statusOf(1L)).isEqualTo(1L);   // untouched
+
+        ResponseEntity<Map> unknown = post("/api/products/cancel", "{\"productIds\": [999999]}");
+        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(unknown.getBody().get("messageKey")).isEqualTo("MSG-PROD-NOT-FOUND");
+    }
+
+    @Test
+    @DisplayName("AC-SALE-01-08: each basket-composition failure gets its OWN analyst message key")
+    void basketCompositionRules() {
+        int before = productCount();
+
+        // Missing RESOURCE and ACTIVATION -> the first missing one is reported.
+        assertKey(post("/api/products", basket("{\"offerId\": 1, \"characteristics\": "
+                + "[{\"characteristicId\": 1, \"value\": \"16\"}]}")), "MSG-SALE-NO-RESOURCE");
+
+        // Two INTERNET offers (1 and 9, both spec 1) -> MULTI, not NO.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"}]}",
+                "{\"offerId\": 9, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"24\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-SALE-MULTI-INTERNET");
+
+        // Missing ACTIVATION only.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}")),
+                "MSG-SALE-NO-ACTIVATION");
+
+        // AC-SALE-01-05: the same offer twice.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"}]}",
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-SALE-DUP-OFFER");
+
+        // The V4 passive-offer fixture (11, spec 1) — inactive is reported BEFORE
+        // composition, even though it would ALSO be a MULTI-INTERNET basket.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 11, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"4\"}]}",
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-SALE-OFFER-INACTIVE");
+
+        // A nonexistent offer is a client defect, NOT "inactive" — telling the user
+        // an offer is inactive when it does not exist would be false.
+        assertKey(post("/api/products", basket("{\"offerId\": 987654, \"characteristics\": []}")),
+                "MSG-VALIDATION-ERROR");
+
+        // An empty basket never reaches the rules: bean validation rejects it.
+        assertKey(post("/api/products",
+                "{\"serviceAddressId\": 1, \"items\": []}"), "MSG-VALIDATION-ERROR");
+
+        // Nothing was persisted by ANY of the rejections.
+        assertThat(productCount()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("AC-SALE-01-18/19: mandatory-blank and format failures carry their own keys; nothing persisted")
+    void characteristicValidationRules() {
+        int before = productCount();
+
+        // Char 1 is mandatory for spec 1 and was left blank.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"  \"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-VAL-CHAR-REQUIRED");
+
+        // Omitting it entirely is the same failure as sending it blank.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": []}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-VAL-CHAR-REQUIRED");
+
+        // NUMBER given a word.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"fast\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-VAL-CHAR-FORMAT");
+
+        // BOOLEAN given "1" — deliberately rejected: Boolean.parseBoolean would
+        // silently turn every typo into `false`.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"},"
+                        + "{\"characteristicId\": 2, \"value\": \"1\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-VAL-CHAR-FORMAT");
+
+        // DATE given a non-ISO value.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"},"
+                        + "{\"characteristicId\": 4, \"value\": \"31/12/2027\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-VAL-CHAR-FORMAT");
+
+        // A characteristic the offer does not use is a client defect, not user input —
+        // MSG-VAL-CHAR-* would describe a field that was never on the screen.
+        assertKey(post("/api/products", basket(
+                "{\"offerId\": 1, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"},"
+                        + "{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]}",
+                "{\"offerId\": 3, \"characteristics\": []}")), "MSG-VALIDATION-ERROR");
+
+        assertThat(productCount()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("campaign coherence: unknown code and a non-member offer are both rejected, nothing persisted")
+    void campaignCoherenceRules() {
+        int before = productCount();
+
+        assertKey(post("/api/products", VALID_BASKET.replace("CMP-ADSL-01", "CMP-NOPE-99")),
+                "MSG-VALIDATION-ERROR");
+
+        // Offer 9 (ADSL 16MB) is a member of CMP-ADSL-02, not CMP-ADSL-01 — a basket
+        // claiming a campaign it does not match is a client defect, not a discount.
+        assertKey(post("/api/products", "{\"serviceAddressId\": 1, \"campaignId\": \"CMP-ADSL-01\", \"items\": ["
+                + "{\"offerId\": 9, \"characteristics\": [{\"characteristicId\": 1, \"value\": \"16\"}]},"
+                + "{\"offerId\": 2, \"characteristics\": [{\"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\"}]},"
+                + "{\"offerId\": 3, \"characteristics\": []}]}"), "MSG-VALIDATION-ERROR");
+
+        assertThat(productCount()).isEqualTo(before);
+
+        // No campaign at all is legal: a basket assembled offer by offer.
+        ResponseEntity<Map> noCampaign = post("/api/products", VALID_BASKET
+                .replace("\"campaignId\": \"CMP-ADSL-01\", ", ""));
+        assertThat(noCampaign.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(noCampaign.getBody().get("campaignId")).isNull();
+        assertThat(noCampaign.getBody().get("campaignName")).isNull();
+    }
+
+    @Test
+    @DisplayName("ADR-002 §7 fail closed: catalog outage on a write -> 503, nothing persisted; reads unaffected")
+    void writeFailsClosedWhenCatalogUnavailable() {
+        int before = productCount();
+        Mockito.when(lookupCatalogClient.fetchStatus("PNDG"))
+                .thenThrow(new LookupCatalogUnavailableException("catalog down", null));
+
+        ResponseEntity<Map> response = post("/api/products", VALID_BASKET);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+        assertThat(productCount()).isEqualTo(before);
+
+        // ADR-002 §8: reads use the local LookupContract constants, so a catalog
+        // outage must NOT degrade product viewing.
+        ResponseEntity<List> list = getList("/api/products?accountNumber=" + ACCOUNT_WITH_PRODUCTS);
+        assertThat(list.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(list.getBody()).hasSize(4);
+    }
+
+    // ------------------------------------------------- write-slice test helpers
+
+    private int productCount() {
+        Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM prod", Integer.class);
+        return count == null ? -1 : count;
+    }
+
+    private String basket(String... items) {
+        return "{\"serviceAddressId\": 1, \"items\": [" + String.join(",", items) + "]}";
+    }
+
+    private void assertKey(ResponseEntity<Map> response, String expectedKey) {
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().get("messageKey")).isEqualTo(expectedKey);
     }
 }

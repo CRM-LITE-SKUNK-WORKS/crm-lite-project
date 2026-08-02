@@ -1,0 +1,38 @@
+# Test-only configuration.
+# - No config-server / Eureka: tests are self-contained.
+# - No datasource here: integration tests start their own PostgreSQL via
+#   Testcontainers and inject the URL with @DynamicPropertySource.
+spring:
+  cloud:
+    config:
+      enabled: false
+  config:
+    import: ""
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+eureka:
+  client:
+    enabled: false
+
+# Never reached: all three clients are mocked at their INTERFACE, so the real
+# service/orchestration/mapper logic runs while only the transport is faked.
+#
+# cache-ttl 0s forces every catalog resolve through the (mocked) client, exactly as
+# account-service's test config does. Without it a value cached by an earlier test
+# would satisfy a later "catalog is unavailable" scenario and the fail-closed
+# assertion would pass for the wrong reason — or, worse, fail while the production
+# behaviour is correct.
+crm:
+  account:
+    base-url: http://localhost:1
+  product:
+    base-url: http://localhost:1
+  lookup:
+    base-url: http://localhost:1
+    cache-ttl: 0s
+    cache-max-size: 256

@@ -7,11 +7,11 @@ package com.crm.product.lookup;
  * on locally ({@code status_id = STATUS_ACTIVE_ID AND deleted_date IS NULL}), so
  * reads never need a remote call.
  *
- * <p>Phase A is entirely read-only, so — unlike customer/account-service — this
- * service deliberately carries NO lookup HTTP client: there is no write that would
- * need a live catalog resolve, and these contract constants are the only coupling.
- * A future write slice must introduce the full client/service boundary
- * (LookupCatalogClient pattern) before persisting any status.
+ * <p>These constants stay the only coupling used by <b>reads</b> (ADR-002 §8), so no
+ * query makes a remote call per row. <b>Writes</b> go through the full
+ * {@link LookupCatalogService} boundary introduced with the FR-SALE slice
+ * (ADR-015 §4.1) — the Phase A note that "this service carries no lookup HTTP
+ * client" no longer holds, and no status may be persisted without resolving it.
  */
 public final class LookupContract {
 
@@ -23,6 +23,16 @@ public final class LookupContract {
     public static final String STATUS_PASSIVE = "PASV";
     public static final long STATUS_ACTIVE_ID = 1L;
     public static final long STATUS_PASSIVE_ID = 2L;
+
+    /**
+     * GNL_ST PNDG (id 6, domain PROD) — a workbook row reserved since day one and
+     * never written by any code until the FR-SALE write slice. Meaning given by
+     * ADR-015 §5.2: <i>reserved by an in-flight sale, not yet committed.</i> No new
+     * catalog row was invented; the semantics are the project decision.
+     */
+    public static final String STATUS_DOMAIN_PROD = "PROD";
+    public static final String STATUS_PENDING = "PNDG";
+    public static final long STATUS_PENDING_ID = 6L;
 
     /** GNL_TP SERVICE_TYPE contract rows (workbook: 10/11/12, never renumbered). */
     public static final long SERVICE_TYPE_INTERNET_ID = 10L;

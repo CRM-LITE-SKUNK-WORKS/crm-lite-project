@@ -24,9 +24,21 @@ import lombok.Setter;
 public class ProductCreateRequest {
 
     /**
+     * The PUBLIC business customer number the sale belongs to. Not stored — `PROD`
+     * deliberately has no customer column (ADR-013 §5) — but required, because it is
+     * the only way to check that {@link #serviceAddressId} actually belongs to this
+     * customer (ADR-015 §5.9). The caller knows it: order-service reads it from the
+     * billing account's representation.
+     */
+    @NotNull
+    @Positive
+    private Long customerNumber;
+
+    /**
      * AC-SALE-01-11: the service address chosen for the MAIN product. Children
      * inherit it by displaying their parent's (FR-PROD-02), so it is stored only on
-     * the main row. An FK-less external reference into customer_db (ADR-015 §2.3).
+     * the main row. An FK-less external reference into customer_db (ADR-015 §2.3),
+     * validated against the customer's active address list before persisting.
      */
     @NotNull
     @Positive

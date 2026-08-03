@@ -79,7 +79,7 @@ public class OrderServiceImpl implements OrderService {
         // ---- Step 2: create the products (PNDG) ---------------------------------
         ProductCreationResult creation;
         try {
-            creation = productClient.createProducts(toCreationCommand(request));
+            creation = productClient.createProducts(toCreationCommand(request, account));
         } catch (RuntimeException e) {
             // Includes ProductValidationException: the basket was rejected, so the
             // order just written must not linger as a half-made sale. The original
@@ -154,7 +154,7 @@ public class OrderServiceImpl implements OrderService {
         persistence.cancelOrder(orderId, reason);
     }
 
-    private ProductCreationCommand toCreationCommand(OrderCreateRequest request) {
+    private ProductCreationCommand toCreationCommand(OrderCreateRequest request, AccountSummary account) {
         List<ProductCreationCommand.Item> items = new ArrayList<>();
         for (OrderItemRequest item : request.getItems()) {
             Map<Long, String> characteristics = new LinkedHashMap<>();
@@ -163,6 +163,10 @@ public class OrderServiceImpl implements OrderService {
             }
             items.add(new ProductCreationCommand.Item(item.getOfferId(), characteristics));
         }
-        return new ProductCreationCommand(request.getServiceAddressId(), request.getCampaignId(), items);
+        // customerNumber comes from the ACCOUNT, never from the request body: it is
+        // what product-service checks the service address against (ADR-015 §5.9), so
+        // letting a caller supply it would defeat the check it enables.
+        return new ProductCreationCommand(account.customerNumber(), request.getServiceAddressId(),
+                request.getCampaignId(), items);
     }
 }

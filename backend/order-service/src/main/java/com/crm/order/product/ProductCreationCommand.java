@@ -8,8 +8,15 @@ import java.util.Map;
  * interpretation. Characteristic values travel as raw strings keyed by
  * characteristic id — order-service does not know what a NUMBER or a DATE is, and
  * deliberately does not learn (ADR-015 §6).
+ *
+ * <p>{@code customerNumber} is not part of the client's sale request: it is read
+ * from the billing account at step 0 and forwarded so product-service can verify
+ * the service address belongs to this customer (ADR-015 §5.9). Taking it from the
+ * account rather than from the client is the point — a caller cannot widen its own
+ * reach by claiming a different customer.
  */
 public record ProductCreationCommand(
+        Long customerNumber,
         Long serviceAddressId,
         String campaignId,
         List<Item> items) {

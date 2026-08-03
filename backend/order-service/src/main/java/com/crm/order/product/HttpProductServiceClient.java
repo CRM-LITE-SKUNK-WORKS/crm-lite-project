@@ -108,6 +108,7 @@ public class HttpProductServiceClient implements ProductServiceClient {
             items.add(wireItem);
         }
         Map<String, Object> body = new LinkedHashMap<>();
+        body.put("customerNumber", command.customerNumber());
         body.put("serviceAddressId", command.serviceAddressId());
         body.put("campaignId", command.campaignId());
         body.put("items", items);

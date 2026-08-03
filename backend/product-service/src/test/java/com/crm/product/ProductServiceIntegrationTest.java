@@ -150,6 +150,17 @@ class ProductServiceIntegrationTest {
         Mockito.when(customerServiceClient.fetchAddress(9L))
                 .thenReturn(Optional.of(new CustomerAddress(9L, "Istanbul", "Besiktas", "Levent Cad.", "8",
                         "Besiktas ofis", false)));
+
+        // The customer-SCOPED active address list, which the FR-SALE write path uses
+        // to check AC-SALE-01-11 ownership (ADR-015 §5.9). Mirrors customer-service's
+        // seed: customer 1001 owns addresses 1 (primary) and 2; 1002 owns address 3.
+        // Everyone else gets an empty list, so a foreign address is rejected.
+        Mockito.when(customerServiceClient.fetchAddresses(Mockito.anyLong())).thenReturn(List.of());
+        Mockito.when(customerServiceClient.fetchAddresses(CUSTOMER)).thenReturn(List.of(
+                new CustomerAddress(1L, "Istanbul", "Kadikoy", "Bagdat Cad.", "12/4", "Kadikoy ev", true),
+                new CustomerAddress(2L, "Istanbul", "Besiktas", "Barbaros Bul.", "5", "Ofis", false)));
+        Mockito.when(customerServiceClient.fetchAddresses(1002L)).thenReturn(List.of(
+                new CustomerAddress(3L, "Ankara", "Cankaya", "Tunali Hilmi", "20", "Ev", true)));
     }
 
     // ---------------------------------------------------------------- http helpers
@@ -172,9 +183,12 @@ class ProductServiceIntegrationTest {
         return jdbcTemplate.queryForObject("SELECT status_id FROM prod WHERE id = ?", Long.class, productId);
     }
 
+    /** Seed customer 1001 (Ali Yildiz) owns addresses 1 and 2 — the sale fixtures. */
+    static final long CUSTOMER = 1001L;
+
     /** A complete, valid ADSL basket: offers 1 (INTERNET) + 2 (RESOURCE) + 3 (ACTIVATION). */
     private static final String VALID_BASKET = """
-            {"serviceAddressId": 1, "campaignId": "CMP-ADSL-01", "items": [
+            {"customerNumber": 1001, "serviceAddressId": 1, "campaignId": "CMP-ADSL-01", "items": [
               {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"},
                                                  {"characteristicId": 2, "value": "true"}]},
               {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
@@ -671,11 +685,55 @@ class ProductServiceIntegrationTest {
         assertKey(post("/api/products", basket("{\"offerId\": 987654, \"characteristics\": []}")),
                 "MSG-VALIDATION-ERROR");
 
-        // An empty basket never reaches the rules: bean validation rejects it.
+        // An empty basket never reaches the rules: bean validation rejects it. The
+        // same goes for a missing customerNumber, which the address check needs.
         assertKey(post("/api/products",
-                "{\"serviceAddressId\": 1, \"items\": []}"), "MSG-VALIDATION-ERROR");
+                "{\"customerNumber\": 1001, \"serviceAddressId\": 1, \"items\": []}"), "MSG-VALIDATION-ERROR");
+        assertKey(post("/api/products",
+                "{\"serviceAddressId\": 1, \"items\": [{\"offerId\": 1, \"characteristics\": []}]}"),
+                "MSG-VALIDATION-ERROR");
 
         // Nothing was persisted by ANY of the rejections.
+        assertThat(productCount()).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("AC-SALE-01-11: the service address must belong to THIS customer — a foreign id is rejected")
+    void serviceAddressMustBelongToTheCustomer() {
+        int before = productCount();
+
+        // Address 3 exists and is active, but it belongs to customer 1002 — attaching
+        // it would make FR-PROD-02 display another customer's address (ADR-015 §5.9).
+        assertKey(post("/api/products", VALID_BASKET.replace("\"serviceAddressId\": 1",
+                "\"serviceAddressId\": 3")), "MSG-VALIDATION-ERROR");
+
+        // A nonexistent address is rejected the same way.
+        assertKey(post("/api/products", VALID_BASKET.replace("\"serviceAddressId\": 1",
+                "\"serviceAddressId\": 987654")), "MSG-VALIDATION-ERROR");
+
+        assertThat(productCount()).isEqualTo(before);
+
+        // The customer's OTHER active address is accepted — the rule is ownership,
+        // not "must be the primary one" (AC-SALE-01-11 allows choosing another).
+        ResponseEntity<Map> secondary = post("/api/products",
+                VALID_BASKET.replace("\"serviceAddressId\": 1", "\"serviceAddressId\": 2"));
+        assertThat(secondary.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        long mainProductId = ((Number) secondary.getBody().get("mainProductId")).longValue();
+        Long stored = jdbcTemplate.queryForObject(
+                "SELECT service_address_id FROM prod WHERE id = ?", Long.class, mainProductId);
+        assertThat(stored).isEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("fail closed: customer-service unreachable during a sale -> 503, nothing persisted")
+    void createFailsClosedWhenCustomerServiceDown() {
+        int before = productCount();
+        Mockito.when(customerServiceClient.fetchAddresses(Mockito.anyLong()))
+                .thenThrow(new CustomerServiceUnavailableException("customer-service down", null));
+
+        ResponseEntity<Map> response = post("/api/products", VALID_BASKET);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
         assertThat(productCount()).isEqualTo(before);
     }
 
@@ -780,7 +838,8 @@ class ProductServiceIntegrationTest {
     }
 
     private String basket(String... items) {
-        return "{\"serviceAddressId\": 1, \"items\": [" + String.join(",", items) + "]}";
+        return "{\"customerNumber\": " + CUSTOMER + ", \"serviceAddressId\": 1, \"items\": ["
+                + String.join(",", items) + "]}";
     }
 
     private void assertKey(ResponseEntity<Map> response, String expectedKey) {

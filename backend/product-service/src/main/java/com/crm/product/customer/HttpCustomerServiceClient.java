@@ -1,7 +1,9 @@
 package com.crm.product.customer;
 
+import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
@@ -31,6 +33,24 @@ public class HttpCustomerServiceClient implements CustomerServiceClient {
             // Covers connection failures, 5xx responses and "no instances available"
             // from the load balancer: customer-service is unavailable, never "the
             // address does not exist".
+            throw new CustomerServiceUnavailableException("customer-service is unavailable", e);
+        }
+    }
+
+    @Override
+    public List<CustomerAddress> fetchAddresses(long customerNumber) {
+        try {
+            List<CustomerAddress> addresses = restClient.get()
+                    .uri("/api/customers/{customerNumber}/addresses", customerNumber)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {
+                    });
+            return addresses == null ? List.of() : addresses;
+        } catch (HttpClientErrorException.NotFound e) {
+            // Unknown customer: an empty list, so the address check below rejects
+            // the sale with a validation error rather than a misleading 404.
+            return List.of();
+        } catch (RestClientException | IllegalStateException e) {
             throw new CustomerServiceUnavailableException("customer-service is unavailable", e);
         }
     }

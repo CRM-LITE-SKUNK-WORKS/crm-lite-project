@@ -187,6 +187,14 @@ Architecture: **ADR-015** (product boundary), **ADR-016** (order boundary), plus
 - **`customerNumber` added to account-service's representation** (ADR-013 §3.6):
   additive, a public business number, needed because order-service must record
   `cust_ord.customer_number` while knowing only an account number.
+- **The service address is validated against its owner** (ADR-015 §5.9).
+  AC-SALE-01-11 says the address is chosen *from the customer's addresses* but never
+  states that the system must enforce it — the FR describes a picker, not a check.
+  Enforced anyway: `prod.service_address_id` is an FK-less reference the FR-PROD-02
+  modal renders, so an unvalidated id would let a sale attach **another customer's
+  address** to a product and display it back. Same rule and endpoint account-service
+  already applies to billing addresses (ADR-013 §2.4). Not a deviation — a silence
+  the implementation closed in the safe direction.
 
 **Interpretation decisions where the FR is silent or self-contradictory** (recorded so
 they are not mistaken for requirements):

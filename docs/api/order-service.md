@@ -121,6 +121,11 @@ idempotent — a retry would create a second set of products and orphan the firs
   (AC-SALE-01-01); `campaignId` is the **public** campaign code, never an internal id,
   and is optional (a basket assembled offer by offer belongs to no campaign);
   `serviceAddressId` is the address chosen for the main product (AC-SALE-01-11).
+- **There is deliberately no `customerNumber` field.** product-service checks that
+  `serviceAddressId` belongs to the customer (ADR-015 §5.9), and the number it checks
+  against is read from the **billing account** at step 0 — never accepted from the
+  client. A caller able to supply it would just claim the customer that owns the
+  address it wanted, and the check would validate nothing.
 - `characteristics` is empty for an offer that has none (AC-SALE-01-21). Values are
   forwarded to product-service **verbatim** — order-service writes no validation of
   its own (see below).
@@ -150,7 +155,7 @@ idempotent — a retry would create a second set of products and orphan the firs
 | HTTP | Key | When |
 |---|---|---|
 | 200 / 201 | — | detail / submit |
-| 400 | `MSG-VALIDATION-ERROR` | malformed body, empty basket, non-10-digit `accountNumber` |
+| 400 | `MSG-VALIDATION-ERROR` | malformed body, empty basket, non-10-digit `accountNumber` — **or a `serviceAddressId` that is not one of the customer's active addresses** (AC-SALE-01-11, relayed from product-service) |
 | 400 | `MSG-SALE-OFFER-INACTIVE`, `MSG-SALE-NO-INTERNET`, `MSG-SALE-NO-RESOURCE`, `MSG-SALE-NO-ACTIVATION`, `MSG-SALE-MULTI-INTERNET`, `MSG-SALE-MULTI-RESOURCE`, `MSG-SALE-MULTI-ACTIVATION`, `MSG-SALE-DUP-OFFER` | basket composition (AC-SALE-01-05/08) — **produced by product-service, relayed unchanged** |
 | 400 | `MSG-VAL-CHAR-REQUIRED`, `MSG-VAL-CHAR-FORMAT` | characteristics (AC-SALE-01-18/19) — likewise relayed |
 | 401 / 403 | `MSG-AUTH-UNAUTHORIZED` / `MSG-AUTH-FORBIDDEN` | starter contract (403 `MSG-AUTH-CSRF-REJECTED` at the gateway) |
@@ -159,7 +164,7 @@ idempotent — a retry would create a second set of products and orphan the firs
 | 409 | `MSG-ACCT-NOT-ACTIVE` | the billing account is Passive (AC-SALE-02-01) |
 | 409 | `MSG-ORDER-DUP-NUMBER` | order-number uniqueness race (DB fallback — never 500) |
 | 409 | `MSG-ORDER-NUMBER-CAPACITY-EXCEEDED` | KR-12 sequence exhausted for segment+year |
-| 503 | `MSG-SERVICE-UNAVAILABLE` | lookup, product or account service unreachable — fail closed; the order is `CANCELLED` and nothing the customer can see was created |
+| 503 | `MSG-SERVICE-UNAVAILABLE` | lookup, product, account **or customer** service unreachable — fail closed; the order is `CANCELLED` and nothing the customer can see was created |
 
 Error body: the established `{timestamp, status, error, messageKey, message, path,
 validationErrors}` shape.
@@ -286,6 +291,19 @@ curl -sS -X POST -H "$C" -H "$X" -H "Content-Type: application/json" \
   "http://localhost:8080/api/orders" \
   --data-binary @- -w "\nHTTP Status: %{http_code}\n" <<'JSON'
 {"accountNumber": "1261000036", "serviceAddressId": 1,
+ "items": [
+   {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"}]},
+   {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
+   {"offerId": 3, "characteristics": []}
+ ]}
+JSON
+
+# SUBMIT with an address belonging to ANOTHER customer -> 400 MSG-VALIDATION-ERROR
+# (address 3 is customer 1002's; account 1261000010 belongs to customer 1001)
+curl -sS -X POST -H "$C" -H "$X" -H "Content-Type: application/json" \
+  "http://localhost:8080/api/orders" \
+  --data-binary @- -w "\nHTTP Status: %{http_code}\n" <<'JSON'
+{"accountNumber": "1261000010", "serviceAddressId": 3,
  "items": [
    {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"}]},
    {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},

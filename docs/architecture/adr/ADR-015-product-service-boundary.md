@@ -164,7 +164,31 @@ is invented.**
    passivate a committed product would be exactly the product cancellation KR-7
    puts out of phase, arriving through the back door. Physical deletion is never
    used (project-wide rule).
-8. These three endpoints are **service-to-service commands** invoked by
+9. **The service address is validated against the customer who owns it**
+   (AC-SALE-01-11). `POST /api/products` therefore requires `customerNumber` — a
+   public business number, **not stored** (`PROD` has no customer column, ADR-013 §5)
+   and used only for this check: the submitted `serviceAddressId` must appear in
+   that customer's **active** address list, fetched through customer-service's
+   `GET /api/customers/{n}/addresses`. Same rule, same endpoint and same failure
+   (400 `MSG-VALIDATION-ERROR`) account-service applies to billing addresses
+   (ADR-013 §2.4). customer-service unreachable → 503, fail closed.
+
+   Checking mere existence through the `GET /api/addresses/{id}` endpoint §3.5
+   already uses would **not** be enough: *"does address 7 exist?"* cannot answer
+   *"does address 7 belong to **this** customer?"*. Since `prod.service_address_id`
+   is an FK-less reference that FR-PROD-02 renders in the detail modal, an
+   unvalidated id would let a sale attach **another customer's address** to a
+   product and display it back — a cross-customer data leak, not a cosmetic gap.
+
+   **`customerNumber` comes from the billing account, never from the client's sale
+   request** (ADR-016 §5.1 step 0 reads it). A caller able to supply it would simply
+   claim the customer that owns the address it wanted, and the check would validate
+   nothing.
+
+   *Added 2026-08-02, after the first implementation.* The initial cut stored
+   `serviceAddressId` verbatim. The gap surfaced while re-reading §2.7 against the
+   built code — recorded here rather than quietly patched.
+10. These three endpoints are **service-to-service commands** invoked by
    order-service over Eureka with the user's token propagated (ADR-010). They are
    matched by the existing `/api/products/**` gateway route and require the same
    `crm-user` JWT as every other endpoint; that is accepted for the same reason
@@ -183,6 +207,7 @@ fields, which is a frontend concern given an empty list.
 
 | Rule | Source | Key |
 |---|---|---|
+| `serviceAddressId` is not one of the customer's active addresses | AC-SALE-01-11 | `MSG-VALIDATION-ERROR` (§5.9) |
 | A mandatory characteristic is missing/blank | AC-SALE-01-18 | `MSG-VAL-CHAR-REQUIRED` |
 | A value does not parse as its `data_type` | AC-SALE-01-19 | `MSG-VAL-CHAR-FORMAT` |
 | A submitted offer is not Active | AC-SALE-01-08 | `MSG-SALE-OFFER-INACTIVE` |
@@ -228,8 +253,8 @@ Documented **project additions**:
 Plus the established shared keys: `MSG-VALIDATION-ERROR`,
 `MSG-ACCT-NOT-FOUND` (unknown `accountNumber` on the list), `MSG-SERVICE-UNAVAILABLE`
 (account-service, customer-service **or** lookup-service unreachable — fail
-closed, nothing persisted), `MSG-INTERNAL-ERROR`, `MSG-AUTH-UNAUTHORIZED`,
-`MSG-AUTH-FORBIDDEN`.
+closed, nothing persisted; customer-service is now on the **write** path too, §5.9),
+`MSG-INTERNAL-ERROR`, `MSG-AUTH-UNAUTHORIZED`, `MSG-AUTH-FORBIDDEN`.
 
 ### 8. Recorded deviations and open questions
 

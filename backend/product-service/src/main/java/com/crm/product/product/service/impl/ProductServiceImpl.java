@@ -124,6 +124,7 @@ public class ProductServiceImpl implements ProductService {
      *   <li>basket composition (AC-SALE-01-05/08) — cheapest checks, and the ones a
      *       user can actually fix, so they report first;
      *   <li>campaign coherence, if one is claimed;
+     *   <li>service-address ownership (AC-SALE-01-11);
      *   <li>per-item characteristic validation (AC-SALE-01-18/19);
      *   <li>PNDG resolved through the catalog — fail closed BEFORE anything is
      *       written (ADR-002 §7);
@@ -144,6 +145,12 @@ public class ProductServiceImpl implements ProductService {
         basketRules.checkServiceTypeComposition(basket);
 
         Campaign campaign = resolveCampaign(request.getCampaignId(), offerIds);
+
+        // AC-SALE-01-11 (ADR-015 §5.9): the service address must belong to THIS
+        // customer. An unvalidated id would let a sale attach another customer's
+        // address to a product, which FR-PROD-02 then displays back.
+        rules.checkServiceAddressBelongsToCustomer(request.getServiceAddressId(), request.getCustomerNumber(),
+                customerClient.fetchAddresses(request.getCustomerNumber()));
 
         // Validate EVERY item before persisting any of them: a rejection must not
         // leave the first two products written and the third refused.

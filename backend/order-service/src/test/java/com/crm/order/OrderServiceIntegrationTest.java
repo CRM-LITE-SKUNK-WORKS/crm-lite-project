@@ -10,6 +10,7 @@ import com.crm.order.lookup.LookupCatalogClient;
 import com.crm.order.lookup.LookupCatalogUnavailableException;
 import com.crm.order.lookup.LookupStatusResponse;
 import com.crm.order.lookup.LookupTypeResponse;
+import com.crm.order.product.ProductCreationCommand;
 import com.crm.order.product.ProductCreationResult;
 import com.crm.order.product.ProductServiceClient;
 import com.crm.order.product.ProductServiceUnavailableException;
@@ -31,6 +32,7 @@ import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -328,11 +330,22 @@ class OrderServiceIntegrationTest {
         assertThat(nextValue(1, 2026)).isEqualTo(100002);
 
         // The full orchestration ran, in order (ADR-016 §5.1).
+        ArgumentCaptor<ProductCreationCommand> creationCommand =
+                ArgumentCaptor.forClass(ProductCreationCommand.class);
         Mockito.verify(accountServiceClient).fetchAccount(ACTIVE_ACCOUNT);
-        Mockito.verify(productServiceClient).createProducts(Mockito.any());
+        Mockito.verify(productServiceClient).createProducts(creationCommand.capture());
         Mockito.verify(productServiceClient).confirmProducts(List.of(21L, 22L, 23L));
         Mockito.verify(accountServiceClient).linkProducts(ACTIVE_ACCOUNT, List.of(21L, 22L, 23L));
         Mockito.verify(productServiceClient, Mockito.never()).cancelProducts(Mockito.anyList());
+
+        // ADR-015 §5.9: product-service checks the service address against this
+        // customer, and the number it checks against comes from the ACCOUNT — never
+        // from the request body, or a caller could widen its own reach by claiming a
+        // different customer. The request carries no customerNumber at all.
+        ProductCreationCommand sent = creationCommand.getValue();
+        assertThat(sent.customerNumber()).isEqualTo(1001L);
+        assertThat(sent.serviceAddressId()).isEqualTo(1L);
+        assertThat(VALID_ORDER).doesNotContain("customerNumber");
     }
 
     @Test

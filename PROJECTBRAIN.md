@@ -735,7 +735,14 @@ crm-lite-project-dev/
   KR-7'nin kapsam dışı bıraktığı ürün iptali olurdu), `GET /api/offers/{id}/characteristics`.
   Sepet (AC-SALE-01-05/08) ve karakteristik (AC-SALE-01-18/19) doğrulaması burada:
   bunlar `PROD_OFR`/`PROD_SPEC` soruları ve **persist noktasında** doğrulanınca
-  atlanamaz hale geliyor. **PNDG ürünler FR-PROD-01/02'de görünmez** — mevcut mapper
+  atlanamaz hale geliyor. **Servis adresi sahipliği de doğrulanıyor** (AC-SALE-01-11,
+  ADR-015 §5.9): `customerNumber` istekte zorunlu ama **saklanmıyor** — yalnız
+  adresin o müşteriye ait olduğunu customer-service'in aktif adres listesinden
+  kontrol etmek için. Varlık kontrolü yetmezdi: `prod.service_address_id` FR-PROD-02
+  modalinde gösteriliyor, doğrulanmamış bir id **başka bir müşterinin adresini**
+  ürüne bağlayıp geri gösterirdi. `customerNumber` order-service tarafından
+  **hesaptan** okunuyor, istemciden alınmıyor — alınsaydı kontrol hiçbir şey
+  doğrulamazdı. **PNDG ürünler FR-PROD-01/02'de görünmez** — mevcut mapper
   ACTV olmayan her şeyi "Passive" render ediyor, sızan satır müşteriye hiç almadığı
   pasif ürün gösterirdi.
 - **account-service involvement komutu (ADR-013 §8):**

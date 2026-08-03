@@ -19,9 +19,11 @@ with role `crm-user`; browser cookies never reach this service. Swagger: unified
 gateway UI (`http://localhost:8080/swagger-ui.html`, dropdown entry
 `product-service`, ADR-012).
 
-**Phase A is read-only.** No product creation, provisioning, basket, order,
-Kafka or Redis exists here. Product cancellation is explicitly out of phase
-(AC-PROD-01-04: the Action column offers only a view icon).
+**Two slices.** The FR-PROD-01..02 read side (2026-07-29) and the FR-SALE write
+side (2026-08-02, ADR-015 §5/§6 — see below). Still absent by design: no basket, no
+order, no Kafka or Redis. **Product cancellation remains out of phase**
+(KR-7, AC-PROD-01-04: the Action column offers only a view icon) — the `/cancel`
+command below is compensation for never-committed rows, not the same thing.
 
 ## Endpoints (complete list — deliberately nothing else)
 
@@ -305,13 +307,62 @@ curl -sS -H "Accept: application/json" \
   (accountNumber search, active-product guard, `MSG-ADDR-IN-USE`) are untouched
   and remain a separate follow-up PR.
 
+## FR-SALE write slice (2026-08-02 — ADR-015 §5/§6)
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/offers/{offerId}/characteristics` | Product Configuration schema (AC-SALE-01-10/17/20/21) |
+| POST | `/api/products` | Create one installation — main + children — as **PNDG**, in one local transaction |
+| POST | `/api/products/confirm` | PNDG → ACTV. Idempotent |
+| POST | `/api/products/cancel` | Compensation: soft-passivate **PNDG-only** products |
+
+```jsonc
+// POST /api/products
+{
+  "customerNumber": 1001,          // NOT stored — only used to validate the address
+  "serviceAddressId": 1,
+  "campaignId": "CMP-ADSL-01",     // optional, public code
+  "items": [
+    {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"}]},
+    {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
+    {"offerId": 3, "characteristics": []}
+  ]
+}
+```
+
+- **Main/child is derived, not declared:** the INTERNET-service offer becomes the
+  main product and the only one carrying `service_address_id`; RESOURCE and
+  ACTIVATION become its children (AC-SALE-01-09). A caller cannot violate the rule.
+- **`serviceAddressId` must be one of `customerNumber`'s active addresses**
+  (AC-SALE-01-11, ADR-015 §5.9) — checked through customer-service's
+  `GET /api/customers/{n}/addresses`, the same rule account-service applies to
+  billing addresses. Existence alone would not do: `prod.service_address_id` is
+  rendered in the FR-PROD-02 modal, so an unvalidated id would display **another
+  customer's address**. `customerNumber` is not stored (`PROD` has no customer
+  column) and order-service takes it from the billing account, never from its
+  client.
+- **Basket composition and characteristic validation live here** (ADR-015 §6):
+  `MSG-SALE-*` and `MSG-VAL-CHAR-*` are produced by this service and relayed by
+  order-service unchanged.
+- **PNDG products are invisible to FR-PROD-01/02** (§5.5): the Status column has two
+  values and the mapper renders anything non-ACTV as "Passive", so a leaked PNDG row
+  would show a product the customer never bought. Detail answers 404.
+- `/cancel` accepts **PNDG only** → otherwise 409 `MSG-PROD-NOT-PENDING`. An endpoint
+  able to passivate a committed product would be the KR-7 cancellation that is out of
+  phase, arriving by the back door.
+- A **full `LookupCatalogClient` boundary was built before the first write**
+  (ADR-015 §4.1): no status is persisted without resolving it through the catalog
+  owner, fail-closed (ADR-002 §7). Reads still use the local `LookupContract`
+  constants, so a catalog outage stops sales without stopping product viewing.
+
 ## Deliberate limitations / future work (never silently faked)
 
-- **Write side absent:** no product creation/provisioning, no basket, no order,
-  no involvement **write** command on account-service. The §2.7 sale flow
-  (FR-SALE) needs the order domain and a command boundary on account-service —
-  neither exists.
-- **Characteristics have no endpoint** (schema + seed only, see above).
+- **No product cancellation** (KR-7, AC-PROD-01-04: the Action column offers only a
+  view icon). `/cancel` is a compensation command restricted to never-committed PNDG
+  rows — not the same thing.
+- **No stuck-PNDG sweeper.** If a compensation itself fails, rows stay PNDG:
+  invisible to the customer, identifiable by one query (`status_id = 6`), recorded as
+  an operational follow-up (ADR-015 §8.4) rather than built speculatively.
 - **No catalog CRUD:** no FR requires it, so none was invented.
 - **Offer prices await analyst approval** (deviation 1).
 - **Campaign activation-window rules** (`activation_end_date` enforcement) are

@@ -12,7 +12,7 @@ const FIELDS = ['email', 'homePhone', 'mobilePhone', 'fax'] as const;
 type FieldName = (typeof FIELDS)[number];
 
 /** Mock §6.3 UX rules (VR-EMAIL / VR-MOBILE / VR-PHONE as client checks). */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@([^\s@.]+\.)+[A-Za-z]{2,}$/;
 
 /**
  * "Contact medium update" dialog (mock §6.4: 560px modal, 4 fields). FR-CNTC-02.

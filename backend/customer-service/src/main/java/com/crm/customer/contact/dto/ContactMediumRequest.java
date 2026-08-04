@@ -13,7 +13,7 @@ import lombok.Setter;
 public class ContactMediumRequest {
 
     // VR-EMAIL (FR format catalog).
-    public static final String EMAIL_REGEX = "^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$";
+    public static final String EMAIL_REGEX = "^[A-Za-z0-9._%+-]+@([A-Za-z0-9-]+\\.)+[A-Za-z]{2,}$";
     // VR-PHONE: starts with 0, digits only, exactly 11 digits.
     public static final String PHONE_REGEX = "^0[0-9]{10}$";
     // VR-MOBILE: starts with 05, digits only, exactly 11 digits.

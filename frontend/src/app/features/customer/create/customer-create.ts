@@ -28,7 +28,7 @@ import {
 /** Mock §6.3 name rule (VR-NAME as UX): letters incl. Turkish, space, '.-  */
 const NAME_RE = /^[A-Za-zÀ-ſĞğİıŞşÖöÜüÇç\s'.-]+$/;
 /** Mock §6.3 email rule (VR-EMAIL as UX). */
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_RE = /^[^\s@]+@([^\s@.]+\.)+[A-Za-z]{2,}$/;
 
 const DEMOGRAPHIC_FIELDS = [
   'firstName',

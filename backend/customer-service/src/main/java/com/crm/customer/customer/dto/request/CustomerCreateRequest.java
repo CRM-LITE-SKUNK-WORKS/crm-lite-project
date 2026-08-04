@@ -24,8 +24,7 @@ public class CustomerCreateRequest {
     private DemographicRequest demographic;
 
     @NotEmpty(message = "at least one address is required")
-    @Valid
-    private List<AddressRequest> addresses;
+    private List<@NotNull @Valid AddressRequest> addresses;
 
     @NotNull(message = "contactMedium is required")
     @Valid

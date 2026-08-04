@@ -42,6 +42,12 @@ export const UI = {
     en: 'This section is incomplete. Please review it.',
     tr: 'Bu bölüm eksik. Lütfen gözden geçirin.',
   },
+  // A DATE characteristic on a new order is forward-looking; the rule is
+  // frontend-only (see charNotPastValidator), hence a UI-* and not an MSG-* key.
+  'UI-VAL-CHAR-DATE-PAST': {
+    en: 'Please choose today or a later date.',
+    tr: 'Lütfen bugünü veya ileri bir tarihi seçin.',
+  },
 
   // ---- Common shell (header, language switcher) ----
   'UI-COMMON-APP-NAME': { en: 'CRM Lite', tr: 'CRM Lite' },
@@ -262,6 +268,16 @@ export const UI = {
   'UI-ACCOUNT-FIELD-NUMBER': { en: 'Account number', tr: 'Hesap numarası' },
   'UI-ACCOUNT-FIELD-TYPE': { en: 'Account type', tr: 'Hesap tipi' },
   'UI-ACCOUNT-ADDRESS-PLACEHOLDER': { en: 'Select address', tr: 'Adres seçin' },
+  // BUG-1 (2026-08-03): the account dialog's inline "New address" panel. The
+  // field labels/placeholders are the address dialog's existing keys — the
+  // form is the same five fields, so it uses the same copy (scope §4.30).
+  'UI-ACCOUNT-ADD-ADDRESS': { en: 'Add new address', tr: 'Yeni adres ekle' },
+  'UI-ACCOUNT-NEW-ADDRESS-TITLE': { en: 'New address', tr: 'Yeni adres' },
+  'UI-ACCOUNT-NEW-ADDRESS-CANCEL': {
+    en: 'Cancel new address',
+    tr: 'Yeni adresten vazgeç',
+  },
+  'UI-ACCOUNT-NEW-ADDRESS-SAVE': { en: 'Save address', tr: 'Adresi kaydet' },
   'UI-ACCOUNT-TOAST-CREATED': {
     en: 'Billing account created successfully.',
     tr: 'Fatura hesabı başarıyla oluşturuldu.',
@@ -313,6 +329,126 @@ export const UI = {
   'UI-PRODUCT-SERVICE-ADDRESS-NONE': {
     en: 'No service address',
     tr: 'Servis adresi yok',
+  },
+
+  // ---- §2.7 Product Sale wizard (FR-SALE-01/02). EN comes VERBATIM from the
+  //      decoded mock screens (Offer Selection / Product Configuration /
+  //      Submit Order .dc.html), which are the binding visual contract
+  //      (FE-ADR-011, scope §2B.7). Button labels are NOT here — LBL-NEXT,
+  //      LBL-PREVIOUS, LBL-CANCEL, LBL-SUBMIT, LBL-CLEAR, LBL-ADD-TO-BASKET,
+  //      LBL-SEARCH, LBL-YES and LBL-NO are analyst keys already in labels.ts.
+  //      Address-form text is not here either: AC-SALE-01-11 reuses the
+  //      FR-ADDR-02 dialog, so it reuses that dialog's keys. ----
+
+  // Wizard chrome (shared by all three steps)
+  'UI-SALE-STEP-OFFER': { en: 'Offer selection', tr: 'Teklif seçimi' },
+  'UI-SALE-STEP-CONFIG': { en: 'Product configuration', tr: 'Ürün yapılandırma' },
+  // Deliberately NOT the same as UI-SALE-SUBMIT-TITLE: the mock's step 3 chip
+  // reads "Order summary" while its page heading reads "Submit order".
+  'UI-SALE-STEP-SUMMARY': { en: 'Order summary', tr: 'Sipariş özeti' },
+  'UI-SALE-WIZARD-PROGRESS': { en: 'Wizard progress', tr: 'Sihirbaz ilerlemesi' },
+  // Parameterized (FE-ADR-012 §h): the sub-heading under every step title.
+  'UI-SALE-ACCOUNT-CONTEXT': {
+    en: 'New sale · Account {accountNumber}',
+    tr: 'Yeni satış · Hesap {accountNumber}',
+  },
+
+  // Step 1 — Offer selection
+  'UI-SALE-OFFER-TITLE': { en: 'Offer selection', tr: 'Teklif seçimi' },
+  'UI-SALE-TAB-OFFERS': { en: 'Product offers', tr: 'Ürün teklifleri' },
+  'UI-SALE-TAB-CAMPAIGNS': { en: 'Campaigns', tr: 'Kampanyalar' },
+  'UI-SALE-FILTER-CATEGORY': { en: 'Category', tr: 'Kategori' },
+  'UI-SALE-FILTER-CATEGORY-ALL': { en: 'All categories', tr: 'Tüm kategoriler' },
+  'UI-SALE-FILTER-OFFER-ID': { en: 'Offer ID', tr: 'Teklif ID' },
+  'UI-SALE-FILTER-OFFER-NAME': { en: 'Offer name', tr: 'Teklif adı' },
+  'UI-SALE-FILTER-CAMPAIGN': { en: 'Campaign', tr: 'Kampanya' },
+  'UI-SALE-FILTER-CAMPAIGN-ALL': { en: 'All campaigns', tr: 'Tüm kampanyalar' },
+  'UI-SALE-FILTER-CAMPAIGN-ID': { en: 'Campaign ID', tr: 'Kampanya ID' },
+  'UI-SALE-FILTER-CAMPAIGN-NAME': { en: 'Campaign name', tr: 'Kampanya adı' },
+  'UI-SALE-COL-OFFER-ID': { en: 'Prod offer ID', tr: 'Ürün teklifi ID' },
+  'UI-SALE-COL-OFFER-NAME': { en: 'Prod offer name', tr: 'Ürün teklifi adı' },
+  'UI-SALE-COL-CATEGORY': { en: 'Category', tr: 'Kategori' },
+  'UI-SALE-COL-PRICE': { en: 'Price', tr: 'Fiyat' },
+  'UI-SALE-COL-CAMPAIGN-ID': { en: 'Campaign ID', tr: 'Kampanya ID' },
+  'UI-SALE-COL-CAMPAIGN': { en: 'Campaign', tr: 'Kampanya' },
+  'UI-SALE-COL-INCLUDES': { en: 'Includes', tr: 'İçerik' },
+  'UI-SALE-CATALOG-EMPTY': {
+    en: 'No offers match your search.',
+    tr: 'Aramanızla eşleşen teklif yok.',
+  },
+  'UI-SALE-CATALOG-LOADING': { en: 'Loading offers…', tr: 'Teklifler yükleniyor…' },
+  'UI-SALE-SELECTED-COUNT': { en: '{count} selected', tr: '{count} seçili' },
+  'UI-SALE-BASKET-TITLE': { en: 'Basket', tr: 'Sepet' },
+  'UI-SALE-BASKET-COUNT': { en: '{count} items', tr: '{count} kalem' },
+  'UI-SALE-BASKET-EMPTY': { en: 'Basket is empty', tr: 'Sepet boş' },
+  'UI-SALE-BASKET-EMPTY-HINT': {
+    en: 'Search offers and add them to the basket.',
+    tr: 'Teklifleri arayıp sepete ekleyin.',
+  },
+  'UI-SALE-BASKET-REMOVE': { en: 'Remove from basket', tr: 'Sepetten çıkar' },
+  // Accessible name of the filled check on an already-added row. The row is a
+  // <tr>, not a widget, so "already added" is conveyed as CONTENT here rather
+  // than as `aria-disabled` on the row (which would be an invalid state on a
+  // non-widget and makes tooling treat the row as unclickable).
+  'UI-SALE-ROW-ADDED': { en: 'Already in basket', tr: 'Sepete eklendi' },
+  'UI-SALE-TOTAL-AMOUNT': { en: 'Total amount', tr: 'Toplam tutar' },
+
+  // Step 2 — Product configuration
+  'UI-SALE-CONFIG-TITLE': { en: 'Product configuration', tr: 'Ürün yapılandırma' },
+  'UI-SALE-CONFIG-OFFER-NAME': { en: 'Prod Offer Name', tr: 'Ürün Teklifi Adı' },
+  'UI-SALE-CONFIG-OFFER-ID': { en: 'Prod Offer ID', tr: 'Ürün Teklifi ID' },
+  // AC-SALE-01-21: an offer with no characteristics still gets its own block.
+  'UI-SALE-CONFIG-NO-FIELDS': {
+    en: 'This product needs no configuration.',
+    tr: 'Bu ürün yapılandırma gerektirmiyor.',
+  },
+  'UI-SALE-CONFIG-LOADING': {
+    en: 'Loading product configuration…',
+    tr: 'Ürün yapılandırması yükleniyor…',
+  },
+  // AC-SALE-01-12: LBL-NEXT validates HERE. The per-field MSG-VAL-CHAR-* text
+  // is the answer; this banner only says where to look when the offending
+  // field is scrolled out of sight.
+  'UI-SALE-CONFIG-INVALID': {
+    en: 'Please correct the highlighted fields before continuing.',
+    tr: 'Devam etmeden önce lütfen işaretli alanları düzeltin.',
+  },
+  // AC-SALE-01-17: a BOOLEAN characteristic is a choice, not free text — the
+  // options carry the backend's own wire values (`true` / `false`).
+  'UI-SALE-CHAR-BOOL-TRUE': { en: 'Yes', tr: 'Evet' },
+  'UI-SALE-CHAR-BOOL-FALSE': { en: 'No', tr: 'Hayır' },
+  'UI-SALE-CHAR-BOOL-PLACEHOLDER': { en: 'Select', tr: 'Seçiniz' },
+  'UI-SALE-ADDRESS-TITLE': { en: 'Address info', tr: 'Adres bilgisi' },
+  'UI-SALE-ADDRESS-HINT': {
+    en: 'Select a service address from existing addresses.',
+    tr: 'Mevcut adreslerden bir servis adresi seçin.',
+  },
+  'UI-SALE-ADDRESS-REQUIRED': {
+    en: 'Please select or add a service address to continue.',
+    tr: 'Devam etmek için lütfen bir servis adresi seçin veya ekleyin.',
+  },
+
+  // Step 3 — Submit order
+  'UI-SALE-SUBMIT-TITLE': { en: 'Submit order', tr: 'Siparişi gönder' },
+  'UI-SALE-ORDER-DETAILS': { en: 'Order details', tr: 'Sipariş detayları' },
+  'UI-SALE-ORDER-NUMBER': { en: 'Order Number', tr: 'Sipariş Numarası' },
+  'UI-SALE-ORDER-ITEMS': { en: 'Order items', tr: 'Sipariş kalemleri' },
+  'UI-SALE-SERVICE-ADDRESS': { en: 'Service address', tr: 'Servis adresi' },
+  'UI-SALE-CONFIRM-TITLE': { en: 'Submit this order?', tr: 'Bu sipariş gönderilsin mi?' },
+  // AC-SALE-01-15's post-confirm state. MIDLWARE is a catalog short code, so
+  // the user-facing wording is a catalog entry, not the raw status.
+  'UI-SALE-SUCCESS-TITLE': { en: 'Order received', tr: 'Sipariş alındı' },
+  'UI-SALE-SUCCESS-STATUS': {
+    en: 'Order received, processing…',
+    tr: 'Sipariş Alındı, İşleniyor…',
+  },
+  'UI-SALE-BACK-TO-CUSTOMER': { en: 'Back to customer', tr: 'Müşteriye dön' },
+
+  // Customer Info account-row entry point (AC-SALE-01-02: no billing account
+  // ⇒ the action is not offered and the user is told to create one first).
+  'UI-SALE-NO-ACCOUNT-HINT': {
+    en: 'Create a billing account before starting a sale.',
+    tr: 'Satış başlatmadan önce bir fatura hesabı oluşturun.',
   },
 
   // ---- DatePicker aria labels (first consumer: demographic edit dialog) ----

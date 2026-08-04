@@ -1348,7 +1348,7 @@ Gerekçe:
 | Desen | Nerede kullanılıyor | Not |
 |---|---|---|
 | `EdsCard` (header/body/footer) | tüm ekranlar | 1px `border-default`, `radius-lg`, `elevation-0` |
-| `EdsModal` | Create, Info | overlay + `max-width` varyantları (420 / 560 / 680), `elevation-3` |
+| `EdsModal` | Create, Info | overlay + `max-width` varyantları (**420 / 480 / 520 / 560 / 680**), `elevation-3`. ⚠ **Düzeltildi 03.08.2026** (BUG-2 teşhisi sırasında bundle'daki gerçek markup okundu): tablo daha önce yalnız 420/560/680 diyordu, **480 ve 520 eksikti**. Gerçek kullanım: 420 = onay dialogları; **480 = Create/Edit billing account + Start new sale**; 520 = ürün detayı; 560 = iletişim/adres; 680 = müşteri bilgisi düzenleme.<br>🔴 **İki farklı taşma şekli var ve bu bilinçlidir:** 480'lik iki modal `overflow:visible` + **`max-height` YOK** (gövdedeki `Select` panelinin modal sınırının dışına taşabilmesi için); diğerleri `max-height:calc(100vh - 48px)` + `overflow:hidden` panel + `overflow:auto` gövde. Uygulama: `Modal` deseninin `overflowVisible` girdisi (scope §4.30) |
 | `EdsConfirmDialog` | adres/müşteri/hesap silme | 420px, danger daire + `[No][Yes]` |
 | `EdsToast` | Search, Info | 6sn otomatik kapanma, `elevation-4`, `role="status"` |
 | `EdsStatusBadge` | Info hesap tablosu | nokta + metin, radius-sm |

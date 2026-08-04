@@ -2,6 +2,9 @@ import { Component, input, output } from '@angular/core';
 import { Button, Icon, type IconName } from '../../ui';
 import { Modal, ModalFooter } from '../modal/modal';
 
+/** Which of the mock's two confirmation paints to use. */
+export type ConfirmTone = 'danger' | 'info';
+
 /**
  * ConfirmDialog pattern (shared/patterns) — the mock's 420px confirmation
  * dialog (mock-ui-analysis §6.3 address delete, §6.4 customer delete; §7.2
@@ -21,6 +24,14 @@ import { Modal, ModalFooter } from '../modal/modal';
  * duplicated. All texts arrive RESOLVED (scope §4.14). `busy` renders the
  * confirm button in its loading state while the caller's request runs.
  *
+ * TONE (`tone`, default `'danger'`): the two confirmations the mock draws are
+ * not the same dialog. Destructive ones (delete/passivate) use the danger
+ * circle and a danger `Yes`; the §2.7 "Submit this order?" confirm uses an
+ * INFO circle and a PRIMARY `Yes` (Submit Order.dc.html — an info icon in
+ * `--eds-color-feedback-info-icon`, `Button variant="primary"`). Tone changes
+ * only those two paint decisions; every other rule above is unchanged, and the
+ * error state stays danger in both tones because a rejection is a rejection.
+ *
  * Outputs: `confirmed` (Yes) and `cancelled` (No / Close / Escape). The caller
  * owns visibility — nothing here closes the dialog.
  */
@@ -37,8 +48,17 @@ import { Modal, ModalFooter } from '../modal/modal';
       (closed)="cancelled.emit()"
     >
       <div class="flex flex-col gap-4">
-        <span class="flex size-10 items-center justify-center rounded-full bg-danger-surface">
-          <app-icon [name]="icon()" [size]="20" class="text-danger" />
+        <span
+          class="flex size-10 items-center justify-center rounded-full"
+          [class.bg-danger-surface]="tone() === 'danger'"
+          [class.bg-info-surface]="tone() === 'info'"
+        >
+          <app-icon
+            [name]="icon()"
+            [size]="20"
+            [class.text-danger]="tone() === 'danger'"
+            [class.text-info]="tone() === 'info'"
+          />
         </span>
         <span class="text-body-lg font-semibold text-ink">{{ title() }}</span>
         @if (errorText(); as error) {
@@ -73,7 +93,7 @@ import { Modal, ModalFooter } from '../modal/modal';
             {{ cancelLabel() }}
           </app-button>
           <app-button
-            variant="danger"
+            [variant]="tone() === 'danger' ? 'danger' : 'primary'"
             [loading]="busy()"
             [testId]="testId() + '-confirm-button'"
             (action)="confirmed.emit()"
@@ -89,6 +109,9 @@ export class ConfirmDialog {
   /** Visibility is the caller's state (same contract as Modal). */
   readonly open = input.required<boolean>();
   readonly icon = input<IconName>('trash-2');
+  /** `'danger'` (default) = destructive confirm; `'info'` = the §2.7 submit
+   *  confirm. Paint only — see the class doc. */
+  readonly tone = input<ConfirmTone>('danger');
   /** Resolved texts (`'KEY' | t` / translated messageKey — scope §4.14). */
   readonly title = input.required<string>();
   readonly message = input.required<string>();

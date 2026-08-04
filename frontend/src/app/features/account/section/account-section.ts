@@ -6,6 +6,7 @@ import {
   effect,
   inject,
   input,
+  output,
   signal,
 } from '@angular/core';
 import { isApiError } from '../../../core/http';
@@ -25,7 +26,7 @@ import { Button, IconButton } from '../../../shared/ui';
 import { AccountListStore } from '../state/account-list.store';
 import { type AccountResponse } from '../model';
 import { AccountFormDialog } from './account-form-dialog';
-import { type BillingAddressOption } from './billing-address-option';
+import { type BillingAddressOption, type NewBillingAddress } from './billing-address-option';
 
 /**
  * Billing-account section of Customer Info (FR-ACCT-01..04, KR-11) — the
@@ -90,11 +91,43 @@ export class AccountSection {
   readonly addressOptions = input.required<readonly BillingAddressOption[]>();
   /**
    * OPTIONAL content for an expanded row — in Customer Info, the product
-   * sub-table. The template context is the `accountNumber` STRING and nothing
-   * else, so no account type crosses into whatever the caller renders. When
-   * absent, no expander column and no expansion row exist.
+   * sub-table plus the §2.7 sale entry point. The template context is the
+   * `accountNumber` STRING plus a single `active` BOOLEAN, so no account type
+   * crosses into whatever the caller renders. When absent, no expander column
+   * and no expansion row exist.
+   *
+   * `active` exists because the mock draws "Start new sale" inside the expanded
+   * row and AC-SALE-01-01 makes it available on ACTIVE accounts only. Passing a
+   * pre-reduced boolean rather than the status string keeps the caller from
+   * re-deriving account semantics it does not own.
    */
-  readonly rowExpansion = input<TemplateRef<{ $implicit: string }> | null>(null);
+  readonly rowExpansion = input<TemplateRef<{
+    $implicit: string;
+    active: boolean;
+  }> | null>(null);
+
+  /**
+   * OPTIONAL extra line for the "no billing accounts" empty state — RESOLVED
+   * text, supplied by the caller (scope §4.14). Customer Info uses it for
+   * AC-SALE-01-02: with no account there is no row to host "Start new sale",
+   * so the user must be told to create an account first. The account feature
+   * renders whatever it is handed and knows nothing about sales.
+   */
+  readonly emptyHint = input<string | undefined>(undefined);
+
+  /**
+   * BUG-1 pass-through for the dialog's inline "New address" panel. The account
+   * feature does not own FR-ADDR-02 (a customer-service endpoint) and does not
+   * import the customer feature, so the draft travels OUT via
+   * {@link newAddressRequested} and the outcome comes back through these three
+   * inputs — the same shape as `addressOptions`, which the caller also owns.
+   */
+  readonly addressBusy = input<boolean>(false);
+  readonly addressErrorText = input<string | null>(null);
+  readonly createdAddressId = input<number | null>(null);
+
+  /** A new billing address the user asked to create in the dialog's panel. */
+  readonly newAddressRequested = output<NewBillingAddress>();
 
   // --- dialog / toast state -------------------------------------------------
   protected readonly formDialogOpen = signal(false);

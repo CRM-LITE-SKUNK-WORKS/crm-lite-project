@@ -44,6 +44,14 @@
     [body]="'UI-ACCOUNT-EMPTY-BODY' | t"
     testId="customer-detail-account-empty-state"
   />
+  @if (emptyHint(); as hint) {
+    <p
+      class="px-6 pb-6 text-center text-body-sm text-ink-muted"
+      data-testid="customer-detail-account-empty-hint"
+    >
+      {{ hint }}
+    </p>
+  }
 } @else {
   <!-- Rows render in SERVER order: Active first, then Passive, accountNumber
        ascending (AC-ACCT-01-04) — Passive rows stay listed (AC-ACCT-01-03). -->
@@ -70,7 +78,13 @@
       <ng-template appTableExpansion let-account>
         @if (rowExpansion(); as expansion) {
           <ng-container
-            *ngTemplateOutlet="expansion; context: { $implicit: account.accountNumber }"
+            *ngTemplateOutlet="
+              expansion;
+              context: {
+                $implicit: account.accountNumber,
+                active: account.accountStatus === 'Active',
+              }
+            "
           />
         }
       </ng-template>
@@ -114,12 +128,19 @@
   </div>
 }
 
+<!-- BUG-1: the dialog COLLECTS a new address, the caller CREATES it — FR-ADDR-02
+     belongs to customer-service and this feature must not reach for it
+     (FE-ADR-003). The section is a pass-through in both directions. -->
 <app-account-form-dialog
   [open]="formDialogOpen()"
   [account]="formDialogTarget()"
   [addressOptions]="addressOptions()"
+  [addressBusy]="addressBusy()"
+  [addressErrorText]="addressErrorText()"
+  [createdAddressId]="createdAddressId()"
   (closed)="onFormClosed()"
   (saved)="onFormSaved()"
+  (newAddressRequested)="newAddressRequested.emit($event)"
 />
 
 <!-- FR-ACCT-04: confirm → DELETE (passivation). 409 guards flip the dialog

@@ -113,18 +113,53 @@
                  account section owns expand/collapse, the product section owns
                  its own data — they meet only through the accountNumber string
                  the expansion template carries (FE-ADR-003 §Consequences). -->
+            <!-- BUG-1: the account dialog's inline panel COLLECTS a new billing
+                 address; creating it is FR-ADDR-02, this feature's own endpoint,
+                 so it runs HERE through the same `CustomerDetailStore.addAddress`
+                 the Address tab and the sale wizard use (scope §4.30). -->
             <app-account-section
               [customerNumber]="customer.customerNumber"
               [addressOptions]="billingAddressOptions()"
+              [addressBusy]="accountAddressBusy()"
+              [addressErrorText]="accountAddressErrorText()"
+              [createdAddressId]="accountCreatedAddressId()"
               [rowExpansion]="productExpansion"
+              [emptyHint]="'UI-SALE-NO-ACCOUNT-HINT' | t"
+              (newAddressRequested)="onAccountNewAddress($event)"
             />
             <!-- FR-PROD-01 (2026-07-31): replaces the former "Coming soon"
                  block — product-service exists, so §Amendment A3 no longer
                  applies to this section (FE-ADR-013 §Amendment B). The mock
                  puts products inside the EXPANDED account row; this is that
                  place (mock §6.4 tab 2, AC-PROD-01-01). -->
-            <ng-template #productExpansion let-accountNumber>
+            <!-- The mock puts BOTH the product sub-table and the sale entry
+                 point inside the expanded account row. -->
+            <ng-template #productExpansion let-accountNumber let-active="active">
               <app-product-section [accountNumber]="accountNumber" />
+
+              <!-- AC-SALE-01-01: available on ACTIVE accounts only. On a
+                   Passive account the mock still draws the control, disabled —
+                   so the user sees WHY the sale is unavailable rather than
+                   hunting for a missing button.
+
+                   The mock's expanded row is ONE sunken panel holding the
+                   product table and this action bar with a 16px gap
+                   (Customer Info v2.dc.html). `app-product-section` paints the
+                   panel's top half (`bg-sunken px-5 py-4`), so this continues
+                   it — same background, same side padding, no top padding
+                   (the section's own `py-4` is the gap). Without it the bar
+                   fell outside the panel and sat flush against the row edge. -->
+              <div class="flex flex-wrap items-center gap-3 bg-sunken px-5 pb-4">
+                <app-button
+                  variant="secondary"
+                  iconLeading="shopping-cart"
+                  [disabled]="!active"
+                  [testId]="'customer-detail-account-row-' + accountNumber + '-start-sale'"
+                  (action)="startSale(accountNumber)"
+                >
+                  {{ 'LBL-START-NEW-SALE' | t }}
+                </app-button>
+              </div>
             </ng-template>
           </div>
         }

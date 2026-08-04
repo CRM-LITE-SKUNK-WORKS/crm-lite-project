@@ -62,11 +62,19 @@ bağımlılık olarak eklenmez — 28 ikon için tüm set gereksiz (FE-ADR-011).
 
 | | |
 |---|---|
-| **Girdi** | `variant = 'primary' \| 'secondary' \| 'danger'`, `size = 'md' \| 'sm'`, `iconLeading?`, `iconTrailing?`, `fullWidth = false`, `loading = false`, `disabled = false`, `type = 'button'`, `testId` |
+| **Girdi** | `variant = 'primary' \| 'secondary' \| 'danger' \| 'ghost'`, `size = 'md' \| 'sm'`, `iconLeading?`, `iconTrailing?`, `fullWidth = false`, `loading = false`, `disabled = false`, `type = 'button'`, `testId` |
 | **Çıktı** | yok — native `click` host'tan doğal olarak yükselir |
 
-`ghost` ve `lg` **yazılmaz**: mock'un hiçbir ekranında kullanılmıyor (§3.3).
-Kullanan bir ekran çıkarsa o zaman eklenir.
+`lg` **yazılmaz**: mock'un hiçbir ekranında kullanılmıyor (§3.3). Kullanan bir
+ekran çıkarsa o zaman eklenir.
+
+⚠ **Düzeltme (03.08.2026):** burada daha önce `ghost`'un da "mock'un hiçbir
+ekranında kullanılmadığı" yazıyordu — **bu tespit yanlıştı**. Bundle'ın Customer
+Info ekranında `variant="ghost"` **14 kez** geçiyor; ilk kapsam-içi tüketicisi
+BUG-1'in "Add new address" tetikleyicisi oldu, o yüzden varyant yazıldı. Stil
+`Button.jsx`'in `.eds-btn[data-variant="ghost"]` kuralından **birebir** alındı:
+zemin `bg-surface-sunken`, metin `action-secondary-text`, hover `border-default`,
+active `border-hover` (kayıt: scope §4.30).
 
 | Durum | Davranış |
 |---|---|
@@ -233,8 +241,9 @@ spec'iyle; 98/98 test). Uygulamada nottan sapmalar — hepsi kayıtlı:
   disabled: true})`). 501 filtre alanları da böyle kurulacak (FE-ADR-013 §b).
 - **Select'te `searchable`/`clearable`/`loading` yazılmadı** — kapsam içi
   tüketicisi yok; ihtiyaç duyan ekran çıktığında eklenir (FE-ADR-011 §c bütçe
-  ilkesi). `Button`'da `ghost`/`lg`, `IconButton`'da `subtle`/40 aynı gerekçeyle
-  yok (notta zaten kayıtlıydı).
+  ilkesi). `Button`'da `lg`, `IconButton`'da `subtle`/40 aynı gerekçeyle yok
+  (notta zaten kayıtlıydı). `Button`'ın `ghost`'u **03.08.2026'da yazıldı** —
+  gerekçe yukarıdaki düzeltmede.
 - **FormField `hint` tooltip'i ertelendi** — Tooltip `shared/patterns/`
   gelince eklenecek; kapsam içi ekran kullanmıyor.
 - İkon SVG verisi mock bundle'ın lucide shim'inden **birebir** çıkarıldı
@@ -250,6 +259,14 @@ spec'iyle; 98/98 test). Uygulamada nottan sapmalar — hepsi kayıtlı:
 - **`Select` → `dropUp` girdisi:** panel tetikleyicinin ÜSTÜNE açılır — mock
   §6.2'nin per-page seçicisi kart içinde kalmak için bunu yapıyor
   (`.eds-pagesize-up`).
+- **`Select` → `flowPanel` girdisi (04.08.2026, BUG-2):** panel mutlak konumlu
+  bir katman yerine **akış içinde** render edilir; kapsayıcı (ve dolayısıyla onu
+  barındıran dialog) **büyür**. Dar bir modalda fark şudur: liste dialogun
+  kenarından taşıp footer'ın üstüne binmek yerine dialog uzar ve liste tümüyle
+  görünür. `max-h-65` tavanı korunur → büyüme sınırlıdır, uzun listede panel
+  kendi içinde kayar. `dropUp` bu modda anlamsızdır ve yok sayılır. Varsayılan
+  **kapalı**: tam sayfada panel sayfanın düzenini itmemeli (mock `Select.jsx`
+  davranışı). Tüketici: Create/Edit billing account modalı (kayıt: scope §4.30 EK).
 
 `Icon` → `Button` → `IconButton` → `FormField` → `TextInput` → `Select` → *(sonra)* `DatePicker`
 

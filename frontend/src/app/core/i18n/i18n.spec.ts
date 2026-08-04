@@ -70,6 +70,26 @@ describe('i18n catalogue', () => {
       // MSG-ACCT-NOT-FOUND (unknown accountNumber) and MSG-SERVICE-UNAVAILABLE
       // are the other two product-list outcomes and are already listed above.
       'MSG-PROD-NOT-FOUND',
+      // §2.7 sale (docs/api/order-service.md §Status/message-key matrix).
+      // These are produced by product-service and RELAYED UNCHANGED by
+      // order-service, so the frontend must resolve every one of them —
+      // that relay is the whole point of §2.7 (the user is told which rule
+      // they broke). MSG-SALE-ORDER-CONFIRM is deliberately NOT listed: it
+      // is frontend-only (the AC-SALE-01-15 modal), never backend-returned.
+      'MSG-SALE-DUP-OFFER',
+      'MSG-SALE-OFFER-INACTIVE',
+      'MSG-SALE-NO-INTERNET',
+      'MSG-SALE-NO-RESOURCE',
+      'MSG-SALE-NO-ACTIVATION',
+      'MSG-SALE-MULTI-INTERNET',
+      'MSG-SALE-MULTI-RESOURCE',
+      'MSG-SALE-MULTI-ACTIVATION',
+      'MSG-VAL-CHAR-REQUIRED',
+      'MSG-VAL-CHAR-FORMAT',
+      // order-service PROJECT ADDITIONS the backend does return.
+      'MSG-ORDER-NOT-FOUND',
+      'MSG-ORDER-DUP-NUMBER',
+      'MSG-ORDER-NUMBER-CAPACITY-EXCEEDED',
     ];
     for (const key of backendKeys) {
       expect(Object.prototype.hasOwnProperty.call(CATALOG, key), `missing ${key}`).toBe(true);

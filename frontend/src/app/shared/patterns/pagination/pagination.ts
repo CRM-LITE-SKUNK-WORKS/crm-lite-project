@@ -2,6 +2,7 @@ import { Component, computed, effect, input, output } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { IconButton, Select, type SelectOption } from '../../ui';
+import { isPageSize, type PageSize } from './page-size';
 
 /**
  * Pagination pattern (shared/patterns) — the mock's results-card footer
@@ -111,14 +112,19 @@ export class Pagination {
   readonly pageLabelFor = input.required<(page: number) => string>();
   /** Resolved "Per page" label. */
   readonly perPageLabel = input.required<string>();
-  readonly size = input.required<number>();
-  readonly sizeOptions = input.required<readonly number[]>();
+  /** Typed to the server whitelist (`page-size.ts`), NOT to `number`: a screen
+   *  that hard-codes an unsupported size no longer compiles, instead of failing
+   *  at runtime with a 400. */
+  readonly size = input.required<PageSize>();
+  readonly sizeOptions = input.required<readonly PageSize[]>();
   readonly testId = input.required<string>();
   readonly sizeSelectTestId = input.required<string>();
 
   /** Requested page, ZERO-based. Never fires for the already-current page. */
   readonly pageChange = output<number>();
-  readonly sizeChange = output<number>();
+  /** Always a whitelisted size — the control's raw value is narrowed first, so
+   *  callers never re-implement the check. */
+  readonly sizeChange = output<PageSize>();
 
   /** Internal control feeding the shared Select (a CVA); kept in sync with the
    *  `size` input and re-emitted as the `sizeChange` intent. */
@@ -156,7 +162,10 @@ export class Pagination {
       this.sizeControl.setValue(this.size(), { emitEvent: false });
     });
     this.sizeControl.valueChanges.pipe(takeUntilDestroyed()).subscribe((value) => {
-      if (typeof value === 'number' && value !== this.size()) {
+      // `isPageSize` is the guard, not a formality: the Select is a CVA and its
+      // value is typed `number | null`, so this is where an off-whitelist value
+      // would otherwise leak out to a caller and become a 400.
+      if (typeof value === 'number' && isPageSize(value) && value !== this.size()) {
         this.sizeChange.emit(value);
       }
     });

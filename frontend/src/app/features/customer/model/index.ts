@@ -17,4 +17,5 @@ export {
   type PageSize,
   PAGE_SIZE_OPTIONS,
   DEFAULT_PAGE_SIZE,
+  isPageSize,
 } from './customer-search.model';

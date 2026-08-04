@@ -1,6 +1,7 @@
 import { Component, input } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { Pagination } from './pagination';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, isPageSize, type PageSize } from './page-size';
 
 @Component({
   imports: [Pagination],
@@ -29,12 +30,14 @@ class Host {
   readonly totalPages = input<number>(7);
   readonly isFirst = input<boolean>(true);
   readonly isLast = input<boolean>(false);
-  readonly rangeText = input<string>('1–20 of 137');
-  readonly size = input<number>(20);
-  readonly sizeOptions = input<readonly number[]>([20, 50, 100]);
+  readonly rangeText = input<string>('1–15 of 137');
+  // Whitelist values only (KR-04) — the harness must not model a size the API
+  // would reject, or the spec would pin behaviour that cannot happen live.
+  readonly size = input<PageSize>(DEFAULT_PAGE_SIZE);
+  readonly sizeOptions = input<readonly PageSize[]>(PAGE_SIZE_OPTIONS);
   readonly pageLabelFor = (page: number): string => `Page ${page}`;
   readonly pageChanges: number[] = [];
-  readonly sizeChanges: number[] = [];
+  readonly sizeChanges: PageSize[] = [];
 }
 
 describe('Pagination', () => {
@@ -59,7 +62,7 @@ describe('Pagination', () => {
   }
 
   it('renders the resolved range text on the footer host', () => {
-    expect(byTestId(render(), 'spec-pagination')?.textContent).toContain('1–20 of 137');
+    expect(byTestId(render(), 'spec-pagination')?.textContent).toContain('1–15 of 137');
   });
 
   it('shows all pages when totalPages ≤ 7, with aria-current on the active one', () => {
@@ -105,7 +108,7 @@ describe('Pagination', () => {
   it('reflects the size input in the select and emits sizeChange on pick', () => {
     const fixture = render();
     const trigger = byTestId(fixture, 'spec-page-size-select') as HTMLButtonElement;
-    expect(trigger.textContent).toContain('20');
+    expect(trigger.textContent).toContain('15');
     trigger.click();
     fixture.detectChanges();
     (byTestId(fixture, 'spec-page-size-select-option-50') as HTMLButtonElement).click();
@@ -118,8 +121,55 @@ describe('Pagination', () => {
     const trigger = byTestId(fixture, 'spec-page-size-select') as HTMLButtonElement;
     trigger.click();
     fixture.detectChanges();
-    (byTestId(fixture, 'spec-page-size-select-option-20') as HTMLButtonElement).click();
+    (byTestId(fixture, 'spec-page-size-select-option-15') as HTMLButtonElement).click();
     fixture.detectChanges();
     expect(fixture.componentInstance.sizeChanges).toEqual([]);
+  });
+
+  // --- KR-04 page-size contract (the 400 that took the customer list down) ---
+
+  it('offers ONLY the server whitelist 15/30/50 — no superseded 20/50/100', () => {
+    const fixture = render();
+    (byTestId(fixture, 'spec-page-size-select') as HTMLButtonElement).click();
+    fixture.detectChanges();
+
+    const offered = Array.from(
+      (fixture.nativeElement as HTMLElement).querySelectorAll(
+        '[data-testid^="spec-page-size-select-option-"]',
+      ),
+    ).map((option) => Number(option.textContent?.trim()));
+
+    expect(offered).toEqual([15, 30, 50]);
+    // The exact values that produced `400 MSG-VALIDATION-ERROR` in the wild.
+    for (const rejected of [20, 100]) {
+      expect(offered).not.toContain(rejected);
+    }
+  });
+
+  it('every emitted size is a value the API accepts', () => {
+    const fixture = render();
+    for (const option of PAGE_SIZE_OPTIONS) {
+      (byTestId(fixture, 'spec-page-size-select') as HTMLButtonElement).click();
+      fixture.detectChanges();
+      (
+        byTestId(fixture, `spec-page-size-select-option-${option}`) as HTMLButtonElement
+      ).click();
+      fixture.detectChanges();
+    }
+    const emitted = fixture.componentInstance.sizeChanges;
+    expect(emitted.length).toBeGreaterThan(0);
+    for (const size of emitted) {
+      expect(isPageSize(size)).toBe(true);
+    }
+  });
+
+  it('isPageSize accepts the whitelist and rejects everything else', () => {
+    for (const allowed of PAGE_SIZE_OPTIONS) {
+      expect(isPageSize(allowed)).toBe(true);
+    }
+    for (const rejected of [0, 1, 10, 20, 25, 100, -15]) {
+      expect(isPageSize(rejected)).toBe(false);
+    }
+    expect(isPageSize(DEFAULT_PAGE_SIZE)).toBe(true);
   });
 });

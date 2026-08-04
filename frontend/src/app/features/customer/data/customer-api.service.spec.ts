@@ -1,6 +1,7 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
+import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS, isPageSize } from '../model';
 import type {
   AddressRequest,
   CreateCustomerRequest,
@@ -48,6 +49,33 @@ describe('CustomerApiService', () => {
     expect(req.request.params.get('page')).toBe('0');
     expect(req.request.params.get('size')).toBe('15');
     expect(req.request.params.keys().sort()).toEqual(['page', 'size']);
+    req.flush(pageOf([CUSTOMER]));
+  });
+
+  /**
+   * Regression guard for the live `400 MSG-VALIDATION-ERROR`
+   * (`validationErrors.size = "must be one of 15, 30, 50"`) that took the
+   * customer list down. Asserts the value ACTUALLY PUT ON THE WIRE, which is the
+   * only thing the server judges — a correct constant that never reaches the
+   * query string would still fail in production.
+   */
+  it('the size on the wire is always a value the API accepts (KR-04 whitelist)', () => {
+    for (const size of PAGE_SIZE_OPTIONS) {
+      service.list({}, { page: 0, size }).subscribe();
+      const req = http.expectOne((r) => r.url === '/api/customers');
+      const sent = Number(req.request.params.get('size'));
+      expect(isPageSize(sent)).toBe(true);
+      expect(sent).toBe(size);
+      req.flush(pageOf([CUSTOMER]));
+    }
+  });
+
+  it('never sends a superseded page size (20/100 are contract violations now)', () => {
+    service.list({}, { page: 0, size: DEFAULT_PAGE_SIZE }).subscribe();
+    const req = http.expectOne((r) => r.url === '/api/customers');
+    expect(req.request.params.get('size')).not.toBe('20');
+    expect(req.request.params.get('size')).not.toBe('100');
+    expect(req.request.params.get('size')).toBe('15');
     req.flush(pageOf([CUSTOMER]));
   });
 

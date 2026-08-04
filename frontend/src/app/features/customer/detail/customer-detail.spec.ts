@@ -5,11 +5,7 @@ import { of } from 'rxjs';
 import { provideCoreHttp } from '../../../core/http';
 import { I18nService } from '../../../core/i18n';
 import { CustomerFlashService } from '../state/customer-flash.service';
-import type {
-  AddressResponse,
-  ContactMediumResponse,
-  CustomerDetailResponse,
-} from '../model';
+import type { AddressResponse, ContactMediumResponse, CustomerDetailResponse } from '../model';
 import { CustomerDetail } from './customer-detail';
 
 /**
@@ -201,6 +197,53 @@ describe('CustomerDetail', () => {
     ).toBe(false); // functional since F6
   });
 
+  // BUG-1 (scope §4.30): the account dialog COLLECTS the address, Customer Info
+  // CREATES it — through the very `addAddress` the Address tab uses, so there is
+  // exactly one FR-ADDR-02 path and the account feature stays free of it.
+  it('creates a billing address asked for by the account dialog, then auto-selects it', () => {
+    const fixture = render();
+    flushInitial(fixture);
+    openAccountTab(fixture);
+
+    click(fixture, 'customer-detail-account-create-button');
+    click(fixture, 'customer-detail-account-dialog-add-address-button');
+    http.expectOne('/api/cities').flush([{ cityId: 2, name: 'Ankara' }]);
+    fixture.detectChanges();
+
+    const panel = 'customer-detail-account-dialog-new-address';
+    click(fixture, `${panel}-city-select`);
+    click(fixture, `${panel}-city-select-option-2`);
+    http.expectOne('/api/cities/2/districts').flush([{ districtId: 3, name: 'Çankaya' }]);
+    fixture.detectChanges();
+    click(fixture, `${panel}-district-select`);
+    click(fixture, `${panel}-district-select-option-3`);
+    type(fixture, `${panel}-street-input`, 'Yeni Cad.');
+    type(fixture, `${panel}-house-no-input`, '7');
+    type(fixture, `${panel}-description-input`, 'Work');
+    click(fixture, `${panel}-save-button`);
+
+    // The documented standalone-address body: five fields, no `primary`.
+    const post = http.expectOne('/api/customers/1001/addresses');
+    expect(post.request.method).toBe('POST');
+    expect(post.request.body).toEqual({
+      cityId: 2,
+      districtId: 3,
+      street: 'Yeni Cad.',
+      houseFlatNumber: '7',
+      addressDescription: 'Work',
+    });
+    post.flush(WORK, { status: 201, statusText: 'Created' });
+    // `addAddress` refreshes the list, which is what re-feeds the Select.
+    http.expectOne('/api/customers/1001/addresses').flush([HOME, WORK]);
+    fixture.detectChanges();
+    fixture.detectChanges();
+
+    expect(byTestId(fixture, panel)).toBeNull();
+    expect(
+      byTestId(fixture, 'customer-detail-account-dialog-address-select')?.textContent,
+    ).toContain('Yeni Cad.');
+  });
+
   it('the products section is NOT read until its account row is expanded', () => {
     const fixture = render();
     flushInitial(fixture);
@@ -241,6 +284,63 @@ describe('CustomerDetail', () => {
     http.expectNone((r) => r.url === '/api/products');
   });
 
+  // ---- sale entry point (AC-SALE-01-01/02, AC-SALE-02-01) ------------------
+
+  /** Expand an account row and answer the product read it triggers. */
+  function expandRow(fixture: ComponentFixture<CustomerDetail>, accountNumber: string): void {
+    click(fixture, `customer-detail-account-row-${accountNumber}-expander`);
+    http.expectOne((r) => r.url === '/api/products').flush([]);
+    fixture.detectChanges();
+  }
+
+  it('AC-SALE-01-01: Start New Sale opens the wizard for THAT billing account', () => {
+    const fixture = render();
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    flushInitial(fixture);
+    openAccountTab(fixture);
+    expandRow(fixture, '1261000010');
+
+    click(fixture, 'customer-detail-account-row-1261000010-start-sale');
+
+    // The account travels as a QUERY param: it qualifies which billing account
+    // the sale is for, and the products created by it must come back to it.
+    expect(navigate).toHaveBeenCalledWith(['/customers', 1001, 'sales', 'new'], {
+      queryParams: { accountNumber: '1261000010' },
+    });
+  });
+
+  it('AC-SALE-02-01: the action is disabled on a PASSIVE account row', () => {
+    const fixture = render();
+    flushInitial(fixture);
+
+    click(fixture, 'customer-detail-tabs-account');
+    http
+      .expectOne((r) => r.url === '/api/accounts')
+      .flush([{ ...BILLING_ACCOUNT, accountNumber: '1261000028', accountStatus: 'Passive' }]);
+    fixture.detectChanges();
+    expandRow(fixture, '1261000028');
+
+    // Drawn but inert: the user sees WHY the sale is unavailable rather than
+    // hunting for a button that is not there.
+    const action = byTestId(fixture, 'customer-detail-account-row-1261000028-start-sale');
+    expect(action).not.toBeNull();
+    expect((action as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('AC-SALE-01-02: no billing account ⇒ no action, and the user is told to create one', () => {
+    const fixture = render();
+    flushInitial(fixture);
+
+    click(fixture, 'customer-detail-tabs-account');
+    http.expectOne((r) => r.url === '/api/accounts').flush([]);
+    fixture.detectChanges();
+
+    expect(byTestId(fixture, 'customer-detail-account-row-1261000010-start-sale')).toBeNull();
+    expect(byTestId(fixture, 'customer-detail-account-empty-hint')?.textContent).toContain(
+      'Create a billing account before starting a sale',
+    );
+  });
+
   // ---- address tab (FR-ADDR-01..05) ----------------------------------------
 
   it('renders address cards; the primary card is marked and its delete is disabled', () => {
@@ -264,9 +364,10 @@ describe('CustomerDetail', () => {
     click(fixture, 'customer-detail-tabs-address');
     click(fixture, 'customer-detail-address-2-set-primary');
     http.expectOne('/api/customers/1001/addresses/2/primary').flush({ ...WORK, primary: true });
-    http
-      .expectOne('/api/customers/1001/addresses')
-      .flush([{ ...HOME, primary: false }, { ...WORK, primary: true }]);
+    http.expectOne('/api/customers/1001/addresses').flush([
+      { ...HOME, primary: false },
+      { ...WORK, primary: true },
+    ]);
     fixture.detectChanges();
     expect(byTestId(fixture, 'customer-detail-address-2')?.textContent).toContain('Primary');
     expect(byTestId(fixture, 'customer-detail-address-1-set-primary')).not.toBeNull();
@@ -328,7 +429,9 @@ describe('CustomerDetail', () => {
     http.expectOne('/api/cities/1/districts').flush([{ districtId: 1, name: 'Kadıköy' }]);
     fixture.detectChanges();
     click(fixture, 'customer-detail-address-dialog-district-select');
-    expect(byTestId(fixture, 'customer-detail-address-dialog-district-select-option-1')).not.toBeNull();
+    expect(
+      byTestId(fixture, 'customer-detail-address-dialog-district-select-option-1'),
+    ).not.toBeNull();
   });
 
   it('edit-address pre-fills, PUTs the documented body and refreshes the list', () => {
@@ -357,7 +460,9 @@ describe('CustomerDetail', () => {
     });
     expect('primary' in (put.request.body as object)).toBe(false); // PATCH-only concern
     put.flush({ ...WORK, street: 'Güncel Cad.' });
-    http.expectOne('/api/customers/1001/addresses').flush([HOME, { ...WORK, street: 'Güncel Cad.' }]);
+    http
+      .expectOne('/api/customers/1001/addresses')
+      .flush([HOME, { ...WORK, street: 'Güncel Cad.' }]);
     fixture.detectChanges();
     expect(byTestId(fixture, 'customer-detail-address-dialog')).toBeNull();
     expect(byTestId(fixture, 'customer-detail-address-2')?.textContent).toContain('Güncel Cad.');
@@ -417,9 +522,9 @@ describe('CustomerDetail', () => {
       'ali@example.com',
     );
     expect(byTestId(fixture, 'customer-detail-contact-value-home')?.textContent).toContain('—');
-    const ids = Array.from(grid?.querySelectorAll('[data-testid^="customer-detail-contact-value-"]') ?? []).map(
-      (el) => el.getAttribute('data-testid'),
-    );
+    const ids = Array.from(
+      grid?.querySelectorAll('[data-testid^="customer-detail-contact-value-"]') ?? [],
+    ).map((el) => el.getAttribute('data-testid'));
     expect(ids).toEqual([
       'customer-detail-contact-value-email',
       'customer-detail-contact-value-home',
@@ -475,9 +580,7 @@ describe('CustomerDetail', () => {
     request.flush(null, { status: 204, statusText: '' });
     fixture.detectChanges();
     expect(navigate).toHaveBeenCalledWith(['/customers']);
-    expect(TestBed.inject(CustomerFlashService).consume()).toBe(
-      'UI-DETAIL-TOAST-CUSTOMER-DELETED',
-    );
+    expect(TestBed.inject(CustomerFlashService).consume()).toBe('UI-DETAIL-TOAST-CUSTOMER-DELETED');
   });
 
   it('delete blocked by the backend (409 MSG-CUST-HAS-PRODUCTS) shows the mock error state', () => {

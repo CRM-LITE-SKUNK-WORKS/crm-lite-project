@@ -87,6 +87,23 @@ export class TextInput implements ControlValueAccessor {
    * never legitimately hold.
    */
   readonly digitsOnly = input<boolean>(false);
+  /**
+   * The decimal sibling of `digitsOnly`, for fields whose contract type is a
+   * NUMBER rather than a digit STRING: keeps digits, a single leading `+`/`-`
+   * and the first `.`, and drops everything else as it arrives — so a letter
+   * can never be typed or pasted into a numeric characteristic field
+   * (AC-SALE-01-17).
+   *
+   * `digitsOnly` WINS if both are set; it is the stricter rule (an ID number is
+   * not a quantity, and `1.5` is not an ID).
+   *
+   * KNOWN AND ACCEPTED GAP: scientific notation (`1e5`) is stripped, although
+   * `new BigDecimal("1e5")` — the backend's own parser — accepts it. Typing an
+   * exponent into "Download Speed (Mbps)" is not a real user path, and letting
+   * `e` through would re-open the door this input exists to close. A value that
+   * arrives that way through any OTHER path is still accepted end-to-end.
+   */
+  readonly numericOnly = input<boolean>(false);
   readonly maxLength = input<number | undefined>(undefined);
   readonly showCount = input<boolean>(false);
   readonly clearable = input<boolean>(false);
@@ -142,7 +159,7 @@ export class TextInput implements ControlValueAccessor {
 
   protected onInput(event: Event): void {
     const element = event.target as HTMLInputElement;
-    const next = this.digitsOnly() ? element.value.replace(/\D/g, '') : element.value;
+    const next = this.sanitize(element.value);
     // Write the sanitized text straight back: the `[value]` binding alone would
     // not repaint when `value()` did not change (typing "a" into "123"), which
     // would leave the rejected character visible on screen.
@@ -151,6 +168,26 @@ export class TextInput implements ControlValueAccessor {
     }
     this.value.set(next);
     this.onChange(next);
+  }
+
+  /** Input hygiene, not validation: only characters the field can NEVER
+   *  legitimately hold are removed (see `digitsOnly` / `numericOnly`). */
+  private sanitize(raw: string): string {
+    if (this.digitsOnly()) return raw.replace(/\D/g, '');
+    if (!this.numericOnly()) return raw;
+    let out = '';
+    let dotSeen = false;
+    for (const character of raw) {
+      if (character >= '0' && character <= '9') {
+        out += character;
+      } else if ((character === '-' || character === '+') && out.length === 0) {
+        out += character;
+      } else if (character === '.' && !dotSeen) {
+        out += character;
+        dotSeen = true;
+      }
+    }
+    return out;
   }
 
   protected handleBlur(): void {

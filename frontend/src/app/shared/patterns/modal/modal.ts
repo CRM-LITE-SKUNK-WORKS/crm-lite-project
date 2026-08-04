@@ -11,13 +11,16 @@ import {
 } from '@angular/core';
 import { IconButton } from '../../ui';
 
-export type ModalSize = 'sm' | 'md' | 'lg';
+export type ModalSize = 'sm' | 'md' | 'lg' | 'xl';
 
-/** §7.2 max-width variants (420 / 560 / 680) — theme tokens, not literals. */
+/** §7.2 max-width variants (420 / 480 / 560 / 680) — theme tokens, not
+ *  literals. `md` = 480px is the mock's own Create/Edit billing account and
+ *  Start new sale width (scope §4.30). */
 const SIZE_CLASSES: Record<ModalSize, string> = {
   sm: 'max-w-modal-sm',
   md: 'max-w-modal-md',
   lg: 'max-w-modal-lg',
+  xl: 'max-w-modal-xl',
 };
 
 /** Everything the trap counts as focusable inside the dialog panel. */
@@ -88,7 +91,7 @@ export class ModalFooter {}
               />
             </div>
           }
-          <div class="min-h-0 flex-1 overflow-y-auto p-5">
+          <div [class]="bodyClasses()">
             <ng-content />
           </div>
           @if (footer()) {
@@ -117,6 +120,25 @@ export class Modal {
   readonly headerless = input<boolean>(false);
   /** Close on backdrop click; deliberately off by default (see class doc). */
   readonly closeOnBackdrop = input<boolean>(false);
+  /**
+   * Let the body's content escape the dialog bounds instead of scrolling inside
+   * it — set this whenever the body hosts a `Select`/`DatePicker`, whose panel
+   * is an ABSOLUTELY POSITIONED sibling of its trigger and is therefore clipped
+   * by any ancestor scroll container (BUG-2 root cause, scope §4.30).
+   *
+   * This is a per-dialog property, not a global one, because the mock treats it
+   * as one: its two compact 480px modals (billing account, start new sale) are
+   * `overflow:visible` with NO `max-height`, while its tall form modals keep
+   * `max-height:calc(100vh - 48px)` + an `overflow:auto` body. Flipping every
+   * dialog to visible would cost tall dialogs their scroll on short viewports;
+   * flipping none leaves every dropdown clipped. So the pattern owns the fix and
+   * each dialog declares which of the mock's two shapes it is.
+   *
+   * When set, the panel also drops `max-h-full` — matching the mock, and
+   * necessary anyway: a height cap with a non-scrolling body would strand
+   * content with no way to reach it.
+   */
+  readonly overflowVisible = input<boolean>(false);
   readonly testId = input.required<string>();
 
   /** The single close intent (✕ / Escape / permitted backdrop click). */
@@ -131,8 +153,15 @@ export class Modal {
   protected readonly titleId = computed(() => `${this.testId()}-title`);
   protected readonly panelClasses = computed(
     () =>
-      'animate-panel-in flex max-h-full w-full flex-col rounded-lg bg-surface shadow-e3 ' +
+      'animate-panel-in flex w-full flex-col rounded-lg bg-surface shadow-e3 ' +
+      (this.overflowVisible() ? '' : 'max-h-full ') +
       SIZE_CLASSES[this.size()],
+  );
+  /** `overflow-y-auto` is what clips a Select panel — see `overflowVisible`. */
+  protected readonly bodyClasses = computed(() =>
+    this.overflowVisible()
+      ? 'flex-1 overflow-visible p-5'
+      : 'min-h-0 flex-1 overflow-y-auto p-5',
   );
 
   constructor() {

@@ -65,11 +65,11 @@ export interface SelectOption {
       <div
         role="listbox"
         [id]="listboxId()"
-        class="animate-panel-in absolute left-0 z-dropdown max-h-65 w-full overflow-y-auto rounded-lg border border-line bg-surface shadow-e2"
-        [class.top-full]="!dropUp()"
+        [class]="panelClasses()"
+        [class.top-full]="!flowPanel() && !dropUp()"
         [class.mt-1]="!dropUp()"
-        [class.bottom-full]="dropUp()"
-        [class.mb-1]="dropUp()"
+        [class.bottom-full]="!flowPanel() && dropUp()"
+        [class.mb-1]="!flowPanel() && dropUp()"
         [attr.data-testid]="testId() + '-panel'"
         (mousedown)="$event.preventDefault()"
       >
@@ -117,6 +117,22 @@ export class Select implements ControlValueAccessor {
    *  so the panel stays inside the results card (mock-ui-analysis §6.2,
    *  `.eds-pagesize-up`). */
   readonly dropUp = input<boolean>(false);
+  /**
+   * Render the option panel IN FLOW (a normal block under the trigger) instead
+   * of overlaying the content below it.
+   *
+   * For a compact dialog this is the difference between the list hanging over —
+   * and past — the dialog's own edge, and the DIALOG GROWING to show the whole
+   * list (BUG-2 follow-up, scope §4.30). The panel keeps its `max-h-65` cap, so
+   * growth is bounded and a long list still scrolls inside the panel rather
+   * than pushing the dialog's footer off-screen.
+   *
+   * Off by default: on a full page the overlaying panel is correct (it must not
+   * shove the page's own layout around), which is what every other consumer and
+   * the mock's own `Select.jsx` do. `dropUp` is meaningless here — an in-flow
+   * panel always follows its trigger — and is ignored.
+   */
+  readonly flowPanel = input<boolean>(false);
   readonly testId = input.required<string>();
 
   protected readonly open = signal(false);
@@ -156,6 +172,14 @@ export class Select implements ControlValueAccessor {
         ? 'border-brand shadow-focus-ring'
         : 'border-line-strong';
     return `${base} cursor-pointer bg-surface text-ink ${border}`;
+  });
+
+  /** Overlay (default) vs in-flow panel — see {@link flowPanel}. The shared
+   *  half is the mock's panel skin; only positioning differs. */
+  protected readonly panelClasses = computed(() => {
+    const base =
+      'animate-panel-in max-h-65 w-full overflow-y-auto rounded-lg border border-line bg-surface shadow-e2';
+    return this.flowPanel() ? `${base} block` : `${base} absolute left-0 z-dropdown`;
   });
 
   protected optionDomId(option: SelectOption): string {

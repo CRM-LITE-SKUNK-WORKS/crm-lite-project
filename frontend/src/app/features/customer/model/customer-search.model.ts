@@ -29,20 +29,22 @@ export interface CustomerSearchCriteria {
 }
 
 /**
- * Per-page options — **15 / 30 / 50, default 15** (KR-04, scope §2.3/§2.4 as
- * revised 2026-07-29). The earlier 20/50/100 decision rested on the API accepting
- * any positive `size`; the analysts closed that open conflict the other way, so
- * `GET /api/customers` now defaults to 15 and **rejects anything outside this
- * list with 400** (ADR-005 §Amendment). Sending 20 or 100 is no longer a UX
- * choice, it is a contract violation — this list and the backend whitelist must
- * stay identical.
- *
- * KR-04: `size` is ALWAYS sent explicitly, so UI and server can never disagree
- * on page size even if the API default moves again.
+ * The page-size whitelist is NOT defined here. It is an app-wide server
+ * contract shared by every paginated list, so it lives in
+ * `shared/patterns/pagination/page-size.ts` — a sibling feature cannot import
+ * `features/customer/model` (FE-ADR-003), and a per-feature copy is how the
+ * superseded 20/50/100 list survived long enough to cause a 400 in the wild.
+ * Re-exported here only so existing customer imports keep one spelling; the
+ * values themselves have a single definition.
  */
-export const PAGE_SIZE_OPTIONS = [15, 30, 50] as const;
-export type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
-export const DEFAULT_PAGE_SIZE: PageSize = 15;
+export {
+  PAGE_SIZE_OPTIONS,
+  DEFAULT_PAGE_SIZE,
+  isPageSize,
+  type PageSize,
+} from '../../../shared/patterns';
+
+import type { PageSize } from '../../../shared/patterns';
 
 /** Pagination request, kept separate from the filter criteria. */
 export interface PageRequest {

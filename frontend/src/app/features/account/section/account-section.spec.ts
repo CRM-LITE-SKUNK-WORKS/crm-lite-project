@@ -1,9 +1,9 @@
-import { Component, input } from '@angular/core';
+import { Component, input, signal } from '@angular/core';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideCoreHttp } from '../../../core/http';
 import { AccountSection } from './account-section';
-import { type BillingAddressOption } from './billing-address-option';
+import { type BillingAddressOption, type NewBillingAddress } from './billing-address-option';
 import { type AccountResponse } from '../model';
 
 /**
@@ -48,12 +48,24 @@ function apiError(status: number, messageKey: string) {
 @Component({
   imports: [AccountSection],
   template: `
-    <app-account-section [customerNumber]="customerNumber()" [addressOptions]="options()" />
+    <app-account-section
+      [customerNumber]="customerNumber()"
+      [addressOptions]="options()"
+      [addressBusy]="addressBusy()"
+      [addressErrorText]="addressErrorText()"
+      [createdAddressId]="createdAddressId()"
+      (newAddressRequested)="requested.push($event)"
+    />
   `,
 })
 class Host {
   readonly customerNumber = input<number>(1001);
   readonly options = input<readonly BillingAddressOption[]>(OPTIONS);
+  /** BUG-1: the Host plays Customer Info — it OWNS address creation. */
+  readonly requested: NewBillingAddress[] = [];
+  readonly addressBusy = signal(false);
+  readonly addressErrorText = signal<string | null>(null);
+  readonly createdAddressId = signal<number | null>(null);
 }
 
 describe('AccountSection', () => {
@@ -277,5 +289,184 @@ describe('AccountSection', () => {
     expect(
       byTestId(fixture, 'customer-detail-account-delete-dialog-error')?.textContent,
     ).toContain('passive');
+  });
+
+  // ---- BUG-1: inline "Add new address" panel (scope §4.30) -----------------
+
+  const PANEL = 'customer-detail-account-dialog-new-address';
+
+  /** Opens the create dialog and expands the inline panel, serving the cascade
+   *  reads the panel issues through `core/lookup`. */
+  function openAddressPanel(fixture: ComponentFixture<Host>): void {
+    click(fixture, 'customer-detail-account-create-button');
+    click(fixture, 'customer-detail-account-dialog-add-address-button');
+    http.expectOne('/api/cities').flush([
+      { cityId: 34, name: 'Istanbul' },
+      { cityId: 6, name: 'Ankara' },
+    ]);
+    fixture.detectChanges();
+  }
+
+  /** Fills all five fields; picking the city also flushes its districts. */
+  function fillAddressPanel(fixture: ComponentFixture<Host>): void {
+    click(fixture, `${PANEL}-city-select`);
+    click(fixture, `${PANEL}-city-select-option-34`);
+    http.expectOne('/api/cities/34/districts').flush([{ districtId: 340, name: 'Kadıköy' }]);
+    fixture.detectChanges();
+    click(fixture, `${PANEL}-district-select`);
+    click(fixture, `${PANEL}-district-select-option-340`);
+    type(fixture, `${PANEL}-street-input`, ' Bağdat Cad. ');
+    type(fixture, `${PANEL}-house-no-input`, ' 12 ');
+    type(fixture, `${PANEL}-description-input`, ' Home ');
+  }
+
+  // BUG-2: the mock's modal body is a single stacked column, and opening the
+  // address list must grow the dialog rather than be clipped by it.
+  it('stacks the dialog fields and shows EVERY address without clipping the list', () => {
+    const manyAddresses = Array.from({ length: 9 }, (_, i) => ({
+      addressId: i + 1,
+      label: `Address ${i + 1}`,
+    }));
+    const fixture = render();
+    fixture.componentRef.setInput('options', manyAddresses);
+    flushList(fixture, []);
+    click(fixture, 'customer-detail-account-create-button');
+
+    // Stacked, full-width fields — not the former two-column grid.
+    const form = byTestId(fixture, 'customer-detail-account-dialog-form') as HTMLElement;
+    expect(form.className).toContain('flex-col');
+    expect(form.className).not.toContain('grid-cols-2');
+
+    click(fixture, 'customer-detail-account-dialog-address-select');
+    const panel = byTestId(
+      fixture,
+      'customer-detail-account-dialog-address-select-panel',
+    ) as HTMLElement;
+    // In flow ⇒ the dialog grows around it; nothing overhangs or is cut off.
+    expect(panel.className).not.toContain('absolute');
+    // All nine addresses are there — the client caps nothing.
+    expect(panel.querySelectorAll('[role="option"]').length).toBe(9);
+  });
+
+  it('offers "Add new address" under the Billing address field and expands it INLINE', () => {
+    const fixture = render();
+    flushList(fixture, []);
+    click(fixture, 'customer-detail-account-create-button');
+    // Closed: only the trigger, no panel (mock's accAddrClosed / accAddrOpen).
+    expect(byTestId(fixture, 'customer-detail-account-dialog-add-address-button')).not.toBeNull();
+    expect(byTestId(fixture, PANEL)).toBeNull();
+
+    click(fixture, 'customer-detail-account-dialog-add-address-button');
+    http.expectOne('/api/cities').flush([{ cityId: 34, name: 'Istanbul' }]);
+    fixture.detectChanges();
+
+    // Open: the panel, and NO second dialog — one modal only (FE-ADR-011).
+    expect(byTestId(fixture, PANEL)).not.toBeNull();
+    expect(byTestId(fixture, 'customer-detail-account-dialog-add-address-button')).toBeNull();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelectorAll('[role="dialog"]').length,
+    ).toBe(1);
+    expect(byTestId(fixture, PANEL)?.textContent).toContain('New address');
+  });
+
+  it('disables the account Save while the panel is open, and District until a city is picked', () => {
+    const fixture = render();
+    flushList(fixture, []);
+    click(fixture, 'customer-detail-account-create-button');
+    type(fixture, 'customer-detail-account-dialog-name-input', 'Ali Billing');
+    click(fixture, 'customer-detail-account-dialog-address-select');
+    click(fixture, 'customer-detail-account-dialog-address-select-option-1');
+    const save = byTestId(
+      fixture,
+      'customer-detail-account-dialog-save-button',
+    ) as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+
+    click(fixture, 'customer-detail-account-dialog-add-address-button');
+    http.expectOne('/api/cities').flush([{ cityId: 34, name: 'Istanbul' }]);
+    fixture.detectChanges();
+    // A half-typed address must not be lost to an account save (mock rule).
+    expect(save.disabled).toBe(true);
+    // Cascade: no city yet ⇒ District disabled, Save address disabled.
+    expect((byTestId(fixture, `${PANEL}-district-select`) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((byTestId(fixture, `${PANEL}-save-button`) as HTMLButtonElement).disabled).toBe(true);
+
+    // Cancelling restores the account form untouched.
+    click(fixture, `${PANEL}-cancel-button`);
+    expect(byTestId(fixture, PANEL)).toBeNull();
+    expect(save.disabled).toBe(false);
+  });
+
+  it('emits the trimmed draft UPWARD and calls no address API itself (FE-ADR-003)', () => {
+    const fixture = render();
+    flushList(fixture, []);
+    openAddressPanel(fixture);
+    fillAddressPanel(fixture);
+    click(fixture, `${PANEL}-save-button`);
+
+    // FR-ADDR-02 belongs to customer-service: this feature only asks.
+    expect(fixture.componentInstance.requested).toEqual([
+      {
+        cityId: 34,
+        districtId: 340,
+        street: 'Bağdat Cad.',
+        houseFlatNumber: '12',
+        addressDescription: 'Home',
+      },
+    ]);
+    http.expectNone((r) => r.url.includes('/addresses'));
+  });
+
+  it('selects the created address once the caller acknowledges it, and saves with that id', () => {
+    const fixture = render();
+    flushList(fixture, []);
+    openAddressPanel(fixture);
+    fillAddressPanel(fixture);
+    click(fixture, `${PANEL}-save-button`);
+
+    // The caller created it and hands back both the id and the new option.
+    fixture.componentInstance.createdAddressId.set(3);
+    fixture.componentRef.setInput('options', [
+      ...OPTIONS,
+      { addressId: 3, label: 'Kadıköy, Istanbul · Bağdat Cad. 12' },
+    ]);
+    fixture.detectChanges();
+    fixture.detectChanges();
+
+    expect(byTestId(fixture, PANEL)).toBeNull(); // collapsed
+    expect(
+      byTestId(fixture, 'customer-detail-account-dialog-address-select')?.textContent,
+    ).toContain('Bağdat Cad. 12'); // auto-selected
+
+    type(fixture, 'customer-detail-account-dialog-name-input', 'Ali Billing');
+    click(fixture, 'customer-detail-account-dialog-save-button');
+    const post = http.expectOne('/api/accounts');
+    expect(post.request.body).toEqual({
+      customerId: 1001,
+      accountName: 'Ali Billing',
+      addressId: 3,
+    });
+    post.flush({ ...ACTIVE_A, billingAddressId: 3 });
+    flushList(fixture, [{ ...ACTIVE_A, billingAddressId: 3 }]);
+  });
+
+  it('keeps the panel open and shows the caller failure when the create fails', () => {
+    const fixture = render();
+    flushList(fixture, []);
+    openAddressPanel(fixture);
+    fillAddressPanel(fixture);
+    click(fixture, `${PANEL}-save-button`);
+
+    fixture.componentInstance.addressErrorText.set('Service temporarily unavailable.');
+    fixture.detectChanges();
+
+    expect(byTestId(fixture, PANEL)).not.toBeNull(); // nothing was selected
+    expect(byTestId(fixture, `${PANEL}-error`)?.textContent).toContain('temporarily unavailable');
+    expect(
+      (byTestId(fixture, 'customer-detail-account-dialog-save-button') as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });

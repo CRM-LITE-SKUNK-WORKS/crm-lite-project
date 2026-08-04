@@ -1,0 +1,481 @@
+<!--
+  Mock layout (scope §2B.7): grid `minmax(0,1fr) 360px` — tabbed catalog card
+  on the left, Basket panel on the right.
+-->
+<div class="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_360px] items-stretch gap-6">
+  <!-- ============================ Catalog ============================ -->
+  <section
+    class="flex min-h-0 flex-col rounded-lg border border-line bg-surface"
+    [attr.data-testid]="'sale-catalog-card'"
+  >
+    <!-- Tabs (card header) -->
+    <div class="flex shrink-0 border-b border-line px-2">
+      <button
+        type="button"
+        class="border-b-2 px-4 py-3 text-body font-medium"
+        [class.border-brand]="isOffers()"
+        [class.text-ink]="isOffers()"
+        [class.border-transparent]="!isOffers()"
+        [class.text-ink-muted]="!isOffers()"
+        [attr.data-testid]="'sale-tab-offers'"
+        (click)="switchTab('offers')"
+      >
+        {{ 'UI-SALE-TAB-OFFERS' | t }}
+      </button>
+      <button
+        type="button"
+        class="border-b-2 px-4 py-3 text-body font-medium"
+        [class.border-brand]="!isOffers()"
+        [class.text-ink]="!isOffers()"
+        [class.border-transparent]="isOffers()"
+        [class.text-ink-muted]="isOffers()"
+        [attr.data-testid]="'sale-tab-campaigns'"
+        (click)="switchTab('campaigns')"
+      >
+        {{ 'UI-SALE-TAB-CAMPAIGNS' | t }}
+      </button>
+    </div>
+
+    <!-- Search form -->
+    <div class="flex shrink-0 flex-col gap-4 border-b border-line p-5">
+      @if (isOffers()) {
+        <form [formGroup]="offerForm" class="flex flex-col gap-4" (ngSubmit)="searchOffers()">
+          <app-form-field
+            [label]="'UI-SALE-FILTER-CATEGORY' | t"
+            controlId="sale-of-category"
+            testId="sale-of-category-field"
+          >
+            <app-select
+              controlId="sale-of-category"
+              formControlName="category"
+              [options]="categoryOptions()"
+              [placeholder]="'UI-SALE-FILTER-CATEGORY-ALL' | t"
+              testId="sale-of-category"
+            />
+          </app-form-field>
+          <div class="flex items-end gap-4">
+            <div class="min-w-0 flex-1">
+              <app-form-field
+                [label]="'UI-SALE-FILTER-OFFER-ID' | t"
+                controlId="sale-of-id"
+                testId="sale-of-id-field"
+              >
+                <app-text-input
+                  controlId="sale-of-id"
+                  formControlName="id"
+                  [digitsOnly]="true"
+                  testId="sale-of-id"
+                />
+              </app-form-field>
+            </div>
+            <div class="min-w-0 flex-1">
+              <app-form-field
+                [label]="'UI-SALE-FILTER-OFFER-NAME' | t"
+                controlId="sale-of-name"
+                testId="sale-of-name-field"
+              >
+                <app-text-input
+                  controlId="sale-of-name"
+                  formControlName="name"
+                  testId="sale-of-name"
+                />
+              </app-form-field>
+            </div>
+            <div class="shrink-0 pb-6">
+              <app-button
+                variant="primary"
+                iconLeading="search"
+                type="submit"
+                testId="sale-of-search-button"
+              >
+                {{ 'LBL-SEARCH' | t }}
+              </app-button>
+            </div>
+          </div>
+        </form>
+      } @else {
+        <form [formGroup]="campaignForm" class="flex flex-col gap-4" (ngSubmit)="searchCampaigns()">
+          <app-form-field
+            [label]="'UI-SALE-FILTER-CAMPAIGN' | t"
+            controlId="sale-cm-campaign"
+            testId="sale-cm-campaign-field"
+          >
+            <app-select
+              controlId="sale-cm-campaign"
+              formControlName="campaign"
+              [options]="campaignOptions()"
+              [placeholder]="'UI-SALE-FILTER-CAMPAIGN-ALL' | t"
+              testId="sale-cm-campaign"
+            />
+          </app-form-field>
+          <div class="flex items-end gap-4">
+            <div class="min-w-0 flex-1">
+              <app-form-field
+                [label]="'UI-SALE-FILTER-CAMPAIGN-ID' | t"
+                controlId="sale-cm-id"
+                testId="sale-cm-id-field"
+              >
+                <app-text-input controlId="sale-cm-id" formControlName="id" testId="sale-cm-id" />
+              </app-form-field>
+            </div>
+            <div class="min-w-0 flex-1">
+              <app-form-field
+                [label]="'UI-SALE-FILTER-CAMPAIGN-NAME' | t"
+                controlId="sale-cm-name"
+                testId="sale-cm-name-field"
+              >
+                <app-text-input
+                  controlId="sale-cm-name"
+                  formControlName="name"
+                  testId="sale-cm-name"
+                />
+              </app-form-field>
+            </div>
+            <div class="shrink-0 pb-6">
+              <app-button
+                variant="primary"
+                iconLeading="search"
+                type="submit"
+                testId="sale-cm-search-button"
+              >
+                {{ 'LBL-SEARCH' | t }}
+              </app-button>
+            </div>
+          </div>
+        </form>
+      }
+    </div>
+
+    <!-- Results -->
+    @if (loading()) {
+      <div class="min-h-0 flex-1 overflow-auto p-5">
+        <app-skeleton
+          [label]="'UI-SALE-CATALOG-LOADING' | t"
+          [lines]="5"
+          testId="sale-catalog-skeleton"
+        />
+      </div>
+    } @else if (loadError(); as errorKey) {
+      <div
+        class="m-5 flex items-start gap-2 rounded-md border border-danger-border bg-danger-surface p-4 text-body-sm text-danger-fg"
+        role="alert"
+        [attr.data-testid]="'sale-catalog-error'"
+      >
+        <span class="flex-1">{{ errorKey | t }}</span>
+        <app-button
+          variant="secondary"
+          size="sm"
+          testId="sale-catalog-retry-button"
+          (action)="retry()"
+        >
+          {{ 'LBL-SEARCH' | t }}
+        </app-button>
+      </div>
+    } @else if (!hasRows()) {
+      <!-- Same rule as the results box: the 180px floor is on the CONTENT, so
+           the region can still shrink and never pushes the footer out. -->
+      <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto p-10">
+        <div class="flex min-h-45 items-center">
+          <app-empty-state
+            icon="search-x"
+            [title]="'UI-SALE-CATALOG-EMPTY' | t"
+            testId="sale-catalog-empty"
+          />
+        </div>
+      </div>
+    } @else {
+      <!--
+        THE scroll owner of this column (mock: `flex:1 1 0; min-height:180px;
+        overflow:auto`).
+
+        ⚠ The mock's 180px floor sits on the SCROLL BOX; here it sits on the
+        content inside it, and the box itself keeps `min-h-0`. A floor on the
+        box is a flex minimum the card cannot honour on a short viewport, so
+        the card's children overflow its own box and the footer — the one
+        holding `LBL-ADD-TO-BASKET` — spills outside the card and becomes
+        partly or wholly unclickable. Verified in a browser: at 800px viewport
+        height the button's top third stopped receiving clicks, at 720px all of
+        it did. On the content the floor renders identically and the box can
+        always shrink, so the footer stays put.
+      -->
+      <div class="min-h-0 flex-1 overflow-auto">
+        <table class="min-h-45 w-full border-collapse">
+          <thead>
+            <!-- `whitespace-nowrap` on every header but the flexible one, and
+                 on the id/category/price cells below — verbatim from the mock.
+                 Without it "Prod offer ID" wraps onto three lines and a price
+                 onto two, which inflates the header and every row and costs the
+                 list most of the entries it could otherwise show. -->
+            <tr class="border-b border-line">
+              @if (isOffers()) {
+                <th
+                  class="whitespace-nowrap px-4 py-2 text-left text-caption font-semibold text-ink-muted"
+                >
+                  {{ 'UI-SALE-COL-OFFER-ID' | t }}
+                </th>
+                <th class="w-full px-4 py-2 text-left text-caption font-semibold text-ink-muted">
+                  {{ 'UI-SALE-COL-OFFER-NAME' | t }}
+                </th>
+                <th
+                  class="whitespace-nowrap px-4 py-2 text-left text-caption font-semibold text-ink-muted"
+                >
+                  {{ 'UI-SALE-COL-CATEGORY' | t }}
+                </th>
+              } @else {
+                <th
+                  class="whitespace-nowrap px-4 py-2 text-left text-caption font-semibold text-ink-muted"
+                >
+                  {{ 'UI-SALE-COL-CAMPAIGN-ID' | t }}
+                </th>
+                <th
+                  class="whitespace-nowrap px-4 py-2 text-left text-caption font-semibold text-ink-muted"
+                >
+                  {{ 'UI-SALE-COL-CAMPAIGN' | t }}
+                </th>
+                <th class="w-full px-4 py-2 text-left text-caption font-semibold text-ink-muted">
+                  {{ 'UI-SALE-COL-INCLUDES' | t }}
+                </th>
+              }
+              <th
+                class="whitespace-nowrap px-4 py-2 text-right text-caption font-semibold text-ink-muted"
+              >
+                {{ 'UI-SALE-COL-PRICE' | t }}
+              </th>
+              <th class="w-10 px-4 py-2"></th>
+            </tr>
+          </thead>
+          <tbody>
+            @if (isOffers()) {
+              @for (row of offerRows(); track row.offerId) {
+                <tr
+                  class="border-b border-line"
+                  [class.cursor-pointer]="!inBasket(row.offerId)"
+                  [class.cursor-default]="inBasket(row.offerId)"
+                  [class.bg-selected]="isSelected(row.offerId)"
+                  [attr.data-testid]="'sale-offer-row-' + row.offerId"
+                  (click)="toggleOffer(row.offerId)"
+                >
+                  <td class="eds-tabular-nums whitespace-nowrap px-4 py-3 text-body text-ink">
+                    {{ row.offerId }}
+                  </td>
+                  <td class="px-4 py-3 text-body font-medium text-ink">{{ row.offerName }}</td>
+                  <td class="whitespace-nowrap px-4 py-3 text-body-sm text-ink-soft">
+                    {{ row.serviceType }}
+                  </td>
+                  <td
+                    class="eds-tabular-nums whitespace-nowrap px-4 py-3 text-right text-body text-ink"
+                  >
+                    {{ price(row.price) }}
+                  </td>
+                  <td class="px-4 py-3 text-center">
+                    @if (inBasket(row.offerId)) {
+                      <app-icon
+                        name="check-circle-2"
+                        [size]="16"
+                        class="text-brand-active"
+                        [ariaLabel]="'UI-SALE-ROW-ADDED' | t"
+                        [attr.data-testid]="'sale-offer-row-' + row.offerId + '-added'"
+                      />
+                    } @else if (isSelected(row.offerId)) {
+                      <app-icon name="check" [size]="16" class="text-brand-active" />
+                    }
+                  </td>
+                </tr>
+              }
+            } @else {
+              @for (row of campaignRows(); track row.campaignId) {
+                <!-- Same three states as an offer row (AC-SALE-01-05): already
+                     added → filled check + inert; ticked → check; otherwise
+                     selectable. -->
+                <tr
+                  class="border-b border-line"
+                  [class.cursor-pointer]="!campaignInBasket(row)"
+                  [class.cursor-default]="campaignInBasket(row)"
+                  [class.bg-selected]="isCampaignSelected(row.campaignId)"
+                  [attr.data-testid]="'sale-campaign-row-' + row.campaignId"
+                  (click)="toggleCampaign(row.campaignId)"
+                >
+                  <td
+                    class="eds-tabular-nums whitespace-nowrap px-4 py-3 align-top text-body text-ink-soft"
+                  >
+                    {{ row.campaignId }}
+                  </td>
+                  <td class="whitespace-nowrap px-4 py-3 align-top text-body font-medium text-ink">
+                    {{ row.campaignName }}
+                  </td>
+                  <td class="px-4 py-3 align-top text-body-sm text-ink-soft">
+                    {{ includesLabel(row) }}
+                  </td>
+                  <td
+                    class="eds-tabular-nums whitespace-nowrap px-4 py-3 text-right align-top text-body text-ink"
+                  >
+                    {{ price(row.totalPrice) }}
+                  </td>
+                  <td class="px-4 py-3 text-center align-top">
+                    @if (campaignInBasket(row)) {
+                      <app-icon
+                        name="check-circle-2"
+                        [size]="16"
+                        class="text-brand-active"
+                        [ariaLabel]="'UI-SALE-ROW-ADDED' | t"
+                        [attr.data-testid]="'sale-campaign-row-' + row.campaignId + '-added'"
+                      />
+                    } @else if (isCampaignSelected(row.campaignId)) {
+                      <app-icon name="check" [size]="16" class="text-brand-active" />
+                    }
+                  </td>
+                </tr>
+              }
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+
+    <!-- Card footer -->
+    <div
+      class="mt-auto flex shrink-0 items-center justify-between gap-4 border-t border-line px-5 py-3"
+    >
+      <span
+        class="eds-tabular-nums text-body-sm text-ink-muted"
+        [attr.data-testid]="'sale-selected-count'"
+      >
+        {{ selectedCountLabel() }}
+      </span>
+      <app-button
+        variant="secondary"
+        iconLeading="shopping-cart"
+        [disabled]="addDisabled()"
+        testId="sale-add-to-basket-button"
+        (action)="addToBasket()"
+      >
+        {{ 'LBL-ADD-TO-BASKET' | t }}
+      </app-button>
+    </div>
+  </section>
+
+  <!-- ============================ Basket ============================ -->
+  <section
+    class="flex min-h-0 flex-col rounded-lg border border-line bg-surface"
+    [attr.data-testid]="'sale-basket-panel'"
+  >
+    <div class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+      <span class="text-body-lg font-semibold text-ink">{{ 'UI-SALE-BASKET-TITLE' | t }}</span>
+      <span class="eds-tabular-nums text-body-sm text-ink-muted">{{ basketCountLabel() }}</span>
+    </div>
+
+    @if (basket.isEmpty()) {
+      <div class="flex flex-1 items-center justify-center px-6 py-10">
+        <app-empty-state
+          icon="shopping-cart"
+          [title]="'UI-SALE-BASKET-EMPTY' | t"
+          [body]="'UI-SALE-BASKET-EMPTY-HINT' | t"
+          testId="sale-basket-empty"
+        />
+      </div>
+    } @else {
+      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-2">
+        @for (item of basket.items(); track item.offer.offerId) {
+          <div
+            class="flex items-start justify-between gap-3 border-b border-line py-3 last:border-b-0"
+            [attr.data-testid]="'sale-basket-item-' + item.offer.offerId"
+          >
+            <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <span class="eds-tabular-nums text-body font-semibold text-ink">{{
+                item.offer.offerId
+              }}</span>
+              <span class="text-body-sm text-ink-soft">{{ item.offer.offerName }}</span>
+              @if (item.campaignName) {
+                <span class="eds-tabular-nums text-caption text-ink-muted">
+                  {{ item.campaignName }} · {{ item.campaignId }}
+                </span>
+              }
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+              <span class="eds-tabular-nums text-body font-semibold text-ink">{{
+                price(item.offer.price)
+              }}</span>
+              <app-icon-button
+                icon="x"
+                [ariaLabel]="'UI-SALE-BASKET-REMOVE' | t"
+                [testId]="'sale-basket-remove-' + item.offer.offerId"
+                (action)="removeFromBasket(item.offer.offerId)"
+              />
+            </div>
+          </div>
+        }
+      </div>
+
+      <!--
+        AC-SALE-01-08. Each issue renders the message key the SERVER would answer
+        with, so the preview and the real rejection say the same sentence. This
+        is UX only — product-service remains the authority.
+
+        Two states, same words: ADVISORY (warning) while the basket is still
+        being assembled, and REFUSAL (danger + role="alert") once `LBL-NEXT` has
+        been pressed and turned away by `validate()`. The `role` is applied only
+        in the second state — an alert that fires while the user is still adding
+        offers would interrupt a screen reader on every single add.
+      -->
+      @if (basket.compositionIssues().length > 0) {
+        <div
+          class="flex flex-col gap-1 px-5 pb-3"
+          [attr.data-testid]="'sale-basket-rules'"
+          [attr.role]="compositionRejected() ? 'alert' : null"
+        >
+          @for (issue of basket.compositionIssues(); track issue.messageKey) {
+            <div
+              class="flex items-start gap-2 text-body-sm"
+              [class.text-warning-fg]="!compositionRejected()"
+              [class.text-danger-fg]="compositionRejected()"
+            >
+              <app-icon
+                name="alert-triangle"
+                [size]="16"
+                class="shrink-0"
+                [class.text-warning]="!compositionRejected()"
+                [class.text-danger-fg]="compositionRejected()"
+              />
+              <span [attr.data-testid]="'sale-basket-rule-' + issue.messageKey">{{
+                issue.messageKey | t
+              }}</span>
+            </div>
+          }
+        </div>
+      }
+
+      <div class="flex items-center justify-between gap-3 border-t border-line-strong px-5 py-4">
+        <span class="text-body font-semibold text-ink">{{ 'UI-SALE-TOTAL-AMOUNT' | t }}</span>
+        <span
+          class="eds-tabular-nums text-body-lg font-semibold text-ink"
+          [attr.data-testid]="'sale-basket-total'"
+        >
+          {{ price(basket.totalAmount()) }}
+        </span>
+      </div>
+
+      <div class="flex justify-end border-t border-line px-5 py-3">
+        <app-button
+          variant="secondary"
+          size="sm"
+          iconLeading="trash-2"
+          testId="sale-clear-basket-button"
+          (action)="clearBasket()"
+        >
+          {{ 'LBL-CLEAR' | t }}
+        </app-button>
+      </div>
+    }
+
+    @if (dupWarning(); as warnKey) {
+      <div
+        class="mx-5 mb-3 flex items-start gap-2 rounded-md border border-danger-border bg-danger-surface p-3 text-body-sm text-danger-fg"
+        role="alert"
+        [attr.data-testid]="'sale-dup-offer-warning'"
+      >
+        <app-icon name="alert-circle" [size]="16" class="shrink-0 text-danger" />
+        <span>{{ warnKey | t }}</span>
+      </div>
+    }
+  </section>
+</div>

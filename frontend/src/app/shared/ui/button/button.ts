@@ -2,7 +2,7 @@ import { Component, computed, input, output } from '@angular/core';
 import { Icon } from '../icon/icon';
 import { type IconName } from '../icon/icons';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'danger';
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 export type ButtonSize = 'md' | 'sm';
 
 /** Mock-verbatim state styling (mock-ui-analysis §3.4, Button.jsx of the EDS
@@ -14,6 +14,12 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
     'border-line-strong bg-surface text-secondary-action enabled:hover:border-line-hover ' +
     'enabled:hover:bg-page enabled:active:border-brand enabled:active:bg-selected',
   danger: 'bg-danger text-white enabled:hover:bg-danger-hover enabled:active:bg-danger-hover',
+  // Added 2026-08-03 (scope §4.30): `.eds-btn[data-variant="ghost"]` of the
+  // mock's Button.jsx, verbatim — sunken fill, secondary-action text, and
+  // hover/active stepping through border-default → border-hover. The design
+  // note had recorded ghost as "used by no screen"; the bundle in fact uses it
+  // 14 times, the "Add new address" trigger among them.
+  ghost: 'bg-sunken text-secondary-action enabled:hover:bg-line enabled:active:bg-line-hover',
 };
 
 /** §3.4 size table: height / padding-x / font-size (lg exists in the DS but no
@@ -24,8 +30,9 @@ const SIZE_CLASSES: Record<ButtonSize, string> = {
 };
 
 /**
- * EDS `Button` (shared-ui-design-notes §2). `ghost` and `lg` are deliberately
- * absent (no in-scope consumer).
+ * EDS `Button` (shared-ui-design-notes §2). `lg` is deliberately absent (no
+ * in-scope consumer); `ghost` joined the variants on 2026-08-03 when the
+ * billing-account modal's "Add new address" trigger became its first one.
  *
  * Text arrives through `<ng-content>` — the caller writes `{{ 'KEY' | t }}`;
  * the component never owns copy (FE-ADR-012 §b, §4.14).

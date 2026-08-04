@@ -20,6 +20,7 @@ import {
   PAGE_SIZE_OPTIONS,
   type CustomerDetailResponse,
   type CustomerSearchCriteria,
+  type PageSize,
 } from '../model';
 
 /** The five filter controls that can carry a server field error (bare-name
@@ -116,7 +117,7 @@ export class CustomerSearch {
 
   /** Per-page options (KR-04: size is always explicit; values per scope §2.4).
    *  The selector itself lives in the shared Pagination pattern now. */
-  protected readonly pageSizeOptions: readonly number[] = PAGE_SIZE_OPTIONS;
+  protected readonly pageSizeOptions: readonly PageSize[] = PAGE_SIZE_OPTIONS;
 
   /** Client-side UX validation keys (mock §6.2); cleared as the user types. */
   private readonly clientErrors = signal<Partial<Record<FilterControlName, string>>>({});
@@ -281,13 +282,10 @@ export class CustomerSearch {
     this.store.goToPage(page);
   }
 
-  /** Narrow the pattern's `number` back to the typed PageSize union; the value
-   *  always originates from PAGE_SIZE_OPTIONS, so the lookup cannot miss. */
-  protected onSizeChange(size: number): void {
-    const match = PAGE_SIZE_OPTIONS.find((option) => option === size);
-    if (match) {
-      this.store.setPageSize(match);
-    }
+  /** The pattern emits an already-narrowed `PageSize` (it guards its own CVA
+   *  value), so no re-check happens here — one whitelist, checked in one place. */
+  protected onSizeChange(size: PageSize): void {
+    this.store.setPageSize(size);
   }
 
   private criteriaFromForm(): CustomerSearchCriteria {

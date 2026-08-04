@@ -87,6 +87,22 @@ export class CustomerDetailStore {
     this.reloadContact();
   }
 
+  /**
+   * Enter a screen that needs ONLY this customer's addresses — the §2.7 sale
+   * wizard's step 2 (AC-SALE-01-11).
+   *
+   * Deliberately not `load()`: the wizard shows no demographic and no contact
+   * section, so firing those two reads would spend two requests it cannot
+   * display and could surface an error banner for data nobody asked for. The
+   * wizard still goes through this store rather than the API service directly,
+   * because `AddressFormDialog` in API mode writes through it — that is how the
+   * FR-ADDR-02 dialog keeps its full `validationErrors` handling in both hosts.
+   */
+  loadAddresses(customerNumber: number): void {
+    this._customerNumber.set(customerNumber);
+    this.reloadAddresses();
+  }
+
   reloadDetail(): void {
     const customerNumber = this._customerNumber();
     if (customerNumber === null) return;

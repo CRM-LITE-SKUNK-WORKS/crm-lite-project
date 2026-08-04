@@ -2,7 +2,8 @@
      verbatim (8 fields, 1fr 1fr, gap 20px 24px), footer [Cancel][✓ Save]. -->
 <app-modal
   [open]="open()"
-  size="lg"
+  size="xl"
+  [overflowVisible]="true"
   [titleText]="'UI-DETAIL-INFO-UPDATE-TITLE' | t"
   [closeLabel]="'UI-COMMON-CLOSE' | t"
   testId="customer-detail-info-dialog"

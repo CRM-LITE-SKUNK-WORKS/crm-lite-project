@@ -1,0 +1,224 @@
+<!--
+  Mock layout (Product Configuration.dc.html, scope §2B.7): a vertical stack of
+  per-offer cards — header grid `auto 1fr` ("Prod Offer Name" / "Prod Offer ID")
+  over a `1fr 1fr` field grid — followed by the "Address info" card whose tiles
+  sit in `repeat(auto-fill, minmax(240px, 1fr))` with an "Add new address" tile.
+-->
+<div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
+  @if (loading()) {
+    <app-skeleton
+      [label]="'UI-SALE-CONFIG-LOADING' | t"
+      [lines]="6"
+      testId="sale-config-skeleton"
+    />
+  } @else if (loadError(); as errorKey) {
+    <div
+      class="flex items-center justify-between gap-3 rounded-md border border-danger-border bg-danger-surface p-3"
+      role="alert"
+      [attr.data-testid]="'sale-config-error'"
+    >
+      <span class="text-body-sm text-danger-fg">{{ errorKey | t }}</span>
+      <app-button
+        variant="secondary"
+        size="sm"
+        testId="sale-config-retry-button"
+        (action)="retry()"
+      >
+        {{ 'UI-COMMON-RETRY' | t }}
+      </app-button>
+    </div>
+  } @else {
+    <!-- AC-SALE-01-12: LBL-NEXT was pressed and something below is wrong. The
+         per-field message is the real answer; this only points at it, because
+         the offending field can be several product blocks down the page. -->
+    @if (showInvalidBanner()) {
+      <div
+        class="flex shrink-0 items-center gap-2 rounded-md border border-danger-border bg-danger-surface p-3"
+        role="alert"
+        data-testid="sale-config-invalid-banner"
+      >
+        <app-icon name="alert-circle" [size]="16" class="shrink-0 text-danger-fg" />
+        <span class="text-body-sm text-danger-fg">{{ 'UI-SALE-CONFIG-INVALID' | t }}</span>
+      </div>
+    }
+
+    <!-- ================= One card per basket offer (AC-SALE-01-20) ========= -->
+    @for (block of blocks(); track block.offerId) {
+      <section
+        class="flex shrink-0 flex-col rounded-lg border border-line bg-surface"
+        [attr.data-testid]="'sale-config-card-' + block.offerId"
+      >
+        <div
+          class="grid grid-cols-[auto_1fr] items-baseline gap-x-4 gap-y-1 border-b border-line px-5 py-4"
+        >
+          <span class="whitespace-nowrap text-body-sm text-ink-muted">
+            {{ 'UI-SALE-CONFIG-OFFER-NAME' | t }}
+          </span>
+          <span class="text-body-lg font-semibold text-ink">{{ block.offerName }}</span>
+          <span class="whitespace-nowrap text-body-sm text-ink-muted">
+            {{ 'UI-SALE-CONFIG-OFFER-ID' | t }}
+          </span>
+          <span class="eds-tabular-nums text-body font-medium text-ink-soft">
+            {{ block.offerId }}
+          </span>
+        </div>
+
+        @if (block.fields.length > 0) {
+          <!-- `touched` flips on blur without emitting on any observable, so the
+               error computeds are told here rather than per control. -->
+          <div
+            class="grid grid-cols-2 gap-x-6 gap-y-4 p-5"
+            [formGroup]="form"
+            (focusout)="onFieldBlur()"
+          >
+            @for (field of block.fields; track field.characteristicId) {
+              @let controlId = 'sale-char-' + block.offerId + '-' + field.characteristicId;
+              @let errorText = errorTextFor(block.offerId, field.characteristicId);
+
+              <app-form-field
+                [label]="field.name"
+                [required]="field.mandatory"
+                [controlId]="controlId"
+                [errorText]="errorText"
+                [testId]="controlId + '-field'"
+              >
+                <!--
+                  AC-SALE-01-17: the control is chosen by the characteristic's
+                  declared `dataType`, so the field can only produce values of
+                  that type. Validity itself is decided by the validators in
+                  `core/catalog/characteristic-validation` (a mirror of
+                  product-service's rules) and re-decided by the SERVER on
+                  submit (FE-ADR-007 §3).
+                -->
+                @switch (field.dataType) {
+                  @case ('BOOLEAN') {
+                    <app-select
+                      [controlId]="controlId"
+                      [formControlName]="controlName(block.offerId, field.characteristicId)"
+                      [options]="booleanOptions()"
+                      [placeholder]="'UI-SALE-CHAR-BOOL-PLACEHOLDER' | t"
+                      [error]="!!errorText"
+                      [testId]="controlId"
+                    />
+                  }
+                  @case ('DATE') {
+                    <app-date-picker
+                      [controlId]="controlId"
+                      [formControlName]="controlName(block.offerId, field.characteristicId)"
+                      [min]="minDate"
+                      [locale]="lang()"
+                      [error]="!!errorText"
+                      [triggerAriaLabel]="'UI-DATE-OPEN-CALENDAR' | t"
+                      [prevMonthAriaLabel]="'UI-DATE-PREV-MONTH' | t"
+                      [nextMonthAriaLabel]="'UI-DATE-NEXT-MONTH' | t"
+                      [prevYearAriaLabel]="'UI-DATE-PREV-YEAR' | t"
+                      [nextYearAriaLabel]="'UI-DATE-NEXT-YEAR' | t"
+                      [describedBy]="controlId + '-error'"
+                      [testId]="controlId"
+                    />
+                  }
+                  @default {
+                    <app-text-input
+                      [controlId]="controlId"
+                      [formControlName]="controlName(block.offerId, field.characteristicId)"
+                      [numericOnly]="field.dataType === 'NUMBER'"
+                      [inputMode]="field.dataType === 'NUMBER' ? 'numeric' : undefined"
+                      [error]="!!errorText"
+                      [describedBy]="controlId + '-error'"
+                      [testId]="controlId"
+                    />
+                  }
+                }
+              </app-form-field>
+            }
+          </div>
+        } @else {
+          <!-- AC-SALE-01-21: an offer with no characteristics still gets a
+               block; it simply has nothing to fill in. -->
+          <p
+            class="p-5 text-body-sm text-ink-muted"
+            [attr.data-testid]="'sale-config-no-fields-' + block.offerId"
+          >
+            {{ 'UI-SALE-CONFIG-NO-FIELDS' | t }}
+          </p>
+        }
+      </section>
+    }
+
+    <!-- ============================ Address info =========================== -->
+    <section
+      class="flex shrink-0 flex-col rounded-lg border border-line bg-surface"
+      data-testid="sale-address-card"
+    >
+      <div class="flex flex-col gap-0.5 border-b border-line px-5 py-4">
+        <span class="text-body-lg font-semibold text-ink">
+          {{ 'UI-SALE-ADDRESS-TITLE' | t }}
+        </span>
+        <span class="text-body-sm text-ink-muted">{{ 'UI-SALE-ADDRESS-HINT' | t }}</span>
+      </div>
+
+      <div class="flex flex-col gap-4 p-5">
+        <div class="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-4">
+          @for (address of addresses(); track address.addressId) {
+            <button
+              type="button"
+              class="flex cursor-pointer items-start gap-3 rounded-lg border p-4 text-left"
+              [class.border-brand]="selectedAddressId() === address.addressId"
+              [class.bg-selected]="selectedAddressId() === address.addressId"
+              [class.border-line]="selectedAddressId() !== address.addressId"
+              [class.bg-surface]="selectedAddressId() !== address.addressId"
+              [attr.aria-pressed]="selectedAddressId() === address.addressId"
+              [attr.data-testid]="'sale-address-tile-' + address.addressId"
+              (click)="selectAddress(address.addressId)"
+            >
+              <span class="mt-px flex size-5 shrink-0 items-center justify-center">
+                @if (selectedAddressId() === address.addressId) {
+                  <app-icon name="check-circle-2" [size]="20" class="text-brand-active" />
+                } @else {
+                  <span class="size-4 rounded-full border-2 border-line-strong"></span>
+                }
+              </span>
+              <span class="flex min-w-0 flex-col gap-0.5">
+                <span class="text-body font-semibold text-ink">{{ streetLine(address) }}</span>
+                <span class="text-body-sm text-ink-soft">{{ regionLine(address) }}</span>
+                <span class="text-caption text-ink-muted">{{ address.addressDescription }}</span>
+              </span>
+            </button>
+          }
+
+          <!-- FR-ADDR-02 reused as-is (AC-SALE-01-11): the same dialog the
+               Address tab uses, in API mode — the customer already exists. -->
+          <button
+            type="button"
+            class="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line-strong bg-page p-4"
+            data-testid="sale-address-add-tile"
+            (click)="openAddDialog()"
+          >
+            <app-icon name="plus" [size]="20" class="text-ink-muted" />
+            <span class="text-body font-medium text-ink-soft">
+              {{ 'LBL-ADD-NEW-ADDRESS' | t }}
+            </span>
+          </button>
+        </div>
+
+        @if (showAddressError()) {
+          <div
+            class="flex items-center gap-2 text-danger-fg"
+            role="alert"
+            data-testid="sale-address-required"
+          >
+            <app-icon name="alert-circle" [size]="16" class="shrink-0" />
+            <span class="text-body-sm">{{ 'UI-SALE-ADDRESS-REQUIRED' | t }}</span>
+          </div>
+        }
+      </div>
+    </section>
+  }
+</div>
+
+<app-address-form-dialog
+  [open]="addDialogOpen()"
+  testIdBase="sale-address-dialog"
+  (closed)="closeAddDialog()"
+  (saved)="onAddressSaved()"
+/>

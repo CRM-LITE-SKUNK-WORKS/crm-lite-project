@@ -12,6 +12,7 @@ import { Modal, ModalFooter, type ModalSize } from './modal';
       titleText="Delete account"
       closeLabel="Close dialog"
       [closeOnBackdrop]="closeOnBackdrop()"
+      [overflowVisible]="overflowVisible()"
       testId="spec-modal"
       (closed)="closes = closes + 1"
     >
@@ -29,6 +30,7 @@ class Host {
   readonly open = input<boolean>(true);
   readonly size = input<ModalSize>('md');
   readonly closeOnBackdrop = input<boolean>(false);
+  readonly overflowVisible = input<boolean>(false);
   readonly withFooter = input<boolean>(true);
   closes = 0;
 }
@@ -73,6 +75,25 @@ describe('Modal', () => {
     expect(titleId).toBe('spec-modal-title');
     expect(dialog.querySelector(`#${titleId}`)?.textContent).toContain('Delete account');
     expect(panel(render({ size: 'sm' })).className).toContain('max-w-modal-sm');
+    expect(panel(render({ size: 'lg' })).className).toContain('max-w-modal-lg');
+    expect(panel(render({ size: 'xl' })).className).toContain('max-w-modal-xl');
+  });
+
+  // BUG-2. `overflow-y-auto` on the body is a scroll container, and a scroll
+  // container CLIPS the absolutely-positioned panel of any Select inside it —
+  // which is why the billing-account dialog could not show all its addresses.
+  it('scrolls its body by default, but lets content escape with overflowVisible', () => {
+    const clipped = panel(render());
+    const body = clipped.querySelector('.p-5') as HTMLElement;
+    expect(body.className).toContain('overflow-y-auto');
+    expect(clipped.className).toContain('max-h-full');
+
+    const open = panel(render({ overflowVisible: true }));
+    const openBody = open.querySelector('.p-5') as HTMLElement;
+    expect(openBody.className).toContain('overflow-visible');
+    expect(openBody.className).not.toContain('overflow-y-auto');
+    // A height cap with a non-scrolling body would strand content unreachable.
+    expect(open.className).not.toContain('max-h-full');
   });
 
   it('moves focus INTO the dialog on open and restores it on close (focus trap contract)', () => {

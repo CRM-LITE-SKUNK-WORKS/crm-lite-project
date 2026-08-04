@@ -156,13 +156,19 @@
   --breakpoint-xl: 1280px;
   --breakpoint-2xl: 1440px;
 
-  /* ===== Modal widths (mock-ui-analysis §7.2: 420 / 560 / 680; added
+  /* ===== Modal widths (mock-ui-analysis §7.2: 420 / 480 / 560 / 680; added
      2026-07-25 for shared/patterns Modal — documented values moved into the
      theme per the FE-ADR-011 §f process, not invented). Utilities:
-     max-w-modal-sm / max-w-modal-md / max-w-modal-lg. ===== */
+     max-w-modal-sm / -md / -lg / -xl.
+     2026-08-03: 480px added — the mock's Create/Edit billing account and Start
+     new sale modals are `max-width:480px` in the real markup, a step §7.2's
+     table had omitted (scope §4.30). The scale was re-lettered rather than
+     appended so it stays monotonic; every existing consumer was re-tagged to
+     keep its rendered width byte-identical. ===== */
   --container-modal-sm: 420px;
-  --container-modal-md: 560px;
-  --container-modal-lg: 680px;
+  --container-modal-md: 480px;
+  --container-modal-lg: 560px;
+  --container-modal-xl: 680px;
 
   /* ===== Animations (mock-ui-analysis §2.14/§3.7; added 2026-07-25, §4.16) =====
      eds-spin: --eds-duration-spin (900ms), linear — Spinner only; the SVG also

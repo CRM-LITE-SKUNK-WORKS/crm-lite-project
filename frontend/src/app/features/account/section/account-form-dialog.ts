@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, input, output, signal } from '@angular/core';
+import { Component, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { map } from 'rxjs';
@@ -8,7 +8,8 @@ import { Modal, ModalFooter } from '../../../shared/patterns';
 import { Button, FormField, Select, TextInput, type SelectOption } from '../../../shared/ui';
 import { AccountListStore } from '../state/account-list.store';
 import { type AccountResponse } from '../model';
-import { type BillingAddressOption } from './billing-address-option';
+import { type BillingAddressOption, type NewBillingAddress } from './billing-address-option';
+import { BillingAddressPanel } from './billing-address-panel';
 
 /** Server field-error paths this form can bind (bare names from bean
  *  validation; `customerId` errors have no control → banner via unmatched). */
@@ -38,7 +39,17 @@ type FieldName = (typeof FIELDS)[number];
  */
 @Component({
   selector: 'app-account-form-dialog',
-  imports: [ReactiveFormsModule, TranslatePipe, Button, FormField, Select, TextInput, Modal, ModalFooter],
+  imports: [
+    ReactiveFormsModule,
+    TranslatePipe,
+    Button,
+    FormField,
+    Select,
+    TextInput,
+    Modal,
+    ModalFooter,
+    BillingAddressPanel,
+  ],
   templateUrl: './account-form-dialog.html',
 })
 export class AccountFormDialog {
@@ -51,9 +62,23 @@ export class AccountFormDialog {
   readonly account = input<AccountResponse | null>(null);
   /** The customer's active addresses, resolved by the CALLER (see class doc). */
   readonly addressOptions = input.required<readonly BillingAddressOption[]>();
+  /** True while the caller's FR-ADDR-02 create is in flight. */
+  readonly addressBusy = input<boolean>(false);
+  /** Resolved failure text from the caller's create attempt (scope §4.14). */
+  readonly addressErrorText = input<string | null>(null);
+  /**
+   * The id of the address the caller just created, or `null`. Setting it is the
+   * caller's ACKNOWLEDGEMENT that {@link newAddressRequested} succeeded: the
+   * dialog then closes the panel and selects that address (mock: a saved
+   * address becomes the Billing address selection). The dialog never guesses
+   * this from the options list — a create that failed must not select anything.
+   */
+  readonly createdAddressId = input<number | null>(null);
 
   readonly closed = output<void>();
   readonly saved = output<void>();
+  /** FR-ADDR-02 is the CUSTOMER feature's endpoint — see NewBillingAddress. */
+  readonly newAddressRequested = output<NewBillingAddress>();
 
   protected readonly form = this.fb.group({
     accountName: this.fb.control(''),
@@ -62,6 +87,8 @@ export class AccountFormDialog {
 
   protected readonly busy = signal(false);
   private readonly serverError = signal<ApiError | null>(null);
+  /** BUG-1: the inline "New address" panel's open state (mock `accAddrOpen`). */
+  protected readonly addressPanelOpen = signal(false);
 
   private readonly formValue = toSignal(
     this.form.valueChanges.pipe(map(() => this.form.getRawValue())),
@@ -74,10 +101,16 @@ export class AccountFormDialog {
     this.addressOptions().map((option) => ({ value: option.addressId, label: option.label })),
   );
 
-  /** Both fields required (contract) — the save button gates on this. */
+  /**
+   * Both fields required (contract) — the save button gates on this. The open
+   * address panel ALSO blocks it (mock's `accSaveDisabled`): a half-typed new
+   * address would otherwise be silently discarded by saving the account.
+   */
   protected readonly canSave = computed(() => {
     const value = this.formValue();
-    return value.accountName.trim() !== '' && value.addressId !== null;
+    return (
+      value.accountName.trim() !== '' && value.addressId !== null && !this.addressPanelOpen()
+    );
   });
 
   private readonly fieldErrorMatch = computed(() =>
@@ -101,9 +134,23 @@ export class AccountFormDialog {
       const account = this.account();
       this.serverError.set(null);
       this.busy.set(false);
+      this.addressPanelOpen.set(false);
       this.form.reset({
         accountName: account?.accountName ?? '',
         addressId: account?.billingAddressId ?? null,
+      });
+    });
+
+    // BUG-1: the caller confirmed the address exists — collapse the panel and
+    // make it the selection. Tracks ONLY `createdAddressId`, so re-running on
+    // an unrelated change (a keystroke in Account name) cannot re-select and
+    // stomp a choice the user made afterwards.
+    effect(() => {
+      const addressId = this.createdAddressId();
+      if (addressId === null) return;
+      untracked(() => {
+        this.addressPanelOpen.set(false);
+        this.form.controls.addressId.setValue(addressId);
       });
     });
 
@@ -136,5 +183,18 @@ export class AccountFormDialog {
 
   protected onCancel(): void {
     this.closed.emit();
+  }
+
+  // --- BUG-1: inline "New address" panel ------------------------------------
+  protected openAddressPanel(): void {
+    this.addressPanelOpen.set(true);
+  }
+  protected closeAddressPanel(): void {
+    this.addressPanelOpen.set(false);
+  }
+  /** Hand the draft to the caller; the panel stays open (and busy) until the
+   *  caller answers with a `createdAddressId` or an `addressErrorText`. */
+  protected onNewAddress(address: NewBillingAddress): void {
+    this.newAddressRequested.emit(address);
   }
 }

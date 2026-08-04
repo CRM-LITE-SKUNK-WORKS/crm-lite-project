@@ -189,4 +189,85 @@ export const MESSAGES = {
     en: 'Product not found.',
     tr: 'Ürün bulunamadı.',
   },
+
+  // ---- §2.7 Product Sale (FR-SALE-01/02) ANALYST keys, EN/TR taken verbatim
+  //      from the FR/AC v8-1 Final message catalogue. Every one of these is
+  //      produced by product-service and RELAYED UNCHANGED by order-service
+  //      (docs/api/order-service.md §Semantics): collapsing them into one
+  //      generic 400 would defeat §2.7's whole point — the user must be told
+  //      WHICH rule they broke. Each therefore gets its own text.
+  //
+  //      A valid basket is exactly three offers: one INTERNET + one RESOURCE +
+  //      one ACTIVATION (AC-SALE-01-08). The NO-*/MULTI-* pairs are the two
+  //      ways that can fail per service type. ----
+  'MSG-SALE-DUP-OFFER': {
+    en: 'This offer is already in the basket.',
+    tr: 'Bu teklif sepette zaten mevcut.',
+  },
+  'MSG-SALE-OFFER-INACTIVE': {
+    en: 'The basket contains an inactive offer. Please remove it to continue.',
+    tr: 'Sepette aktif olmayan bir teklif var. Devam etmek için lütfen çıkarın.',
+  },
+  'MSG-SALE-NO-INTERNET': {
+    en: 'An internet service offer is required to continue.',
+    tr: 'Devam etmek için bir internet servisi teklifi gereklidir.',
+  },
+  'MSG-SALE-NO-RESOURCE': {
+    en: 'A resource offer (e.g. modem) is required to continue.',
+    tr: 'Devam etmek için bir kaynak (ör. modem) teklifi gereklidir.',
+  },
+  'MSG-SALE-NO-ACTIVATION': {
+    en: 'An activation service offer is required to continue.',
+    tr: 'Devam etmek için bir aktivasyon servisi teklifi gereklidir.',
+  },
+  'MSG-SALE-MULTI-INTERNET': {
+    en: 'Only one internet service offer is allowed.',
+    tr: 'Yalnızca bir internet servisi teklifi eklenebilir.',
+  },
+  'MSG-SALE-MULTI-RESOURCE': {
+    en: 'Only one resource (modem) offer is allowed.',
+    tr: 'Yalnızca bir kaynak (modem) teklifi eklenebilir.',
+  },
+  'MSG-SALE-MULTI-ACTIVATION': {
+    en: 'Only one activation service offer is allowed.',
+    tr: 'Yalnızca bir aktivasyon servisi teklifi eklenebilir.',
+  },
+
+  // FRONTEND-ONLY analyst key: the AC-SALE-01-15 confirm modal. The backend
+  // never produces it (docs/api/order-service.md §Message-key notes) — it is
+  // the question the client asks before it POSTs.
+  'MSG-SALE-ORDER-CONFIRM': {
+    en: 'Are you sure to submit this order?',
+    tr: 'Bu siparişi göndermek istediğinize emin misiniz?',
+  },
+
+  // ---- order-service PROJECT-AUTHORED keys (docs/api/order-service.md
+  //      §Message-key notes). The analyst catalogue names no order outcomes,
+  //      because §2.7 never describes an order being looked up or refused.
+  //      EN/TR for MSG-ORDER-NOT-FOUND are the backend document's own
+  //      suggestion, taken verbatim; the other two are authored to the same
+  //      shape. Backend-returned — the names are the contract. ----
+  'MSG-ORDER-NOT-FOUND': {
+    en: 'Order not found.',
+    tr: 'Sipariş bulunamadı.',
+  },
+  'MSG-ORDER-DUP-NUMBER': {
+    en: 'This order number is already in use. Please try again.',
+    tr: 'Bu sipariş numarası zaten kullanımda. Lütfen tekrar deneyin.',
+  },
+  'MSG-ORDER-NUMBER-CAPACITY-EXCEEDED': {
+    en: 'Order number capacity for this segment and year is exhausted.',
+    tr: 'Bu segment ve yıl için sipariş numarası kapasitesi tükendi.',
+  },
+
+  // FRONTEND-ONLY fallback — never returned by any backend. `POST /api/orders`
+  // orchestrates six services (ADR-016); when a hop is unreachable the run is
+  // compensated, so the order does NOT exist and retrying is safe. The generic
+  // MSG-SERVICE-UNAVAILABLE cannot say that, and saying it matters here: the
+  // POST is not idempotent, so a user who wrongly believes the order might have
+  // gone through would avoid the retry they should make (ADR-016 §5.3b).
+  'MSG-SALE-SUBMIT-UNAVAILABLE': {
+    en: 'The order could not be created because a service is temporarily unavailable. Nothing was saved — please try again shortly.',
+    tr: 'Bir servise geçici olarak ulaşılamadığı için sipariş oluşturulamadı. Hiçbir kayıt yapılmadı — lütfen biraz sonra tekrar deneyin.',
+  },
 } satisfies Catalog;

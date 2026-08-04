@@ -45,9 +45,12 @@
     </div>
   }
 
+  <!-- mock body: `flex-direction:column; gap:16px` — Account name and Billing
+       address are FULL-WIDTH and STACKED, not a two-column grid. The earlier
+       side-by-side layout was ours, not the mock's (scope §4.30 addendum). -->
   <form
     [formGroup]="form"
-    class="grid grid-cols-2 gap-x-6 gap-y-5"
+    class="flex flex-col gap-4"
     (ngSubmit)="onSave()"
     data-testid="customer-detail-account-dialog-form"
   >
@@ -74,16 +77,46 @@
       [errorText]="errorTextFor('addressId')"
       testId="customer-detail-account-dialog-address"
     >
+      <!-- BUG-2: in-flow panel — opening it GROWS the dialog instead of hanging
+           the address list over (and past) the dialog's edge. Every address is
+           reachable; the client never caps how many are listed. -->
       <app-select
         formControlName="addressId"
         [options]="selectOptions()"
         controlId="customer-detail-account-address"
         [placeholder]="'UI-ACCOUNT-ADDRESS-PLACEHOLDER' | t"
         [error]="!!errorTextFor('addressId')"
+        [flowPanel]="true"
         testId="customer-detail-account-dialog-address-select"
       />
     </app-form-field>
   </form>
+
+  <!-- BUG-1 (mock): directly under the Billing address field — the trigger when
+       the panel is closed, the panel itself when it is open. Never both, and
+       never a second modal (scope §4.30). -->
+  @if (addressPanelOpen()) {
+    <div class="mt-5">
+      <app-billing-address-panel
+        [busy]="addressBusy()"
+        [errorText]="addressErrorText()"
+        (save)="onNewAddress($event)"
+        (cancelled)="closeAddressPanel()"
+      />
+    </div>
+  } @else {
+    <div class="mt-5 flex">
+      <app-button
+        variant="ghost"
+        size="sm"
+        iconLeading="plus"
+        testId="customer-detail-account-dialog-add-address-button"
+        (action)="openAddressPanel()"
+      >
+        {{ 'UI-ACCOUNT-ADD-ADDRESS' | t }}
+      </app-button>
+    </div>
+  }
 
   <div appModalFooter class="flex gap-3">
     <app-button

@@ -17,7 +17,10 @@ import { Button, IconButton } from '../../../shared/ui';
 // direction is one-way in both cases — and account ⇄ product never touch: this
 // screen is the only place they meet (scope §4.28).
 import { AccountSection } from '../../account/section/account-section';
-import { type BillingAddressOption } from '../../account/section/billing-address-option';
+import {
+  type BillingAddressOption,
+  type NewBillingAddress,
+} from '../../account/section/billing-address-option';
 import { ProductSection } from '../../product/section/product-section';
 import { AddressCards } from '../address/address-cards';
 import { AddressFormDialog } from '../address/address-form-dialog';
@@ -175,6 +178,40 @@ export class CustomerDetail {
     })),
   );
 
+  // --- BUG-1: billing-address creation asked for by the account dialog -------
+  protected readonly accountAddressBusy = signal(false);
+  protected readonly accountAddressErrorText = signal<string | null>(null);
+  protected readonly accountCreatedAddressId = signal<number | null>(null);
+
+  /**
+   * FR-ADDR-02 on behalf of the account dialog's inline panel. Deliberately the
+   * SAME store method the Address tab's dialog and the §2.7 wizard call — there
+   * is one address-creation path, and `addAddress` already refreshes the list,
+   * so `billingAddressOptions` (and hence the dialog's Select) picks the new
+   * address up without any extra fetch.
+   */
+  protected onAccountNewAddress(address: NewBillingAddress): void {
+    if (this.accountAddressBusy()) return;
+    this.accountAddressBusy.set(true);
+    this.accountAddressErrorText.set(null);
+    // Clear first, so creating a SECOND address is a real change for the
+    // dialog's acknowledgement effect even if ids were somehow reused.
+    this.accountCreatedAddressId.set(null);
+    this.store.addAddress(address).subscribe({
+      next: (created) => {
+        this.accountAddressBusy.set(false);
+        this.accountCreatedAddressId.set(created.addressId);
+      },
+      error: (error: unknown) => {
+        // The panel shows it; the account dialog stays open and untouched.
+        this.accountAddressBusy.set(false);
+        this.accountAddressErrorText.set(
+          this.i18n.translate(isApiError(error) ? error.messageKey : 'MSG-INTERNAL-ERROR'),
+        );
+      },
+    });
+  }
+
   protected readonly contactFields = computed<readonly ReadField[]>(() => {
     const contact = this.store.contact();
     if (!contact) return [];
@@ -224,6 +261,9 @@ export class CustomerDetail {
     this.deleteAddressTarget.set(null);
     this.deleteAddressError.set(null);
     this.addressActionError.set(null);
+    this.accountAddressBusy.set(false);
+    this.accountAddressErrorText.set(null);
+    this.accountCreatedAddressId.set(null);
   }
 
   // --- demographic ----------------------------------------------------------
@@ -324,6 +364,24 @@ export class CustomerDetail {
 
   protected backToSearch(): void {
     void this.router.navigate(['/customers']);
+  }
+
+  /**
+   * AC-SALE-01-01 entry point: open the §2.7 sale wizard for one billing
+   * account. `accountNumber` rides as a QUERY param because it qualifies the
+   * sale, it is not part of the route's identity.
+   *
+   * The button is disabled for Passive accounts, so this is only reachable for
+   * an Active one; nothing is pre-checked here beyond that, because whether
+   * the account may actually take an order is the backend's answer
+   * (FE-ADR-013 §a).
+   */
+  protected startSale(accountNumber: string): void {
+    const customerNumber = this.store.customerNumber();
+    if (customerNumber === null) return;
+    void this.router.navigate(['/customers', customerNumber, 'sales', 'new'], {
+      queryParams: { accountNumber },
+    });
   }
 
   protected dismissToast(): void {

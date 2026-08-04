@@ -6,7 +6,75 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-07-31 (**📦 ÜRÜN GÖRÜNTÜLEME CANLI (FR-PROD-01..02)**
+> **Son güncelleme:** 2026-08-04 (**🐞 HESAP MODALI — İKİNCİ TUR.** BUG-1 onaylandı
+> (kapandı). **BUG-2 ilk turda kapanmamıştı:** düzeltme desende doğru kurulmuştu
+> ama **hata raporundaki dialoga uygulanmamıştı** (`account-form-dialog`
+> `overflowVisible` almamıştı — uygulama hatası). İkinci turda üç şey birden
+> çözüldü: (1) o eksik uygulama, (2) **alanlar alt alta** — mock gövdesi
+> `flex-direction:column; gap:16px` ile Account name ve Billing address'i tam
+> genişlik/alt alta koyuyor; bizdeki `grid-cols-2` **mock'tan değil bizdendi**,
+> `flex flex-col gap-4` yapıldı, (3) **dialog artık dropdown kadar uzuyor** —
+> `overflowVisible` kırpmayı bitirir ama paneli mutlak bırakır (liste footer'ın
+> üstüne biner, dialog uzamaz); istenen bu olmadığı için `shared/ui/Select`'e
+> **`flowPanel`** girdisi eklendi: panel **akış içinde** render edilir → FormField
+> → dialog büyür, liste hiçbir kenarı aşmaz, `max-h-65` tavanı korunduğu için
+> büyüme sınırlı kalır. Hesap dialogu bu yüzden `overflowVisible` **kullanmıyor**;
+> gövde scroll'u + `max-h-full` emniyet olarak duruyor. Billing address + inline
+> panelin City/District Select'lerinin üçü de `flowPanel`. Adres sayısı hiçbir
+> modda sınırlı değil (12 ve 9 seçenekli testlerle pinlendi). **İŞ-3 YİNE
+> AÇILMADI ama bu kez ÇALIŞAN İKİLİ üzerinde kanıtlandı:** account/order
+> servisleri gerçekten tam ve ayakta — **ancak 501'i onlar üretmiyor,
+> `customer-service` üretiyor** ve ona `c89a6a9`'dan beri dokunulmamış.
+> `podman cp` ile alınan **deploy edilmiş `app.jar`**'dan
+> `CustomerBusinessRules.class` çıkarıldı: `"…is not implemented yet"` +
+> `MSG-FEATURE-NOT-IMPLEMENTED` + `checkNoUnsupportedCrossServiceSearchCriterion`
+> sabitleri **hâlâ içinde**. ⚠ **Swagger yanıltıcı:** canlı api-docs iki
+> parametreyi listeliyor çünkü springdoc yalnız **controller imzasını** yansıtır
+> (parametreler zaten hep imzadaydı) ve servis katmanındaki kuralı göremez —
+> dokümante edilen tek yanıt `200`. Canlı uçtan uca çağrı token gerektirdiği ve
+> realm'deki tek istemci public + `directAccessGrants=false` olduğu için
+> yapılamadı. **Yapılabilen kısım yapıldı:** iletilen iki Swagger canlı
+> `/v3/api-docs`'tan çekilip istemci tiplerimizle karşılaştırıldı — **sapma yok**
+> (order 5 şema + account 7 alan birebir); `product-involvements` /
+> `product-ids` uçları backend-backend akışı olduğu için bilinçle tüketilmedi.
+> **365/365 test** (+2), lint + konvansiyon + prod build yeşil; kayıtlar:
+> scope **§4.30 EK** + **§1.7b**, `shared-ui-design-notes` (`flowPanel`).
+> ⚠️ Çalışan `frontend:local` imajı 02.08 tarihli — bu düzeltmeler ancak
+> `--build frontend` sonrası ekranda görünür (§4.29 dersi).
+> Önceki: 2026-08-03 (**🐞 HESAP MODALI HATA TURU — 2 hata
+> düzeltildi, 1 iş backend'e takıldı.** **BUG-1:** Create/Edit billing account
+> modalına mock'un **inline "New address" paneli** geldi (ayrı popup DEĞİL —
+> hata raporu popup diyordu, mock panel kullanıyor, tasarımda mock bağlayıcı:
+> FE-ADR-011). Panel yalnız **toplar**; adres oluşturma FR-ADDR-02 olduğu ve
+> customer-service'e ait olduğu için `features/account/` onu **çağırmaz** —
+> draft `newAddressRequested` ile yukarı çıkar, **Customer Info** onu mevcut
+> `CustomerDetailStore.addAddress()` ile yazar (Address sekmesi ve §2.7
+> sihirbazıyla **aynı tek yol**; ikinci servis yazılmadı) ve sonucu
+> `createdAddressId` ile geri verir → panel kapanır, adres **otomatik seçilir**.
+> Panel açıkken modalın Save'i disabled (mock kuralı). **BUG-2 kök nedeni
+> genişlik değildi:** `shared/patterns/Modal`'ın gövdesi `overflow-y-auto`,
+> yani bir **scroll container**, ve o da `Select`'in **mutlak konumlu** panelini
+> kırpıyordu; modalımız zaten mock'tan genişti (560 > 480). Düzeltme **desende**:
+> yeni `overflowVisible` girdisi (set edilince gövde `overflow-visible` +
+> panel `max-h-full`'ü bırakır) — mock'un kendisi bunu modal-başına bir özellik
+> olarak kullanıyor, hepsini flip etmek uzun dialogların scroll'unu götürürdü.
+> Dropdown barındıran **her** dialog açtı: hesap + **adres** + **demografik**.
+> Modal ölçeği mock'un **480**'ini kazandı ve yeniden harflendi
+> (sm 420/md 480/lg 560/xl 680) — tüm tüketiciler yeniden etiketlendiği için
+> **hesap dialogu dışında hiçbir genişlik değişmedi**. `Button`'a `ghost`
+> varyantı yazıldı (design-note'un "mock kullanmıyor" tespiti yanlıştı — 14 kez
+> geçiyor). **İŞ 3 DURDURULDU:** Customer Search'ün `accountNumber`/`orderNumber`
+> filtreleri **aktifleştirilmedi** — `origin/dev` HEAD'inde
+> `CustomerBusinessRules` hâlâ **koşulsuz 501** atıyor, API dokümanı hâlâ 501
+> diyor ve `c89a6a9..origin/dev` aralığında customer-service'e hiç dokunulmamış;
+> açılsaydı ekran ilk tuşta 501 alırdı (kayıt: scope §1.7a). ⚠ Ayrıca:
+> göreve konu olan `docs/source/mock-ui/billing-account-modal.html` **repoda
+> yok ve hiç olmadı** — markup, bundle'ın gzip+base64 `__resourceBlobs`'u
+> çözülerek gerçek kaynağından okundu. **363/363 test** (+7), lint +
+> konvansiyon + prod build yeşil; kayıtlar: scope **§4.30** + §1.7a,
+> `mock-ui-analysis §7.2` (480/520 eksikti — düzeltildi),
+> `shared-ui-design-notes §2` (ghost tespiti — düzeltildi).
+> Önceki: 2026-07-31 (**📦 ÜRÜN GÖRÜNTÜLEME CANLI (FR-PROD-01..02)**
 > — `product-service` dev'e girdi (salt okunur Faz A), Customer Info'nun ürün
 > bölümü **"Coming soon"dan çıkıp gerçek işlevine kavuştu**. Yeni kardeş feature
 > **`features/product/`** (model / data / state / section), hesap modülünün
@@ -224,9 +292,14 @@ frontend/
         │   │   └── catalog/     # labels.ts (LBL) · messages.ts (MSG) · ui.ts (UI) · index.ts
         │   ├── [✓] auth/        # auth.service.ts (signals) · auth.guard.ts · session.model.ts
         │   ├── [✓] http/        # api-error.ts · field-errors.ts · 2 interceptor · provide-core-http.ts
-        │   └── [✓] lookup/      # ✅ 2026-07-25: LookupApiService (statuses/types/cities/districts)
-        │       │                #   + LookupCacheService (signal önbellek — FE-ADR-006 §1/§6 buraya atadı)
-        │       └── lookup.model.ts · lookup-api.service.ts · lookup-cache.service.ts (+spec)
+        │   ├── [✓] lookup/      # ✅ 2026-07-25: LookupApiService (statuses/types/cities/districts)
+        │   │                    #   + LookupCacheService (signal önbellek — FE-ADR-006 §1/§6 buraya atadı)
+        │   │   └── lookup.model.ts · lookup-api.service.ts · lookup-cache.service.ts (+spec)
+        │   └── [✓] catalog/   # ✅ 2026-08-03: ürün KATALOĞU (offers / campaigns /
+        │       │              #   characteristics) — İKİ feature besliyor (product + satış
+        │       │              #   sihirbazı); kardeş import yasak olduğu için core'da,
+        │       │              #   emsal core/lookup (scope §2B.10). Hiçbir ucu sayfalamıyor
+        │       └── catalog.model.ts · catalog-api.service.ts (+spec) · index.ts
         ├── shared/              # core'a ve features'a ASLA bakmaz
         │   ├── [✓] ui/          # ✅ 2026-07-25: 7 EDS bileşeni yazıldı (FE-ADR-011 §d; PasswordInput YOK)
         │   │   ├── icon/ button/ icon-button/ form-field/
@@ -237,6 +310,13 @@ frontend/
         │       │                    #   table: 2026-07-31 opsiyonel satır genişletme
         │       │                    #   (appTableExpansion + isExpanded) — eklemeli, §4.28/2
         │       ├── toast/ modal/ tabs/ confirm-dialog/   # Customer Info tüketiyor (modal: headerless varyantlı)
+        │       │                    #   modal: 2026-08-03 `overflowVisible` girdisi (BUG-2 —
+        │       │                    #   gövdenin overflow-y-auto'su Select panelini kırpıyordu)
+        │       │                    #   + 4. boyut: sm 420 / md 480 / lg 560 / xl 680 (§4.30)
+        │       │                    #   confirm-dialog: 2026-08-03 `tone` girdisi (danger|info)
+        │       │                    #   — §2.7 submit onayı info daire + primary Yes (§2B.15)
+        │       │                    #   pagination/page-size.ts: 2026-08-03 KR-04 whitelist'in
+        │       │                    #   TEK kaynağı (PAGE_SIZE_OPTIONS · PageSize · isPageSize)
         │       ├── status-badge/    # ✅ 2026-07-25 (F6): nokta+metin durum rozeti (mock §6.4)
         │       ├── stepper/         # ✅ 2026-07-25 (F7): pasif wizard göstergesi (mock §6.3)
         │       └── index.ts         # barrel; sözleşme shared/ui ile aynı (saf sunum, çözülmüş metin,
@@ -244,7 +324,8 @@ frontend/
         └── features/
             ├── [✓] access-denied/           # 403 rol reddi sayfası (MSG-AUTH-FORBIDDEN)
             ├── customer/
-            │   ├── [✓] customer.routes.ts   # lazy chunk kökü ('' Search, ':customerNumber' Detail)
+            │   ├── [✓] customer.routes.ts   # lazy chunk kökü ('' Search, ':customerNumber' Detail,
+            │   │                            #   ':customerNumber/sales/new' satış sihirbazı)
             │   ├── [✓] search/              # ✅ Customer Search (golden path) — satır linki artık Detail'e gider
             │   ├── [✓] detail/              # ✅ 2026-07-25: Customer Info (tabs; demografik+iletişim dialogları,
             │   │                            #   silme ConfirmDialog; hesap sekmesi F6'ya rezerve, ürün Coming soon)
@@ -255,26 +336,44 @@ frontend/
             │   ├── [ ] contact/             # alt modül klasörü boş — iletişim dialog'u şimdilik detail/ içinde
             │   ├── [✓] model/               # ✅ 2026-07-25: Customer/Address/Contact/Page/filter tipleri
             │   ├── [✓] data/                # ✅ CustomerApiService (liste+filtre, CRUD, adres, iletişim) (+spec)
-            │   └── [✓] state/               # ✅ CustomerListStore (+spec) · CustomerDetailStore (3 bağımsız
-            │                                #   bölüm okuması + mutasyonlar) · CustomerFlashService (eds_flash karşılığı)
+            │   ├── [✓] state/               # ✅ CustomerListStore (+spec) · CustomerDetailStore (3 bağımsız
+            │   │                            #   bölüm okuması + mutasyonlar) · CustomerFlashService (eds_flash karşılığı)
+            │   └── [✓] sales/               # ✅ 2026-08-03: §2.7 SATIŞ SİHİRBAZI (FR-SALE-01/02) —
+            │                                #   sale-wizard (tek route, 3 adım; üç store'u BURADA
+            │                                #   provide eder, root'ta değil) + offer-selection-step +
+            │                                #   product-configuration-step + submit-order-step (+spec).
+            │                                #   features/order/ altında DEĞİL: adım 2 müşterinin
+            │                                #   adreslerini + FR-ADDR-02 dialog'unu kullanıyor, orada
+            │                                #   olsa order→customer kardeş yönü açılırdı (scope §2B.9)
             ├── [✓] account/                 # ✅ 2026-07-25: FR-ACCT (kardeş feature) — F6'da bölüm canlı
             │   ├── [✓] model/               #   AccountResponse/Create/Update — K-8: 223 YOK, KR-11 salt okunur
             │   ├── [✓] data/                #   AccountApiService (/api/accounts/**, 224-only) (+spec)
             │   ├── [✓] state/               #   AccountListStore (+mutasyonlar: create/update/delete → reload) (+spec)
             │   └── [✓] section/             # ✅ F6: AccountSection + AccountFormDialog (+spec) — Customer
+            │                                #   2026-08-03 (BUG-1): + BillingAddressPanel — modalın İÇİNDE
+            │                                #   genişleyen "New address" paneli. Adresi KENDİ oluşturmaz
+            │                                #   (FR-ADDR-02 customer-service'in): draft yukarı çıkar,
+            │                                #   Customer Info addAddress() ile yazar (scope §4.30)
             │                                #   Info'nun hesap sekmesine expose edilen bileşen (FE-ADR-003
             │                                #   §Consequences); adresler BillingAddressOption ile yukarıdan girer.
             │                                #   2026-07-31: opsiyonel `rowExpansion` TemplateRef girdisi —
             │                                #   context YALNIZ accountNumber string'i (product'ı hiç görmez)
-            └── [✓] product/                 # ✅ 2026-07-31: FR-PROD-01..02 (kardeş feature) — SALT OKUNUR
-                ├── [✓] model/               #   ProductRow / ProductDetail / ProductServiceAddress —
-                │                            #   sayfalama zarfı YOK, yazma tipi YOK (Faz A)
-                ├── [✓] data/                #   ProductApiService — tam 2 GET (+spec); /api/offers ve
-                │                            #   /api/campaigns bilinçle sarmalanmadı (§1B.10)
-                ├── [✓] state/               #   ProductListStore (+spec) · ProductDetailStore (404 notFound
-                │                            #   ayrı durum) — filtreleme/sıralama/sayfalama YOK
-                └── [✓] section/             #   ProductSection (+spec) + ProductDetailDialog — genişleyen
-                                             #   hesap satırının içinde render edilir; girdi tek: accountNumber
+            ├── [✓] product/                 # ✅ 2026-07-31: FR-PROD-01..02 (kardeş feature) — SALT OKUNUR
+            │   ├── [✓] model/               #   ProductRow / ProductDetail / ProductServiceAddress —
+            │   │                            #   sayfalama zarfı YOK, yazma tipi YOK (Faz A)
+            │   ├── [✓] data/                #   ProductApiService — tam 2 GET (+spec); /api/offers ve
+            │   │                            #   /api/campaigns bilinçle sarmalanmadı (§1B.10)
+            │   ├── [✓] state/               #   ProductListStore (+spec) · ProductDetailStore (404 notFound
+            │   │                            #   ayrı durum) — filtreleme/sıralama/sayfalama YOK
+            │   └── [✓] section/             #   ProductSection (+spec) + ProductDetailDialog — genişleyen
+            │                                #   hesap satırının içinde render edilir; girdi tek: accountNumber
+            └── [✓] order/                   # ✅ 2026-08-03: SİPARİŞ DOMAİNİ (kardeş feature) —
+                ├── [✓] model/               #   OrderItem/SubmitOrder/Order + BasketItem +
+                │                            #   REQUIRED_SERVICE_TYPES; liste/iptal tipi YOK (uç yok)
+                ├── [✓] data/                #   OrderApiService — tam 2 metot: submit + getByNumber
+                └── [✓] state/               #   SaleBasketStore (+spec) — Signal-only, HİÇBİR Storage;
+                                             #   OrderSubmitStore (+spec) — çift submit kilidi +
+                                             #   HTTP status'a göre hata haritası (scope §2B.12)
 ```
 
 **Katman lint'i doğrulandı:** `shared/`'dan `core/`'a import denemesi ESLint
@@ -302,11 +401,14 @@ Tam kontrat: `docs/api/customer-service.md`, `docs/api/authentication.md`,
 | **CSRF** | Angular `HttpClient` varsayılanı yeterli (`XSRF-TOKEN` → `X-XSRF-TOKEN`) |
 | **Login** | `/oauth2/authorization/keycloak`'a **tam sayfa yönlendirme** |
 | **Logout** | `POST /logout` + CSRF header, tam sayfa navigasyon |
-| **Liste** | `GET /api/customers?page=0&size=20`; **`sort` parametresi YOK** (sıralama sunucuda sabit) |
-| **Sayfa boyutu** | Varsayılan **20** |
+| **Liste** | `GET /api/customers?page=0&size=15`; **`sort` parametresi YOK** (sıralama sunucuda sabit) |
+| **Sayfa boyutu** | Varsayılan **15**; API **yalnız 15/30/50** kabul eder, başkası 400 `MSG-VALIDATION-ERROR` (KR-04, ADR-005 §Amendment). Tek kaynak: `shared/patterns/pagination/page-size.ts` — hiçbir ekran sayfa boyutu literal'i yazmaz (scope §4.29) |
 | **Tarih** | Taşımada daima ISO `YYYY-MM-DD`; gösterimde `dd.MM.yyyy` |
 | **Hata** | `messageKey` kullanılır; backend'in `message` alanı **kullanıcıya asla gösterilmez** |
 | **Detay ≠ liste değil** | Detay endpoint'inde adres/iletişim **yok** → Customer Info 3 ayrı çağrı yapar |
+| **Satış uçları sayfalamaz** | `GET /api/offers`, `/api/campaigns`, `/api/offers/{id}/characteristics` düz dizi döndürür, query param almaz → filtreleme **istemcide** (scope §2B.4/§2B.14) |
+| **`POST /api/orders` idempotent DEĞİL** | İkinci istek İKİNCİ ürün kümesi yaratır (ADR-016 §5.3b). İstemci iki bağımsız kilit uygular: `OrderSubmitStore.locked()` + butonun kaldırılması. Başarılı submit **asla** kilidi açmaz |
+| **Sipariş yanıtı adı/adresi geri vermez** | `OrderItemResponse` yalnız `offerId`/`productId`/`amount` (ADR-016 §3) → Submit ekranı adları kendi sepetinden, tutarları `201`den okur |
 
 > **Dev proxy (FE-ADR-004 uygulandı, 2026-07-23).** `ng serve` artık
 > `proxy.conf.json` ile `/api`, `/oauth2`, `/login`, `/logout` prefix'lerini
@@ -451,6 +553,24 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
       (frontend-only), bilinmeyen ürün → 404 `MSG-PROD-NOT-FOUND`.
       `shared/patterns/Table`'a eklemeli satır genişletme geldi. Kayıtlar:
       scope §1B + §4.28, FE-ADR-013 §Amendment B
+- [x] ~~**Ürün satış sihirbazı (§2.7)**~~ ✅ **YAZILDI (2026-08-03, FR-SALE-01/02)** —
+      `features/customer/sales/`: TEK route
+      `/customers/:customerNumber/sales/new?accountNumber=…`, üç adım
+      (Offer Selection / Product Configuration / Submit Order), mock `.dc.html`
+      düzenleri birebir. Sipariş **domaini** `features/order/` (model +
+      `OrderApiService` + `SaleBasketStore` + `OrderSubmitStore`), katalog
+      **`core/catalog/`** (iki feature'ı besliyor — `core/lookup` emsali).
+      Sihirbaz `features/customer/` altında, çünkü adım 2 müşterinin adreslerini
+      ve FR-ADDR-02 dialog'unu kullanıyor; `features/order/` altında olsa yeni
+      bir `order → customer` kardeş yönü açılırdı (FE-ADR-003; scope §2B.9).
+      **Sepet hiçbir yere yazılmaz** — Signal-only, wizard-kapsamlı store,
+      akıştan çıkınca yok olur (AC-SALE-01-16); mock'un `eds_sale_*`
+      localStorage'ı taşınmadı. **Çift submit iki bağımsız kilitle** engelleniyor
+      (`POST /api/orders` idempotent DEĞİL — ADR-016 §5.3b). Order Number
+      submit'e kadar `—` (scope §3.6 seçenek (a)); başarı **yerinde** gösteriliyor
+      (§2B.8). Giriş noktası: genişleyen hesap satırında `LBL-START-NEW-SALE`,
+      Aktif hesapta etkin / Pasif hesapta disabled (AC-SALE-01-01/02).
+      Kayıtlar: scope §2B.9–2B.16
 
 ### 5.5 Container
 - [x] ~~`frontend/Dockerfile` (multi-stage) + `nginx.conf`~~ ✅ 2026-07-24
@@ -462,8 +582,11 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
       ~~import-boundary lint~~ → **eklendi** (FE-ADR-003, kanıtlandı) ·
       ~~katalog bütünlük testi~~ → **eklendi** (`i18n.spec.ts`)
 - [ ] CI wiring (§4.6) · `data-testid` lint yok-kararı (§4.8, bilinçli)
-- [ ] Header rol metni (§2.20 — kaldırılacak) · Sidenav 11px (caption'a) ·
-      Per page listesi (20/50/100) — ekran fazında uygulanacak
+- [ ] Header rol metni (§2.20 — kaldırılacak) · Sidenav 11px (caption'a)
+- [x] ~~Per page listesi~~ ✅ **15/30/50, varsayılan 15** (KR-04 whitelist'i;
+      ~~20/50/100~~ geçersiz). Tek kaynak `shared/patterns/pagination/page-size.ts`;
+      `Pagination` deseni `PageSize` tipiyle çalışır, whitelist dışı değer
+      **derlenmez** (scope §2.3/§2.4 + §4.29)
 
 ---
 

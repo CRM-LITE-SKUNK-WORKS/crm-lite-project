@@ -539,7 +539,8 @@ crm-lite-project-dev/
 
 ### 4.8 account-service ✅ (YENİ — 2026-07-23, ADR-013/014)
 - Port 8085, DB `account_db`, paket kökü `com.crm.account`. Kapsam: **FR-ACCT-01..04 + KR-11**
-  (FR v8-1 Final, 23.07.2026). Compose'da host portu YAYINLANMAZ (ADR-009); gateway route'u
+  (scope'un kaynağı FR v8-1 Final, 23.07.2026 — FR v8-2, 03.08.2026 revizyonuyla gözden
+  geçirildi, davranışsal fark yok). Compose'da host portu YAYINLANMAZ (ADR-009); gateway route'u
   `/api/accounts/**` (TokenRelay + cookie stripping); birleşik Swagger dropdown'ında kayıtlı.
 - **Tablolar (Flyway V1/V2):** `acct_tp` (YEREL hesap-tipi kataloğu, kontrat: 1=223 Customer
   Account, 2=224 Billing Account — GNL kataloğu DEĞİL), `cust_acct` (`customer_number` = dış

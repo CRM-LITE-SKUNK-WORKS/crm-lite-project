@@ -4,6 +4,9 @@
 Accepted (2026-07-23) — technical design for FR v8-1 Final (23.07.2026) KR-11,
 implemented in account-service (ADR-013).
 
+**Reviewed 2026-08-05 (FR/AC v8-2, 03.08.2026):** KR-11 wording is unchanged from
+v8-1. **No change to this decision.** See `docs/requirements/document-delta.md`.
+
 ## Context
 KR-11: the Account Number is a 10-digit numeric string
 `[T][YY][SSSSSS][C]` — `T` = customer-segment digit (fixed `1` this phase,

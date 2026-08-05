@@ -1,7 +1,7 @@
 # product-service API — Product Viewing + Read-only Catalog (FR-PROD-01..02)
 
-Last updated: 2026-07-29. Source requirements: FR/AC **v8-1 Final (23.07.2026)**
-§2.6. Boundary rules applied: **ADR-002** (shared catalogs), **ADR-009**
+Last updated: 2026-08-05. Source requirements: FR/AC **v8-2 (03.08.2026)**
+§2.6 (reviewed — unchanged from v8-1). Boundary rules applied: **ADR-002** (shared catalogs), **ADR-009**
 (zero-trust), **ADR-010** (service-to-service auth), **ADR-013 §5**
 (`cust_acct_prod_invl` single-writer — this service composes over
 account-service's API and NEVER touches `account_db`).

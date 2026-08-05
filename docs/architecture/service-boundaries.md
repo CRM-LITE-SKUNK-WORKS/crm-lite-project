@@ -1,6 +1,11 @@
 # Service Boundaries
 
-Last updated: 2026-08-02 (**FR-SALE §2.7 implemented** — `order-service` (:8087,
+Last updated: 2026-08-05 (**FR/AC v8-2 (03.08.2026) reconciliation** — reviewed against
+the prior v8-1 baseline; AC-SALE-02-01 wording simplified to a single Active-account
+condition and the three SALE basket messages (MSG-SALE-NO-INTERNET/-RESOURCE/-ACTIVATION)
+rewritten as explicit error conditions, both already matching this document's own
+wording — **no service-boundary or behavioral change**.)
+Prior: 2026-08-02 (**FR-SALE §2.7 implemented** — `order-service` (:8087,
 `order_db`) orchestrates the sale across a product-service **write slice** and a new
 account-service **involvement command**; ADR-015 and ADR-016 written, ADR-013 amended
 with §3.6/§7/§8. **The ADR debt recorded below since 2026-07-29 is discharged.**)

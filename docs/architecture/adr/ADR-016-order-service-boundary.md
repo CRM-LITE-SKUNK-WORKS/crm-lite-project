@@ -6,6 +6,12 @@ Implements the FR/AC v8-1 Final (23.07.2026) SALE scope: **FR-SALE-01,
 FR-SALE-02** (§2.7 Ürün Satışı), covering the Offer Selection → Product
 Configuration → Submit Order flow's backend.
 
+**Reviewed 2026-08-05 (FR/AC v8-2, 03.08.2026):** the revision simplified
+AC-SALE-02-01's wording (single Active-account condition, no more "offered AND
+active") and rewrote the three basket-validation messages as explicit error
+conditions (message keys unchanged). Both already match this ADR's §5 wording —
+**no change to this decision.** See `docs/requirements/document-delta.md`.
+
 Companions: **ADR-013 §3.6/§7/§8** (the account representation and the
 involvement read/write commands this service consumes), **ADR-015** (the product
 write slice and where basket/characteristic validation lives), **ADR-014** (the

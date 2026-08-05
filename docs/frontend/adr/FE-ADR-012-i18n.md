@@ -5,6 +5,10 @@ Accepted (2026-07-23). Implements **FR-LANG-01** (AC-LANG-01-01/02/03).
 **Read together with FE-ADR-008** — error text is served by this mechanism, not
 by a parallel one.
 
+**Reviewed 2026-08-05 (FR/AC v8-2, 03.08.2026):** AC-LANG-01-01/02/03 text is
+byte-identical to the v8 Final extraction below. **No change to this decision.**
+See `docs/requirements/document-delta.md`.
+
 ## Context
 FR-LANG-01 was extracted verbatim from
 `docs/source/requirements/CRM_Lite_FR_AC_v8_Final.docx` §2.8 on 2026-07-23:

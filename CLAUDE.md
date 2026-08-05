@@ -1,8 +1,8 @@
 # CRM Lite Agent Instructions
 
 - Read PROJECTBRAIN.md before architectural changes.
-- Final requirements are under docs\source\requirements (current: FR/AC v8-1 Final,
-  23.07.2026 revision — reconciliation record in docs/requirements/document-delta.md).
+- Final requirements are under docs\source\requirements (current: FR/AC v8-2,
+  03.08.2026 revision — reconciliation record in docs/requirements/document-delta.md).
 - Approved architecture decisions are under docs/architecture/adr/ (ADR-001..005 and
   ADR-013/014 are binding; they override older wording in any other document or diagram).
 - account-service (FR-ACCT-01..04, KR-11) is implemented per ADR-013/014: account numbers are

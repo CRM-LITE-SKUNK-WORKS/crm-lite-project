@@ -2,8 +2,8 @@
 
 | Area | Location | Contents |
 |---|---|---|
-| Source documents (authoritative) | [source/](source/) | FR/AC v8 Final (16.07.2026 revision), use cases, entity/seed workbook, draw.io diagrams. **Files named `Final` override older material.** |
-| Requirements | [requirements/](requirements/) | Functional requirements summary, traceability matrix, [document-delta](requirements/document-delta.md) (16.07.2026 source-change reconciliation) |
+| Source documents (authoritative) | [source/](source/) | FR/AC v8-2 (03.08.2026 revision), use cases, entity/seed workbook, draw.io diagrams. **Files named `Final` override older material.** |
+| Requirements | [requirements/](requirements/) | Functional requirements summary, traceability matrix, [document-delta](requirements/document-delta.md) (03.08.2026 source-change reconciliation) |
 | Data model | [data-model/](data-model/) | Entity catalog, customer_db schema reference |
 | Architecture | [architecture/](architecture/) | Service boundaries + roadmap, ADRs (ADR-001..011) |
 | APIs | [api/](api/) | customer-service, shared lookup-service, mernis-stub — full curl catalogs; **[authentication](api/authentication.md)** (login/session/CSRF/logout browser contract) |

@@ -1,7 +1,7 @@
 # Functional Requirements — Implementation Summary
 
-Source of truth: `docs/source/requirements/CRM_Lite_FR_AC_v8-1_Final.docx`
-(**23.07.2026 revision**, supersedes the 16.07.2026 v8 Final — see
+Source of truth: `docs/source/requirements/CRM_Lite_FR_AC_v8-2.docx`
+(**03.08.2026 revision**, supersedes the 23.07.2026 v8-1 Final — see
 [document-delta.md](document-delta.md) for what changed). This file summarizes what
 the backend implements today and where behaviour is intentionally deferred. IDs
 refer to the FR document.
@@ -26,7 +26,7 @@ refer to the FR document.
 | FR-ACCT-01 | Billing-account list | `GET /api/accounts?customerId={customerNumber}` — 224 only, **Active + Passive** (AC-ACCT-01-03), Active first then Passive, accountNumber ASC inside each group (AC-ACCT-01-04), no pagination, `200 []` when none |
 | FR-ACCT-02 / KR-11 | Create Billing Account | `POST /api/accounts` `{customerId, accountName, addressId}` → 201; type forced to 224; address validated against the customer's active address list (customer-service, token propagated); KR-11 number (`[T][YY][SSSSSS][C]`, Luhn, ADR-14); **K-8**: first 224 lazily creates the customer's single 223 Customer Account in the same ACID transaction (never exposed via the API) |
 | FR-ACCT-03 | Update | `PUT /api/accounts/{accountNumber}` — mutable fields exactly `accountName`+`addressId`; immutable/unknown fields → 400 `MSG-ACCT-IMMUTABLE-FIELD` (rejected, never ignored); Passive → 409 `MSG-ACCT-NOT-ACTIVE` |
-| FR-ACCT-04 | Delete = passivation | `DELETE /api/accounts/{accountNumber}` → 204; soft passivation only, row stays list-visible as Passive (v8-1 AC-ACCT-04-02); active involvement (local `cust_acct_prod_invl` projection) → 409 `MSG-ACCT-HAS-PRODUCTS`; re-delete → 409 `MSG-ACCT-NOT-ACTIVE`; `MSG-ACCT-DELETED`/`MSG-ACCT-DELETE-CONFIRM` are frontend-only |
+| FR-ACCT-04 | Delete = passivation | `DELETE /api/accounts/{accountNumber}` → 204; soft passivation only, row stays list-visible as Passive (AC-ACCT-04-02, v8-2); active involvement (local `cust_acct_prod_invl` projection) → 409 `MSG-ACCT-HAS-PRODUCTS`; re-delete → 409 `MSG-ACCT-NOT-ACTIVE`; `MSG-ACCT-DELETED`/`MSG-ACCT-DELETE-CONFIRM` are frontend-only |
 
 Details: `docs/api/account-service.md`; decisions: ADR-013/ADR-014 +
 `docs/architecture/account-service-decisions.md` (K-8 analyst approval, Passive
@@ -63,12 +63,14 @@ Validation formats implemented exactly per the FR catalog: VR-NAME (Turkish lett
 
 ## Message keys
 
-From the analyst catalog (v8 Final, 16.07.2026), as used by the backend:
+From the analyst catalog (v8-2, 03.08.2026 — keys unchanged since v8 Final, 16.07.2026),
+as used by the backend:
 `MSG-CUST-NOT-FOUND`, `MSG-CUST-DUP-NATID`, `MSG-CUST-HAS-PRODUCTS`, `MSG-ADDR-IN-USE`,
 `MSG-VAL-NATID`, `MSG-VAL-BIRTHDATE`, `MSG-VAL-AGE-MIN`, `MSG-VAL-NAME`, `MSG-VAL-EMAIL`,
 `MSG-VAL-PHONE`, **`MSG-CUST-NATID-VERIFICATION-FAILED`**, **`MSG-MERNIS-UNAVAILABLE`**.
 
-The two MERNIS keys are the analyst-approved names from the 16.07.2026 catalog; they
+The two MERNIS keys are the analyst-approved names first introduced in the 16.07.2026
+catalog; they
 **replaced** the older project-specific `MSG-NATID-VERIFY-FAILED` and (for MERNIS
 outages) the generic `MSG-SERVICE-UNAVAILABLE`.
 
@@ -125,16 +127,17 @@ search-criteria rule (ADR-005); no endpoint uses it anymore.
 - ~~**PROD** (FR-PROD-01..02)~~ — implemented 2026-07-29 (read) + 2026-08-02 (write
   slice, ADR-015). ~~**SALE** (FR-SALE-01..02)~~ — implemented 2026-08-02 (ADR-016);
   see the FR-SALE section above.
-- **LANG** (FR-LANG-01: TR/EN label+message catalogs, **default language English** per
-  the 16.07.2026 revision) → frontend + planned localization capability; the backend
+- **LANG** (FR-LANG-01: TR/EN label+message catalogs, **default language English** —
+  AC-LANG-01-01, unchanged since the 16.07.2026 revision through v8-2) → frontend +
+  planned localization capability; the backend
   deliberately returns `messageKey`s so localization stays a catalog concern.
 
 ## Superseded wording in stale sources (recorded, not silently resolved)
 
 - Nationality ID uniqueness is **global and permanent** (ADR-003). The use-case
   document (FR-CUST-03 alternative step 4.5) still says "eşleşen **aktif** bir müşteri"
-  — outdated, not canonical; the FR/AC v8 wording (AC-CUST-03-12, no active qualifier)
-  and ADR-003 govern.
+  — outdated, not canonical; the FR/AC v8-2 wording (AC-CUST-03-12, no active qualifier,
+  unchanged since v8 Final) and ADR-003 govern.
 - The draw.io FR-CUST-01 page still carries the old "içinde-geçen" (contains) match
   note — KR-01 word-start matching governs.
 - ~~KR-04 default page size: UI default 15 (options 15/30/50) vs API default 20~~ —

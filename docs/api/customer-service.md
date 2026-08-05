@@ -153,9 +153,9 @@ Pipeline (single transaction — any failure persists **nothing**):
 4. MERNIS verification (KR-10 / AC-CUST-03-06) via mernis-stub: rejected ⇒ **400
    `MSG-CUST-NATID-VERIFICATION-FAILED`**; unreachable ⇒ **503
    `MSG-MERNIS-UNAVAILABLE`**. Customer is NOT created in either case.
-   (These are the v8 Final analyst catalog keys — they replaced the older
-   project-specific `MSG-NATID-VERIFY-FAILED` and, for MERNIS outages, the generic
-   `MSG-SERVICE-UNAVAILABLE`.)
+   (These are the analyst catalog keys, unchanged since v8 Final through v8-2 — they
+   replaced the older project-specific `MSG-NATID-VERIFY-FAILED` and, for MERNIS
+   outages, the generic `MSG-SERVICE-UNAVAILABLE`.)
 5. Persist PARTY → IND → PARTY_ROLE → CUST (sequence-assigned `customerNumber`)
    → ADDR rows → CNTC_MEDIUM. Returns **201** with the detail payload.
 

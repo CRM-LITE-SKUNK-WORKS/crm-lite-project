@@ -8,6 +8,9 @@ analysts/team and the details that fed those ADRs — if any wording here ever
 disagrees with the ADRs, **the ADRs govern**. Do not extend this file with new
 architecture decisions; open a new ADR instead.
 
+**Reviewed 2026-08-05 against FR/AC v8-2 (03.08.2026):** no ACCT-scope wording changed
+between v8-1 and v8-2 — this record and its message-key citations (below) still hold.
+
 ## K-8 (was B-1) — Automatic 223 Customer Account: APPROVED
 
 One 223 Customer Account per customer, created **lazily** the moment the
@@ -62,7 +65,7 @@ rows map to the regenerated **first Billing Account** (`1261000010`), products
 
 ## account-service message catalog (EN/TR)
 
-Analyst catalog keys (FR v8-1): `MSG-ACCT-HAS-PRODUCTS`,
+Analyst catalog keys (FR v8-2): `MSG-ACCT-HAS-PRODUCTS`,
 `MSG-ACCT-DELETE-CONFIRM` (frontend-only), `MSG-ACCT-DELETED` (frontend-only,
 shown after a successful 204). Project additions introduced by this sprint:
 

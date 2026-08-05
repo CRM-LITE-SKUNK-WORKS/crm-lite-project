@@ -1,7 +1,9 @@
 # order-service API — Product Sale and Orders (FR-SALE-01..02)
 
-Last updated: 2026-08-02. Source requirements: FR/AC **v8-1 Final (23.07.2026)**
-§2.7. Architecture: **ADR-016** (boundary, KR-12 order number, sale orchestration),
+Last updated: 2026-08-05. Source requirements: FR/AC **v8-2 (03.08.2026)**
+§2.7 (SALE-02-01/SALE-01 validation wording clarified from v8-1; no behavioral
+change — see `docs/requirements/document-delta.md`). Architecture: **ADR-016**
+(boundary, KR-12 order number, sale orchestration),
 with **ADR-013 §3.6/§7/§8** (the account precondition read and the involvement
 command), **ADR-015 §5/§6** (the product write slice and where basket validation
 lives), **ADR-002** (shared catalogs), **ADR-009/010** (zero-trust, service-to-service

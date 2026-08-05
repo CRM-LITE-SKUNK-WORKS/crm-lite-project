@@ -161,6 +161,12 @@ learns the ID was never usable.
   (`MissingServletRequestParameterException` handler added alongside), matching how
   type-mismatched parameters were already handled.
 
+## Addendum (2026-08-05) — FR/AC v8-2 review
+
+Reviewed against FR/AC v8-2 (03.08.2026): AC-CUST-01-00 and KR-04 wording are
+unchanged from the v8 Final revision this ADR implements. **No change to this
+decision.** See `docs/requirements/document-delta.md`.
+
 ## Consequences
 - Frontend can implement AC-CUST-01-00 (post-login all-customer list) directly.
 - One DTO to maintain for customer reads; list and detail can never drift apart.

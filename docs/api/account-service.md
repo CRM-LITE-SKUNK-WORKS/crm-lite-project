@@ -9,7 +9,7 @@ for the product-service slice — now formalized as **ADR-013 §7**).
 Architecture: **ADR-013** (boundary/contract), **ADR-014** (Account Number
 generation), ADR-010 addendum (outbound auth), **ADR-016** (the order-service
 caller).
-Source requirements: FR/AC **v8-1 Final (23.07.2026)** — supersedes v8; see
+Source requirements: FR/AC **v8-2 (03.08.2026)** — supersedes v8-1; see
 `docs/requirements/document-delta.md`.
 
 Port 8085 (internal only — **never host-published**, ADR-009), database
@@ -154,8 +154,8 @@ Never present: internal ids (`cust_acct.id`, `acct_tp.id`), an `Action` field
   extra submitted property → **400 `MSG-ACCT-IMMUTABLE-FIELD`** (rejected, not
   ignored). Passive account → **409 `MSG-ACCT-NOT-ACTIVE`**.
 - **Delete (FR-ACCT-04):** soft passivation (`status_id → PASV` + deleted/updated
-  audit metadata). The row **stays list-visible as Passive** (v8-1 wording — NOT
-  removed from the list) and its number is never reused. Active product
+  audit metadata). The row **stays list-visible as Passive** (AC-ACCT-04-02, v8-2 —
+  NOT removed from the list) and its number is never reused. Active product
   involvement (local `cust_acct_prod_invl` projection) → **409
   `MSG-ACCT-HAS-PRODUCTS`**. Already-Passive → **409 `MSG-ACCT-NOT-ACTIVE`**.
   Success → **204 No Content**; the frontend shows `MSG-ACCT-DELETED` after the
@@ -274,7 +274,7 @@ curl -sS -X DELETE -H "$C" -H "$X" \
   "http://localhost:8080/api/accounts/1261000010" \
   -w "\nHTTP Status: %{http_code}\n"
 
-# DELETE a free account -> 204; it STAYS in the list as Passive (v8-1)
+# DELETE a free account -> 204; it STAYS in the list as Passive (AC-ACCT-04-02, v8-2)
 curl -sS -X DELETE -H "$C" -H "$X" \
   "http://localhost:8080/api/accounts/1261000036" \
   -w "\nHTTP Status: %{http_code}\n"

@@ -18,6 +18,10 @@ account-service command/API". §7 and §8 discharge that promise: §7 formalizes
 contract in §1–§6 is otherwise unchanged. Companions: **ADR-015**
 (product-service boundary), **ADR-016** (order-service boundary).
 
+**Reviewed 2026-08-05 (FR/AC v8-2, 03.08.2026):** ACCT scope wording is unchanged
+from v8-1 (v8-2's changes are scoped to SALE-01/SALE-02). **No change to this
+decision.** See `docs/requirements/document-delta.md`.
+
 ## Context
 FR v8-1 documents billing accounts (FR-ACCT-01..04) and the KR-11 Account
 Number contract. The entity workbook defines `ACCT_TP`, `CUST_ACCT` and

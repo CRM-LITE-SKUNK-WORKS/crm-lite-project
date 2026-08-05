@@ -76,7 +76,7 @@ Folders are numbered in the intended order. Within these folders order matters:
   update checks. Unlike folders 04/05/06, every write request in folder 10 carries
   the `X-XSRF-TOKEN: {{xsrfToken}}` header **pre-set** — you only need the
   `xsrfToken` environment variable filled (step B.3 above). Note: delete =
-  **passivation** — the account stays in the list as Passive (v8-1); the hidden
+  **passivation** — the account stays in the list as Passive (AC-ACCT-04-02, v8-2); the hidden
   K-8 223 (`1261000002`) intentionally answers 404.
 - **11 - Products and Catalog (FR-PROD)**: order-independent **reads only** (no
   CSRF header needed anywhere), but run it **before** folder 10's delete step if

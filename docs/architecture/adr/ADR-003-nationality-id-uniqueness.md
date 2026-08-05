@@ -34,14 +34,19 @@ the active-only reading. The new analyst decision supersedes that.
    translated by `GlobalExceptionHandler` (`DataIntegrityViolationException`) to
    **HTTP 409 + `MSG-CUST-DUP-NATID`** — duplicate constraints never surface as HTTP 500.
 
-## Open conflict / superseded wording (still present as of the 16.07.2026 revision)
+## Open conflict / superseded wording (still present as of FR/AC v8-2, 03.08.2026)
 The use-case document alternative step 4.5 ("eşleşen **aktif** bir müşteri") and the
 draw.io FR-CUST-03 decision node ("başka **aktif** müşteride") predate this decision
-and are **not canonical** — the 16.07.2026 source revision did NOT clean them up, so
-the conflict remains open on the analyst side. The FR/AC v8 wording (AC-CUST-03-12,
-no active qualifier) plus this ADR govern. The binary/XML source documents are
-intentionally left unedited; this ADR, `docs/requirements/document-delta.md` and the
-traceability matrix record the supersession.
+and are **not canonical** — neither the 16.07.2026 nor the subsequent v8-1/v8-2
+FR/AC revisions cleaned them up, so the conflict remains open on the analyst side.
+**Re-verified 2026-08-05 against v8-2:** AC-CUST-03-12 still reads "girilen
+Nationality ID ile eşleşen bir müşteri varsa" with no active qualifier — the FR/AC
+side of this conflict is unchanged; the use-case/draw.io side was not independently
+re-checked as part of this pass (see `docs/requirements/document-delta.md` conflict
+#1, still open). The FR/AC v8-2 wording (AC-CUST-03-12, no active qualifier) plus
+this ADR govern. The binary/XML source documents are intentionally left unedited;
+this ADR, `docs/requirements/document-delta.md` and the traceability matrix record
+the supersession.
 
 ## Consequences
 - Soft-deleting a customer does not free the Nationality ID for reuse.

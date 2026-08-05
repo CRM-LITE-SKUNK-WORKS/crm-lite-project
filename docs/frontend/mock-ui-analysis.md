@@ -1362,9 +1362,10 @@ Gerekçe:
 
 ## 7A. Çok Dillilik (i18n) — Bağlayıcı Kararlar (23.07.2026)
 
-### 7A.1 Analist gereksinimi (FR-LANG-01, v8 Final)
+### 7A.1 Analist gereksinimi (FR-LANG-01, v8-2)
 
-`CRM_Lite_FR_AC_v8_Final.docx` §2.8'den **birebir**:
+`docs/source/requirements/CRM_Lite_FR_AC_v8-2.docx` §2.8'den **birebir**
+(v8 Final'den bu yana değişmedi, 2026-08-05'te v8-2'ye karşı yeniden doğrulandı):
 
 | AC | Metin |
 |---|---|

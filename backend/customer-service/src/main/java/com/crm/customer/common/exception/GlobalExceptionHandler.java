@@ -1,5 +1,7 @@
 package com.crm.customer.common.exception;
 
+import com.crm.customer.account.AccountHasActiveProductsException;
+import com.crm.customer.account.AccountServiceUnavailableException;
 import com.crm.customer.lookup.LookupCatalogUnavailableException;
 import com.crm.customer.lookup.UnknownLookupCodeException;
 import com.crm.customer.mernis.MernisRejectedException;
@@ -201,6 +203,44 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(LookupCatalogUnavailableException.class)
     public ResponseEntity<ErrorResponse> handleUpstreamUnavailable(LookupCatalogUnavailableException ex,
                                                                    HttpServletRequest request) {
+        log.error("Upstream dependency unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
+                ex.getMessage(), ex);
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+                .messageKey(MessageKeys.SERVICE_UNAVAILABLE)
+                .message("A required service is unavailable; the operation was not performed")
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    }
+
+    // AC-CUST-05-03: account-service refused to passivate a billing account because it
+    // still has active products. Reuses the analyst catalog key MSG-CUST-HAS-PRODUCTS —
+    // from the customer's point of view this is the same rejection as the (currently
+    // no-op) upfront checkCustomerHasNoActiveProducts guard, just discovered one layer
+    // deeper. Nothing was persisted (this runs before local passivation).
+    @ExceptionHandler(AccountHasActiveProductsException.class)
+    public ResponseEntity<ErrorResponse> handleAccountHasActiveProducts(AccountHasActiveProductsException ex,
+                                                                        HttpServletRequest request) {
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.CONFLICT.value())
+                .error(HttpStatus.CONFLICT.getReasonPhrase())
+                .messageKey(MessageKeys.CUST_HAS_PRODUCTS)
+                .message(ex.getMessage())
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
+    // AC-CUST-05-04 fail-closed rule: account-service could not be reached while
+    // passivating the customer's billing accounts — the whole delete is refused,
+    // nothing was persisted (the local passivation runs AFTER this step succeeds).
+    @ExceptionHandler(AccountServiceUnavailableException.class)
+    public ResponseEntity<ErrorResponse> handleAccountServiceUnavailable(AccountServiceUnavailableException ex,
+                                                                         HttpServletRequest request) {
         log.error("Upstream dependency unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
                 ex.getMessage(), ex);
         ErrorResponse body = ErrorResponse.builder()

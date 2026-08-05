@@ -1,5 +1,7 @@
 package com.crm.customer.customer.service.impl;
 
+import com.crm.customer.account.AccountServiceClient;
+import com.crm.customer.account.AccountSummary;
 import com.crm.customer.address.dto.AddressRequest;
 import com.crm.customer.address.entity.Address;
 import com.crm.customer.address.entity.City;
@@ -60,6 +62,7 @@ public class CustomerServiceImpl implements CustomerService {
     private final ContactMediumRepository contactMediumRepository;
     private final CustomerBusinessRules businessRules;
     private final AddressBusinessRules addressBusinessRules;
+    private final AccountServiceClient accountServiceClient;
     private final CustomerMapper customerMapper;
     private final LookupCatalogService lookupCatalogService;
     private final MernisClient mernisClient;
@@ -202,15 +205,23 @@ public class CustomerServiceImpl implements CustomerService {
 
     /**
      * FR-CUST-05 / AC-CUST-05-04: soft-deletes the locally owned aggregate
-     * (CUST, PARTY_ROLE, PARTY, IND, ADDR, CNTC_MEDIUM) in one transaction.
-     * Billing-account passivation is cross-service future work (documented TODO in
-     * the FR traceability matrix) and is NOT claimed to happen here.
+     * (CUST, PARTY_ROLE, PARTY, IND, ADDR, CNTC_MEDIUM) in one transaction, after
+     * passivating every Billing Account account-service reports for this customer.
+     * The account-service calls run FIRST, before any local entity is touched: if one
+     * of them fails, nothing here has changed yet, so there is nothing to compensate.
+     * A retry after a partial failure is safe — accounts already Passive are skipped.
      */
     @Override
     @Transactional
     public void delete(Long customerNumber) {
         Customer customer = businessRules.checkCustomerExistsAndActive(customerNumber);
         businessRules.checkCustomerHasNoActiveProducts(customerNumber);
+
+        for (AccountSummary account : accountServiceClient.listAccounts(customerNumber)) {
+            if (account.isActive()) {
+                accountServiceClient.passivateAccount(account.accountNumber());
+            }
+        }
 
         long passiveStatusId = lookupCatalogService.resolveStatusId("status",
                 LookupContract.STATUS_PASSIVE, LookupContract.STATUS_DOMAIN_GENERAL);

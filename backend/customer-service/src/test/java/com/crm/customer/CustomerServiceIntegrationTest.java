@@ -2,6 +2,10 @@ package com.crm.customer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.crm.customer.account.AccountHasActiveProductsException;
+import com.crm.customer.account.AccountServiceClient;
+import com.crm.customer.account.AccountServiceUnavailableException;
+import com.crm.customer.account.AccountSummary;
 import com.crm.customer.address.repository.AddressRepository;
 import com.crm.customer.contact.repository.ContactMediumRepository;
 import com.crm.customer.customer.repository.CustomerRepository;
@@ -40,9 +44,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
  * End-to-end tests against a real PostgreSQL (Testcontainers) through real HTTP.
- * The two external boundaries — the shared GNL_ST/GNL_TP catalog client (ADR-002)
- * and the MERNIS client (KR-10) — are mocked at their interface, never bypassed:
- * the real LookupCatalogService validation/caching logic still runs.
+ * The external boundaries — the shared GNL_ST/GNL_TP catalog client (ADR-002), the
+ * MERNIS client (KR-10) and the account-service client (AC-CUST-05-04) — are mocked
+ * at their interface, never bypassed: the real LookupCatalogService validation/caching
+ * logic still runs.
  *
  * Security (ADR-009): the REAL resource-server filter chain from
  * crm-security-starter is active; only JWT decoding is stubbed (TestSecurity), so
@@ -76,6 +81,9 @@ class CustomerServiceIntegrationTest {
     @MockitoBean
     MernisClient mernisClient;
 
+    @MockitoBean
+    AccountServiceClient accountServiceClient;
+
     @Autowired
     CustomerRepository customerRepository;
     @Autowired
@@ -102,6 +110,10 @@ class CustomerServiceIntegrationTest {
         stubHealthyCatalog();
         Mockito.when(mernisClient.verify(Mockito.anyString(), Mockito.anyString(), Mockito.anyString(), Mockito.any()))
                 .thenReturn(true);
+        // Default: no billing accounts, so existing delete tests that don't care about
+        // AC-CUST-05-04 keep passing unchanged. Tests exercising the passivation itself
+        // override this per-test.
+        Mockito.when(accountServiceClient.listAccounts(Mockito.anyLong())).thenReturn(List.of());
     }
 
     private void stubHealthyCatalog() {
@@ -658,6 +670,68 @@ class CustomerServiceIntegrationTest {
         // Invisible everywhere afterwards.
         assertThat(get("/api/customers/" + number).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(searchResultNumbers("customerId=" + number)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("AC-CUST-05-04: soft delete passivates only the customer's Active billing accounts")
+    void softDeletePassivatesActiveAccountsOnly() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Hesap", "Sahibi", "40000000030"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+
+        Mockito.when(accountServiceClient.listAccounts(number)).thenReturn(List.of(
+                new AccountSummary("1261000010", "Active"),
+                new AccountSummary("1261000028", "Passive")));
+
+        ResponseEntity<Map> deleted = http.method(HttpMethod.DELETE)
+                .uri("/api/customers/" + number).retrieve().toEntity(Map.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        // Only the Active account is passivated; the already-Passive one is left alone
+        // (DELETE /api/accounts/{accountNumber} is not idempotent — see HttpAccountServiceClient).
+        Mockito.verify(accountServiceClient).passivateAccount("1261000010");
+        Mockito.verify(accountServiceClient, Mockito.never()).passivateAccount("1261000028");
+    }
+
+    @Test
+    @DisplayName("AC-CUST-05-03: account-service reports active products on the account -> 409 MSG-CUST-HAS-PRODUCTS")
+    void softDeleteFailsWhenAccountStillHasActiveProducts() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Urunlu", "Hesap", "40000000032"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+
+        Mockito.when(accountServiceClient.listAccounts(number))
+                .thenReturn(List.of(new AccountSummary("1261000051", "Active")));
+        Mockito.doThrow(new AccountHasActiveProductsException("1261000051"))
+                .when(accountServiceClient).passivateAccount("1261000051");
+
+        ResponseEntity<Map> deleted = http.method(HttpMethod.DELETE)
+                .uri("/api/customers/" + number).retrieve().toEntity(Map.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(deleted.getBody().get("messageKey")).isEqualTo("MSG-CUST-HAS-PRODUCTS");
+
+        var customer = customerRepository.findByCustomerNumber(number).orElseThrow();
+        assertThat(customer.getStatusId()).isEqualTo(1L);
+        assertThat(customer.getDeletedDate()).isNull();
+    }
+
+    @Test
+    @DisplayName("AC-CUST-05-04: account-service unavailable -> 503, customer left untouched")
+    void softDeleteFailsClosedWhenAccountServiceUnavailable() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Erisilemeyen", "Hesap", "40000000031"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+
+        Mockito.when(accountServiceClient.listAccounts(number))
+                .thenThrow(new AccountServiceUnavailableException("account-service is unavailable", null));
+
+        ResponseEntity<Map> deleted = http.method(HttpMethod.DELETE)
+                .uri("/api/customers/" + number).retrieve().toEntity(Map.class);
+        assertThat(deleted.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(deleted.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+
+        // Nothing local was touched: the account-service call runs before any local
+        // passivation, so a failure there must leave the customer fully Active.
+        var customer = customerRepository.findByCustomerNumber(number).orElseThrow();
+        assertThat(customer.getStatusId()).isEqualTo(1L);
+        assertThat(customer.getDeletedDate()).isNull();
     }
 
     @Test

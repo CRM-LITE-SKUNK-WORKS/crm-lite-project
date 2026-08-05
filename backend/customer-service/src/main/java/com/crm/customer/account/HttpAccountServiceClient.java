@@ -1,0 +1,56 @@
+package com.crm.customer.account;
+
+import java.util.List;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
+
+@Component
+public class HttpAccountServiceClient implements AccountServiceClient {
+
+    private final RestClient restClient;
+
+    public HttpAccountServiceClient(@Qualifier("accountRestClient") RestClient accountRestClient) {
+        this.restClient = accountRestClient;
+    }
+
+    @Override
+    public List<AccountSummary> listAccounts(Long customerNumber) {
+        try {
+            List<AccountSummary> accounts = restClient.get()
+                    .uri("/api/accounts?customerId={customerId}", customerNumber)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {
+                    });
+            return accounts == null ? List.of() : accounts;
+        } catch (RestClientException | IllegalStateException e) {
+            // Covers connection failures, 5xx responses and "no instances available"
+            // from the load balancer: account-service is unavailable, never "the
+            // customer has no accounts".
+            throw new AccountServiceUnavailableException("account-service is unavailable", e);
+        }
+    }
+
+    @Override
+    public void passivateAccount(String accountNumber) {
+        try {
+            restClient.delete()
+                    .uri("/api/accounts/{accountNumber}", accountNumber)
+                    .retrieve()
+                    .toBodilessEntity();
+        } catch (HttpClientErrorException.Conflict e) {
+            // account-service IS reachable and answered correctly: the account still has
+            // active products (MSG-ACCT-HAS-PRODUCTS, ADR-013 §3.5). This is a real
+            // business conflict, not an availability failure — surface it as one.
+            throw new AccountHasActiveProductsException(accountNumber);
+        } catch (RestClientException | IllegalStateException e) {
+            // Genuine availability failures: connection errors, 5xx, "no instances
+            // available". Fails the whole customer delete rather than leaving some
+            // accounts silently unpassivated.
+            throw new AccountServiceUnavailableException("account-service is unavailable", e);
+        }
+    }
+}

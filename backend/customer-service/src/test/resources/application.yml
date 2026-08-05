@@ -28,3 +28,7 @@ crm:
     cache-max-size: 256
   mernis:
     base-url: http://localhost:1   # never reached; MernisClient is mocked in tests
+  account:
+    base-url: http://localhost:1   # never reached; AccountServiceClient is mocked in tests
+  order:
+    base-url: http://localhost:1   # never reached; OrderServiceClient is mocked in tests

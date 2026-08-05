@@ -16,6 +16,9 @@ import com.crm.customer.lookup.LookupCatalogUnavailableException;
 import com.crm.customer.lookup.LookupStatusResponse;
 import com.crm.customer.lookup.LookupTypeResponse;
 import com.crm.customer.mernis.MernisClient;
+import com.crm.customer.order.OrderServiceClient;
+import com.crm.customer.order.OrderServiceUnavailableException;
+import com.crm.customer.order.OrderSummary;
 import com.crm.customer.testsecurity.TestSecurity;
 import java.util.List;
 import java.util.Map;
@@ -81,8 +84,16 @@ class CustomerServiceIntegrationTest {
     @MockitoBean
     MernisClient mernisClient;
 
+    // Both cross-service boundaries, mocked at the CLIENT interface only — the real
+    // logic on this side (account passivation ordering for AC-CUST-05-04; KR-02
+    // active/in-progress filtering, unmatched-vs-absent, OR folding and the whole JPA
+    // query) still runs against the real database, exactly like LookupCatalogClient
+    // above. Nothing about either flow is stubbed out.
     @MockitoBean
     AccountServiceClient accountServiceClient;
+
+    @MockitoBean
+    OrderServiceClient orderServiceClient;
 
     @Autowired
     CustomerRepository customerRepository;
@@ -114,6 +125,9 @@ class CustomerServiceIntegrationTest {
         // AC-CUST-05-04 keep passing unchanged. Tests exercising the passivation itself
         // override this per-test.
         Mockito.when(accountServiceClient.listAccounts(Mockito.anyLong())).thenReturn(List.of());
+        // Default: no child record anywhere. Every KR-02 test states its own fixture.
+        Mockito.when(accountServiceClient.fetchAccount(Mockito.anyString())).thenReturn(Optional.empty());
+        Mockito.when(orderServiceClient.fetchOrder(Mockito.anyString())).thenReturn(Optional.empty());
     }
 
     private void stubHealthyCatalog() {
@@ -621,16 +635,195 @@ class CustomerServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("accountNumber/orderNumber -> 501; legacy /search alias is gone (404)")
-    void unsupportedAndRemovedEndpoints() {
-        ResponseEntity<Map> acct = get("/api/customers?accountNumber=0101112900");
-        assertThat(acct.getStatusCode()).isEqualTo(HttpStatus.NOT_IMPLEMENTED);
-        assertThat(acct.getBody().get("messageKey")).isEqualTo("MSG-FEATURE-NOT-IMPLEMENTED");
-
+    @DisplayName("legacy /search alias is gone (ADR-005) — GET /api/customers is the only list endpoint")
+    void removedSearchAlias() {
         ResponseEntity<Map> legacy = get("/api/customers/search?firstName=Ali");
         // "/search" now binds to {customerNumber} and fails Long conversion -> clean 400,
         // proving the alias route no longer exists as an endpoint.
         assertThat(legacy.getStatusCode()).isIn(HttpStatus.NOT_FOUND, HttpStatus.BAD_REQUEST);
+    }
+
+    // ------------------------------------------- KR-02 child-record search criteria
+    // Account Number is owned by account-service (cust_acct), Order Number by
+    // order-service (cust_ord). customer-service resolves each number to its owning
+    // customer through that service's public API and folds the result into the same
+    // KR-01 OR expression; no cross-database read, join or table copy exists.
+
+    private static final String ACCOUNT_OF_1001 = "1261000010";
+    private static final String ORDER_OF_1002 = "1262000018";
+
+    private void stubActiveAccount(String accountNumber, long ownerCustomerNumber) {
+        Mockito.when(accountServiceClient.fetchAccount(accountNumber))
+                .thenReturn(Optional.of(new AccountSummary(accountNumber, ownerCustomerNumber, "Active")));
+    }
+
+    private void stubInProgressOrder(String orderNumber, long ownerCustomerNumber) {
+        Mockito.when(orderServiceClient.fetchOrder(orderNumber))
+                .thenReturn(Optional.of(new OrderSummary(orderNumber, ownerCustomerNumber, "MIDLWARE")));
+    }
+
+    @Test
+    @DisplayName("KR-02: an existing ACTIVE Account Number returns exactly its owning active customer")
+    void searchByAccountNumberReturnsOwningCustomer() {
+        stubActiveAccount(ACCOUNT_OF_1001, 1001L);
+
+        assertThat(searchResultNumbers("accountNumber=" + ACCOUNT_OF_1001)).containsExactly(1001L);
+    }
+
+    @Test
+    @DisplayName("KR-02: an existing in-progress Order Number returns exactly its owning active customer")
+    void searchByOrderNumberReturnsOwningCustomer() {
+        stubInProgressOrder(ORDER_OF_1002, 1002L);
+
+        assertThat(searchResultNumbers("orderNumber=" + ORDER_OF_1002)).containsExactly(1002L);
+    }
+
+    @Test
+    @DisplayName("KR-02: an unknown Account/Order Number matches NOTHING — it never falls back to browse")
+    @SuppressWarnings("unchecked")
+    void unknownChildRecordNumberMatchesNothing() {
+        // Both clients answer Optional.empty() by default (see setUp), i.e. no visible
+        // record — which for accountNumber also covers the K-8 223 Customer Account,
+        // deliberately indistinguishable from unknown (ADR-013 §4.5).
+        assertThat(searchResultNumbers("accountNumber=9999999999")).isEmpty();
+        assertThat(searchResultNumbers("orderNumber=9999999999")).isEmpty();
+
+        // The regression this guards: a filled-but-unresolved criterion must NOT be
+        // dropped. Dropping it would leave zero criteria and silently return the whole
+        // active list (ADR-005 browse mode) instead of "not found".
+        ResponseEntity<Map> response = get("/api/customers?accountNumber=9999999999");
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(((Number) response.getBody().get("totalElements")).longValue()).isZero();
+        assertThat((List<Map<String, Object>>) response.getBody().get("content")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("KR-02: a PASSIVE account and a CANCELLED order produce no customer result")
+    void inactiveChildRecordsProduceNoResult() {
+        // FR-ACCT-04: delete = passivation, so "Passive" IS account-service's soft
+        // delete; a passivated billing account must not resolve to its owner.
+        Mockito.when(accountServiceClient.fetchAccount("1261000028"))
+                .thenReturn(Optional.of(new AccountSummary("1261000028", 1001L, "Passive")));
+        assertThat(searchResultNumbers("accountNumber=1261000028")).isEmpty();
+
+        // ADR-016 §6: CANCELLED is a compensated (rolled-back) sale, not a live order.
+        Mockito.when(orderServiceClient.fetchOrder("1262000026"))
+                .thenReturn(Optional.of(new OrderSummary("1262000026", 1002L, "CANCELLED")));
+        assertThat(searchResultNumbers("orderNumber=1262000026")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("KR-02 + AC-CUST-01-08: a child record of a SOFT-DELETED customer produces no result")
+    void childRecordOfDeletedCustomerProducesNoResult() {
+        // 1003 (Caner Sahin) is soft-deleted in the Flyway seed. The local active-only
+        // predicate is applied on top of the resolved owner, so an account/order that
+        // legitimately still exists in the other domain cannot resurrect the customer.
+        stubActiveAccount("1261000036", 1003L);
+        stubInProgressOrder("1262000034", 1003L);
+
+        assertThat(searchResultNumbers("accountNumber=1261000036")).isEmpty();
+        assertThat(searchResultNumbers("orderNumber=1262000034")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("AC-CUST-01-04: several matching child records of one customer yield ONE row; totals count customers")
+    @SuppressWarnings("unchecked")
+    void duplicateChildRecordMatchesYieldOneCustomerRow() {
+        // The same customer reached twice: once through its billing account, once
+        // through its order. Exact matches on globally unique numbers resolve to one
+        // customer number each, so the OR collapses to a single predicate value and no
+        // join fan-out is possible.
+        stubActiveAccount(ACCOUNT_OF_1001, 1001L);
+        stubInProgressOrder("1262000042", 1001L);
+
+        ResponseEntity<Map> response =
+                get("/api/customers?accountNumber=" + ACCOUNT_OF_1001 + "&orderNumber=1262000042");
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        List<Map<String, Object>> content = (List<Map<String, Object>>) response.getBody().get("content");
+        assertThat(content).hasSize(1);
+        assertThat(((Number) content.get(0).get("customerNumber")).longValue()).isEqualTo(1001L);
+        // Page metadata describes DISTINCT CUSTOMERS, not joined child rows.
+        assertThat(((Number) response.getBody().get("totalElements")).longValue()).isEqualTo(1L);
+        assertThat(((Number) response.getBody().get("totalPages")).intValue()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("KR-01: the number criteria join the SAME OR expression as name/GSM, and keep the A-Z sort")
+    void childRecordCriteriaJoinTheExistingOrExpression() {
+        stubActiveAccount(ACCOUNT_OF_1001, 1001L);   // Ali Yildiz
+        stubInProgressOrder(ORDER_OF_1002, 1002L);   // Zeynep Nur Demir
+
+        // accountNumber OR orderNumber
+        assertThat(searchResultNumbers("accountNumber=" + ACCOUNT_OF_1001 + "&orderNumber=" + ORDER_OF_1002))
+                .containsExactly(1001L, 1002L);   // firstName ASC: Ali before Zeynep
+        // accountNumber OR name — the number criterion does not narrow the name group.
+        assertThat(searchResultNumbers("accountNumber=" + ACCOUNT_OF_1001 + "&firstName=Zeynep"))
+                .containsExactly(1001L, 1002L);
+        // A name criterion whose owner also matches by GSM still returns one row.
+        assertThat(searchResultNumbers("orderNumber=" + ORDER_OF_1002 + "&gsmNumber=0533"))
+                .contains(1002L);
+    }
+
+    @Test
+    @DisplayName("AC-CUST-01-07: non-numeric Account/Order Number -> 400, and the owning service is never called")
+    @SuppressWarnings("unchecked")
+    void nonNumericChildRecordNumbersAreRejectedByTheBackend() {
+        for (String criterion : new String[] {"accountNumber", "orderNumber"}) {
+            ResponseEntity<Map> response = get("/api/customers?" + criterion + "=12AB");
+
+            assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+            assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+            Map<String, Object> errors = (Map<String, Object>) response.getBody().get("validationErrors");
+            assertThat(errors).containsEntry(criterion, "must contain digits only");
+        }
+
+        // The controller rejects before the service layer runs: no outbound call is made
+        // for a malformed number (the backend does not trust, or depend on, the client's
+        // own digits-only input hygiene).
+        Mockito.verify(accountServiceClient, Mockito.never()).fetchAccount(Mockito.anyString());
+        Mockito.verify(orderServiceClient, Mockito.never()).fetchOrder(Mockito.anyString());
+    }
+
+    @Test
+    @DisplayName("KR-02 fail-closed: an owning service outage -> 503 MSG-SERVICE-UNAVAILABLE, never an empty page")
+    void childRecordOwnerOutageFailsClosed() {
+        Mockito.when(accountServiceClient.fetchAccount("1261000051"))
+                .thenThrow(new AccountServiceUnavailableException("account-service is unavailable", null));
+        ResponseEntity<Map> account = get("/api/customers?accountNumber=1261000051");
+        assertThat(account.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(account.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+
+        Mockito.when(orderServiceClient.fetchOrder("1262000059"))
+                .thenThrow(new OrderServiceUnavailableException("order-service is unavailable", null));
+        ResponseEntity<Map> order = get("/api/customers?orderNumber=1262000059");
+        assertThat(order.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(order.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+    }
+
+    @Test
+    @DisplayName("KR-02: leading zeros survive — the number is carried as a STRING end to end")
+    void childRecordNumbersKeepLeadingZeros() {
+        stubActiveAccount("0261000010", 1001L);
+
+        assertThat(searchResultNumbers("accountNumber=0261000010")).containsExactly(1001L);
+        // The trimmed-off form is a DIFFERENT number and must not match.
+        assertThat(searchResultNumbers("accountNumber=261000010")).isEmpty();
+        Mockito.verify(accountServiceClient).fetchAccount("0261000010");
+    }
+
+    @Test
+    @DisplayName("absent Account/Order Numbers cost nothing: browse and the other criteria make NO outbound call")
+    void absentChildRecordCriteriaMakeNoOutboundCall() {
+        // ADR-005 browse mode and every pre-existing criterion are untouched: the two
+        // owning services are contacted only when their field is actually filled, so
+        // the common list request keeps its single local query.
+        assertThat(searchResultNumbers("")).contains(1001L, 1002L);
+        assertThat(searchResultNumbers("firstName=Ali")).contains(1001L);
+        assertThat(searchResultNumbers("customerId=1002")).containsExactly(1002L);
+
+        Mockito.verify(accountServiceClient, Mockito.never()).fetchAccount(Mockito.anyString());
+        Mockito.verify(orderServiceClient, Mockito.never()).fetchOrder(Mockito.anyString());
     }
 
     @SuppressWarnings("unchecked")
@@ -679,8 +872,8 @@ class CustomerServiceIntegrationTest {
         long number = ((Number) created.getBody().get("customerNumber")).longValue();
 
         Mockito.when(accountServiceClient.listAccounts(number)).thenReturn(List.of(
-                new AccountSummary("1261000010", "Active"),
-                new AccountSummary("1261000028", "Passive")));
+                new AccountSummary("1261000010", number, "Active"),
+                new AccountSummary("1261000028", number, "Passive")));
 
         ResponseEntity<Map> deleted = http.method(HttpMethod.DELETE)
                 .uri("/api/customers/" + number).retrieve().toEntity(Map.class);
@@ -699,7 +892,7 @@ class CustomerServiceIntegrationTest {
         long number = ((Number) created.getBody().get("customerNumber")).longValue();
 
         Mockito.when(accountServiceClient.listAccounts(number))
-                .thenReturn(List.of(new AccountSummary("1261000051", "Active")));
+                .thenReturn(List.of(new AccountSummary("1261000051", number, "Active")));
         Mockito.doThrow(new AccountHasActiveProductsException("1261000051"))
                 .when(accountServiceClient).passivateAccount("1261000051");
 

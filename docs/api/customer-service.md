@@ -40,9 +40,10 @@ above cannot serve it. Returns the same `AddressResponse` shape as
 - **Deliberately not gateway-routed** — there is no browser use case, and the
   customer-scoped API stays the only public address surface. Callers reach it
   directly via Eureka and still need a valid `crm-user` JWT (ADR-009/010).
-- Read-only. This addition does **not** touch customer-service's documented
-  501/no-op TODOs (`accountNumber` search, active-product delete guard,
-  `MSG-ADDR-IN-USE`) — those remain a separate follow-up PR.
+- Read-only. This addition did not touch customer-service's other documented
+  no-op TODOs (active-product delete guard, `MSG-ADDR-IN-USE`), which remain open.
+  The `accountNumber`/`orderNumber` 501 that used to be listed here was closed
+  separately on 2026-08-05 — see §List + filter.
 
 ## List + filter (`GET /api/customers`) — ADR-005 / KR-01 semantics
 
@@ -59,12 +60,47 @@ must not be negative), `size` (default **15**, must be **15, 30 or 50**).
 - `lastName` matches word-start over Last Name only. Both present ⇒ AND-ed.
 - `gsmNumber` is a prefix match on the mobile phone.
 - `nationalityId` and `customerId` match exactly.
+- `accountNumber` and `orderNumber` match **exactly** and resolve to the customer
+  that OWNS the matching child record (KR-02 / AC-CUST-01-04) — see the section
+  below.
 - Filled criterion groups are **OR-ed**; results are always distinct customers.
 - Only **active** customers return (soft-deleted are invisible) — browse and filter alike.
 - Sorted firstName → lastName → customerNumber (stable A-Z, KR-04/AC-CUST-01-00).
-- `accountNumber`/`orderNumber` ⇒ **501 `MSG-FEATURE-NOT-IMPLEMENTED`** until the
-  account/order domains exist.
 - Numeric fields reject non-numeric input with 400.
+
+### Account Number / Order Number (KR-02) — live since 2026-08-05
+
+The 501 `MSG-FEATURE-NOT-IMPLEMENTED` answer is **withdrawn**. Both criteria are
+now resolved for real, and they are criteria of THIS endpoint — no second
+"search by child record" endpoint was introduced (ADR-005 §Addendum 2026-08-05).
+
+| Criterion | Owning service / table | Resolution endpoint | Counts as a match when |
+|---|---|---|---|
+| `accountNumber` | **account-service**, `account_db.cust_acct` (KR-11) | `GET /api/accounts/{accountNumber}` | the account is visible (a 224 Billing Account — the K-8 223 is 404 there by design, ADR-013 §4.5) **and** `accountStatus = "Active"` |
+| `orderNumber` | **order-service**, `order_db.cust_ord` (KR-12) | `GET /api/orders/{orderNumber}` | the order exists **and** `orderStatus = "MIDLWARE"` (a `CANCELLED` order is a compensated sale, ADR-016 §6) |
+
+Both responses already carry `customerNumber` — the same public business number
+`cust.customer_number` holds — so the resolved value drops straight into the local
+predicate. **customer-service never reads `account_db` or `order_db`, never joins
+across them and holds no copy of their tables**; the owning service's API is the
+only door (ADR-013 §5, ADR-016 §3.2). Calls go directly via Eureka with the
+end-user's Keycloak token propagated (ADR-010), never through the gateway.
+
+Consequences worth knowing:
+
+- **A filled-but-unresolved number matches nothing** — it never degrades into the
+  criterion-less browse mode. `?accountNumber=<unknown>` is `200` with an empty
+  page, which is the existing `MSG-CUST-NOT-FOUND` behaviour on the client.
+- **The owning customer must itself be active.** An account or order belonging to a
+  soft-deleted customer produces no row (AC-CUST-01-08 is applied on top).
+- **One customer, one row.** Each number is globally unique, so it resolves to at
+  most one customer and no join is added; page metadata counts DISTINCT CUSTOMERS,
+  never joined child rows. Passing both criteria for the same customer returns one
+  row with `totalElements: 1`.
+- **Fail closed:** if the owning service is unreachable the search answers
+  **503 `MSG-SERVICE-UNAVAILABLE`**, not an empty page — an outage must not read as
+  "no such customer".
+- Numbers are carried as **strings** end to end; leading zeros are significant.
 
 **Result rows use the full detail contract** (`Page<CustomerDetailResponse>`) —
 exactly the same fields as `GET /api/customers/{customerNumber}`:
@@ -238,9 +274,18 @@ curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers
 
 # negative cases
 curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?nationalityId=abc"            # 400 numeric-only
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?accountNumber=0101112900"     # 501 future domain
-curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?orderNumber=5001"             # 501 future domain
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?accountNumber=12AB"           # 400 numeric-only
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?orderNumber=5001x"            # 400 numeric-only
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?accountNumber=9999999999"     # 200, empty page (no such account)
 curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers/search?firstName=Ali"         # alias removed (400/404)
+
+# KR-02 child-record criteria (take real numbers from GET /api/accounts?customerId=1001
+# and from a POST /api/orders response):
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?accountNumber=<KR-11 number>" # the owning customer
+curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers?orderNumber=<KR-12 number>"   # the owning customer
+# with account-service stopped:
+#   GET /api/customers?accountNumber=... -> 503 MSG-SERVICE-UNAVAILABLE (fail closed)
+#   GET /api/customers?firstName=Ali     -> still 200 (no outbound call is made)
 ```
 
 ### E) Detail
@@ -450,10 +495,17 @@ curl -sS -w "\nHTTP Status: %{http_code}\n" "http://localhost:8080/api/customers
 
 ## Known limitations (intentional, documented)
 
-- `accountNumber`/`orderNumber` search → 501 until account/order domains exist.
-- Active-product check before delete and billing-account passivation → future
-  account/product domains (TODO, no-op today).
-- Address in-use check (`MSG-ADDR-IN-USE`) → no-op until account/service addresses exist.
+- ~~`accountNumber`/`orderNumber` search → 501~~ — **done 2026-08-05**: resolved
+  through account-service / order-service (see §Account Number / Order Number
+  above). `MSG-FEATURE-NOT-IMPLEMENTED` is no longer produced by this service.
+- ~~Billing-account passivation before delete~~ — **done 2026-08-05**
+  (AC-CUST-05-04): the delete passivates every Active Billing Account through
+  account-service first, then the local aggregate. 409 `MSG-CUST-HAS-PRODUCTS`
+  when an account still has products; 503 when account-service is unreachable.
+  The upfront `checkCustomerHasNoActiveProducts` guard remains a no-op — the same
+  rejection now surfaces one layer deeper.
+- Address in-use check (`MSG-ADDR-IN-USE`) → still a no-op, even though
+  `cust_acct.address_id` now exists.
 - All endpoints require a Keycloak-authenticated caller with the `crm-user` role
   (ADR-006..009): via the gateway that means a logged-in BFF session (browser /
   `docs/postman/README.md` §Authentication); direct calls need a valid

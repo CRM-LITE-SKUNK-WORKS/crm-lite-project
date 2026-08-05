@@ -10,7 +10,8 @@ refer to the FR document.
 
 | FR | Capability | Notes |
 |---|---|---|
-| FR-CUST-01 / AC-CUST-01-00 | Customer **browse + filter** | `GET /api/customers` (canonical, only list endpoint — ADR-005). **No criteria ⇒ all active customers**, A-Z (firstName→lastName→customerNumber), server-side paginated. KR-01 filter semantics: firstName = word-start match over First+Middle, lastName = word-start over Last Name, AND-ed together; GSM prefix; NAT ID / Customer ID exact; groups OR-ed; only active customers. Rows carry the full `CustomerDetailResponse` contract |
+| FR-CUST-01 / AC-CUST-01-00 | Customer **browse + filter** | `GET /api/customers` (canonical, only list endpoint — ADR-005). **No criteria ⇒ all active customers**, A-Z (firstName→lastName→customerNumber), server-side paginated. KR-01 filter semantics: firstName = word-start match over First+Middle, lastName = word-start over Last Name, AND-ed together; GSM prefix; NAT ID / Customer ID / **Account Number / Order Number exact**; groups OR-ed; only active customers. Rows carry the full `CustomerDetailResponse` contract |
+| FR-CUST-01 / **KR-02, AC-CUST-01-04** | Search by **child record** | `accountNumber` and `orderNumber` (2026-08-05, ADR-005 §Addendum). Each is resolved to its OWNING customer through the owning service's public API — `GET /api/accounts/{n}` (account-service, ADR-013 §5) and `GET /api/orders/{n}` (order-service, ADR-016 §3.2) — and only an **Active** account / **MIDLWARE** order counts. No cross-database read, join or table copy; the resolved customer number folds into the same OR expression, so results stay customer-based, distinct and correctly paginated. Owning service unreachable ⇒ **503 `MSG-SERVICE-UNAVAILABLE`** (fail closed) |
 | FR-CUST-02 | Customer detail | `GET /api/customers/{customerNumber}` — business number, never the internal id |
 | FR-CUST-03 | Atomic create | `POST /api/customers` with `demographic` + `addresses[]` + `contactMedium`; persists PARTY, IND, PARTY_ROLE, CUST, ADDR, CNTC_MEDIUM in one transaction (AC-CUST-03-22); KR-10/AC-CUST-03-06 MERNIS verification before persist |
 | FR-CUST-04 | Demographic update | `PUT /api/customers/{customerNumber}`; NAT ID uniqueness excludes own record (AC-CUST-04-04) |
@@ -75,10 +76,13 @@ catalog; they
 outages) the generic `MSG-SERVICE-UNAVAILABLE`.
 
 **Documented project additions** (not in the analyst catalog — framework/integration
-outcomes the catalog does not name): `MSG-FEATURE-NOT-IMPLEMENTED`,
-`MSG-VALIDATION-ERROR`, `MSG-INTERNAL-ERROR`, `MSG-SERVICE-UNAVAILABLE` (shared
-catalog outages, ADR-002; also customer-service outages seen by account-service,
-ADR-013), `MSG-ADDR-LAST-DELETE`, `MSG-ADDR-PRIMARY-DELETE`,
+outcomes the catalog does not name): `MSG-FEATURE-NOT-IMPLEMENTED` (**no longer
+produced by any service since 2026-08-05** — the last user, the `accountNumber` /
+`orderNumber` 501, is gone; the key stays declared so a future deferral does not
+invent a second spelling), `MSG-VALIDATION-ERROR`, `MSG-INTERNAL-ERROR`,
+`MSG-SERVICE-UNAVAILABLE` (shared catalog outages, ADR-002; customer-service outages
+seen by account-service, ADR-013; **and account-service/order-service outages seen by
+customer-service's KR-02 search**), `MSG-ADDR-LAST-DELETE`, `MSG-ADDR-PRIMARY-DELETE`,
 `MSG-AUTH-UNAUTHORIZED` (401), `MSG-AUTH-FORBIDDEN` (403),
 `MSG-AUTH-CSRF-REJECTED` (403, CSRF) — ADR-008/009. (`MSG-AUTH-INVALID-CRED`
 remains a Keycloak login-page concern, not an API key.)
@@ -108,17 +112,22 @@ search-criteria rule (ADR-005); no endpoint uses it anymore.
 
 ## Intentionally deferred (explicit TODOs, never silent)
 
-- `accountNumber` / `orderNumber` search → **501 MSG-FEATURE-NOT-IMPLEMENTED** in
-  customer-service. Both target services now exist (account-service 2026-07-23,
-  order-service 2026-08-02 with `GET /api/orders/{orderNumber}`), so KR-02 is
-  unblocked on both counts — but wiring it stays a **separate customer-service
-  follow-up PR**; neither sprint modified customer-service.
-- Active-product check on customer delete (AC-CUST-05-03) and billing-account
-  passivation on customer delete (part of AC-CUST-05-04) → still customer-service
-  no-ops; converting them to real account-service calls is the same follow-up PR.
+- ~~`accountNumber` / `orderNumber` search → **501 MSG-FEATURE-NOT-IMPLEMENTED**~~ —
+  **done 2026-08-05** (the follow-up PR this entry asked for). KR-02 is resolved for
+  real through account-service and order-service; the 501 gate
+  (`checkNoUnsupportedCrossServiceSearchCriterion`) is deleted and no backend
+  produces `MSG-FEATURE-NOT-IMPLEMENTED` anymore. See the FR-CUST-01 KR-02 row above.
+- ~~Billing-account passivation on customer delete (part of AC-CUST-05-04) and the
+  active-product check (AC-CUST-05-03)~~ — **done 2026-08-05**: `DELETE
+  /api/customers/{n}` now lists the customer's Billing Accounts through account-service
+  and passivates every Active one **before** any local entity is touched, so a failure
+  leaves nothing to compensate. An account that still has products answers 409
+  `MSG-CUST-HAS-PRODUCTS`; account-service unreachable fails the whole delete closed
+  with 503. The upfront `checkCustomerHasNoActiveProducts` guard stays a no-op — the
+  same rejection is now discovered one layer deeper, at the account-service call.
 - Address in-use check (AC-ADDR-04-04, MSG-ADDR-IN-USE) → still a customer-service
   no-op; billing accounts now reference addresses (`cust_acct.address_id`), so the
-  real check becomes possible in that follow-up PR.
+  real check is possible but not part of the KR-02 search change.
 - ~~**Product involvement sync**~~ — **done 2026-08-02** (ADR-013 §7/§8):
   `cust_acct_prod_invl` is now populated by real sales through account-service's own
   command endpoint. It remains **single-writer**; no other service writes `account_db`.

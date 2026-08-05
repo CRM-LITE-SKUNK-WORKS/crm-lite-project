@@ -34,27 +34,11 @@ class CustomerBusinessRulesTest {
     // FR/AC v8 (2026-07-16) makes the no-criteria request the valid browse-all mode
     // (AC-CUST-01-00, ADR-005) — covered end-to-end in CustomerServiceIntegrationTest.
 
-    @Test
-    void crossServiceCriteria_accountNumberStill501() {
-        assertThatThrownBy(() -> rules.checkNoUnsupportedCrossServiceSearchCriterion("0101112900", null))
-                .isInstanceOf(BusinessException.class)
-                .satisfies(ex -> {
-                    BusinessException be = (BusinessException) ex;
-                    assertThat(be.getStatus()).isEqualTo(HttpStatus.NOT_IMPLEMENTED);
-                    assertThat(be.getMessageKey()).isEqualTo(MessageKeys.FEATURE_NOT_IMPLEMENTED);
-                });
-    }
-
-    @Test
-    void crossServiceCriteria_orderNumberStill501() {
-        assertThatThrownBy(() -> rules.checkNoUnsupportedCrossServiceSearchCriterion(null, "5001"))
-                .isInstanceOf(BusinessException.class);
-    }
-
-    @Test
-    void crossServiceCriteria_passesWhenNoneProvided() {
-        rules.checkNoUnsupportedCrossServiceSearchCriterion(null, null);
-    }
+    // The three crossServiceCriteria_* tests were removed with the rule itself: both
+    // owning domains shipped (account-service ADR-013, order-service ADR-016), so KR-02
+    // is resolved for real in CustomerServiceImpl.search. The replacement coverage lives
+    // in CustomerServiceIntegrationTest (end to end, with the owning services mocked at
+    // their client interface) — the 501 is gone, not merely untested.
 
     @Test
     void customerExistsAndActive_throwsNotFoundWhenMissing() {

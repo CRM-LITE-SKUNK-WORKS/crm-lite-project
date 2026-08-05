@@ -360,9 +360,15 @@ curl -sS -H "Accept: application/json" \
 
 - **KR-12 awaits analyst sign-off**, as do the prices its `total_amount` snapshots
   (document-delta P1/P5).
-- **KR-02 `orderNumber` search stays 501** in customer-service. `GET /api/orders/{n}`
-  is what it will resolve against; wiring it is the same follow-up PR that wires
-  `accountNumber` — this work did not modify customer-service.
+- ~~**KR-02 `orderNumber` search stays 501** in customer-service~~ — **done
+  2026-08-05**, and against exactly the endpoint this document predicted:
+  customer-service calls `GET /api/orders/{orderNumber}` and matches only when
+  `orderStatus` is `"MIDLWARE"`, so a `CANCELLED` (compensated) order never
+  surfaces its customer as a search hit. **Nothing changed here** — the response
+  already carried `orderNumber`, `orderStatus` and `customerNumber`. The
+  deliberate absence of an order LIST endpoint is unaffected: the search resolves
+  one number at a time, it does not enumerate orders. See ADR-005 §Addendum
+  2026-08-05.
 - **No stuck-PNDG sweeper.** If the confirm step's compensation itself fails, products
   are left identifiable by a single query (`status_id = PNDG`) — recorded as an
   operational follow-up (ADR-015 §8.4), not built speculatively.

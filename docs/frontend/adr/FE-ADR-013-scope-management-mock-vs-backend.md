@@ -82,6 +82,11 @@ contract, so the inputs are rendered but **disabled**, and no request ever
 carries them (FE-ADR-008 §6 treats a `501` reaching the interceptor as a
 frontend bug).
 
+> ⚠️ **Superseded (2026-08-05) — see §Amendment C.** Both search-filter rows are
+> closed: customer-service resolves `accountNumber`/`orderNumber` for real
+> (backend ADR-005 §Addendum 2026-08-05), so the inputs are **enabled** and their
+> values ARE sent. The rows above are kept as accepted history.
+
 ### (c) Currently IN scope
 
 > ⚠️ **Extended twice.** FR-ACCT joined this list on 2026-07-24 (§Amendment A1)
@@ -203,7 +208,8 @@ PR (`docs/api/account-service.md` §Deliberate limitations).
 ### A2. Still out of scope (unchanged by this amendment)
 - Customer Search `accountNumber` filter: **still rendered disabled** —
   customer-service still returns `501`; enabling it belongs to the follow-up
-  PR, not to the frontend.
+  PR, not to the frontend. *(Superseded 2026-08-05 — the follow-up PR landed;
+  see §Amendment C.)*
 - FR-SALE account-row actions (`Start new sale`, `Transfer`,
   `Service address change`): not rendered; the account API deliberately
   exposes no `Action` field (backend ADR-013 §3).
@@ -349,3 +355,52 @@ no price is on screen at all this round: prices exist only in the offer/campaign
 catalog responses, and those endpoints are not consumed (B2). When the analysts
 confirm or change the figures, zero frontend lines change. Recorded in
 `scope-and-conflicts.md` §1B.9.
+
+---
+
+## Amendment C (2026-08-05): the Customer Search `accountNumber` / `orderNumber` filters enter scope
+
+### Status
+Accepted. Supersedes the two search-filter rows of §(b) and the first bullet of
+§A2. Everything else in this ADR — in particular §(a), §(d) and §(e) — stands
+and was the reason those rows existed for three rounds.
+
+### Context
+Both filters were held out by ONE thing, and `scope-and-conflicts.md` §1.7a/§1.7b
+proved it twice rather than assuming it: not the absence of account-service or
+order-service (both had shipped), but customer-service's own **unconditional**
+`checkNoUnsupportedCrossServiceSearchCriterion`, which threw
+`501 MSG-FEATURE-NOT-IMPLEMENTED` whenever either field was non-empty. Backend
+ADR-005 §Addendum (2026-08-05) removed that gate and implemented KR-02: each
+number is resolved to its owning customer through the owning service's existing
+public endpoint, and the result folds into the same KR-01 OR expression.
+
+### C1. The inputs are enabled and their values are sent
+The change §1.7a predicted, and no more: the two `FormControl`s lose
+`disabled: true`, join `FILTERABLE_CONTROLS` (so they enable Search per
+AC-CUST-01-02, ride in the request, receive bound 400 field errors and are
+cleared by Clear/reset), and `accountNumber`/`orderNumber` become representable
+in `CustomerSearchCriteria`. §(e) still governs everything else: KR-01/KR-02
+matching is a **server** rule, so the screen sends the parameters verbatim and
+never filters, re-sorts or de-duplicates the loaded table.
+
+### C2. Digit-only input reuses the existing capability
+`TextInput`'s `digitsOnly` input — already carrying the ID number / Customer ID /
+GSM / Nationality ID fields since 2026-07-29 — is bound to both new fields. No
+keydown handler, no per-screen sanitizer and no `type="number"` (which admits
+`e`, `+`, `-` and a decimal separator, and is a poor fit for an identifier).
+Because `digitsOnly` sanitizes the `input` event, typing, pasting and mobile
+numeric keyboards are covered by one rule.
+
+### C3. Identifiers stay strings
+KR-11 and KR-12 numbers are fixed-width Luhn-checked identifiers, not quantities:
+`Number('0261000010')` would silently drop a significant leading zero. The form
+value, the criteria type and the query parameter are all `string`, matching the
+backend, which types both parameters as `String` as well.
+
+### C4. `UI-SEARCH-DEFERRED-HINT` is deleted
+The helper text existed only to explain the disabled state, and
+`scope-and-conflicts.md` §2.24 was still waiting on analyst wording for it. With
+the fields live the sentence would be false, so the key is removed from the
+catalogue rather than reworded — and §2.24 closes with it. This is §(d) in
+reverse: a scope note disappears when the scope note stops being true.

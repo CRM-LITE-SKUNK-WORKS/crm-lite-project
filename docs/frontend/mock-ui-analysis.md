@@ -718,7 +718,7 @@ Kaynaklar: `docs/api/customer-service.md`, ADR-005,
 | 2 | "Second name" | **Ayrı filtre alanı YOK.** Mock'ta da yok. Tek `firstName` parametresi **First + Middle birleşiminde** kelime-başı arar (KR-01). Tabloda `middleName` ayrı **kolon** olarak gösterilir. UI'da tek kutu: **"Name"** |
 | 3 | "Role" | **Filtre YOK, filtreleme yapılmayacak.** `role` yalnız **tablo kolonu** (response'ta `role` alanı, `"Customer"`) |
 | 4 | Kriter birleşimi | Backend doğru: **isim grubu içi AND, dolu kriter grupları arası OR**. Mock zaten aynı. Değişiklik yok |
-| 5 | `accountNumber` / `orderNumber` | Backend'de henüz geliştirme yok → **501 `MSG-FEATURE-NOT-IMPLEMENTED`**. İki filtre alanı UI'da render edilir ama **disabled** ve "yakında" ipucu taşır; hiçbir zaman istek gönderilmez (bkz. §9 madde 10) |
+| 5 | `accountNumber` / `orderNumber` | ✅ **GÜNCELLENDİ 05.08.2026 — filtreler CANLI.** Eski karar (501 → alanlar disabled + "yakında" ipucu) **geçersiz**: customer-service her iki numarayı da sahibi olan servisin ucundan çözüp **sahip müşteriyi** döndürüyor (KR-02/AC-CUST-01-04; backend ADR-005 §Addendum). İkisi de **birebir** eşleşir, alanlar **enabled**, değerler istekte gider; ipucu metni ve `UI-SEARCH-DEFERRED-HINT` **silindi** (scope §1.7c/§2.24) |
 | 6 | Sayfa boyutu | **Varsayılan 15, seçenekler 15/30/50** (§6.2 ve §9 madde 3 — 29.07.2026 revizyonu; eski "varsayılan 20 / 20-50-100" kararı geçersiz) |
 | 17 | Türkçe karakterler | **Backend'e göre: diakritik-DUYARLI.** Backend `lower()` + `LIKE` kullanıyor, diakritik katlaması **yok** (`CustomerSpecifications.wordStart`). `yilmaz` → `Yılmaz`'ı **bulmaz**; `Yılmaz` → bulur. **Frontend katlama YAPMAYACAK** — mock'un `ş→s, ç→c, ğ→g, ı→i, ü→u, ö→o` fold'u Angular'a taşınmayacak, kullanıcı girdisi ham gönderilecek. Kullanıcının Türkçe klavyeyle doğru yazması beklenir; arama kutusuna Türkçe karakter girişi engellenmeyecek ve `input`'lar UTF-8 olarak gönderilecek |
 
@@ -881,11 +881,11 @@ main (padding 24px, gap 20px)
 |---|---|---|---|---|---|
 | 1 | ID number | `nationalityId` | `11-digit ID number` | numeric | sadece rakam, max 11; tam eşleşme |
 | 2 | Customer ID | `customerId` | `e.g. 3068231` | numeric | sadece rakam; tam eşleşme (**`customerNumber` değeri**) |
-| 3 | Account number | `accountNumber` | `Account number` | numeric | 🚫 **disabled** — backend 501 (§5A.2/5) |
+| 3 | Account number | `accountNumber` | `Account number` | numeric | sadece rakam (`digitsOnly`); **tam eşleşme** → sahip müşteri (§5A.2/5) |
 | 4 | GSM number | `gsmNumber` | `05XX XXX XX XX` | numeric | sadece rakam, max 11; **prefix** eşleşme |
 | 5 | Name | `firstName` | `Name` | — | serbest metin; **First+Middle** birleşiminde kelime-başı |
 | 6 | Last name | `lastName` | `Last name` | — | serbest metin; soyadda kelime-başı |
-| 7 | Order number | `orderNumber` | `Order number` | numeric | 🚫 **disabled** — backend 501 (§5A.2/5) |
+| 7 | Order number | `orderNumber` | `Order number` | numeric | sadece rakam (`digitsOnly`); **tam eşleşme** → sahip müşteri (§5A.2/5) |
 
 > Mock'ta ilk alanın id'si `idNumber`; **API parametresi `nationalityId`**.
 > Mock'ta 3 ve 7 çalışıyor gibi görünüyor — Angular'da **disabled** render edilir
@@ -1586,6 +1586,10 @@ Ayrıca `aria-current="page"` (aktif sayfa), `role="status"` (toast),
    (23.07.2026):** backend parametreleri **tanıyor** ama henüz geliştirilmedi →
    501 `MSG-FEATURE-NOT-IMPLEMENTED`. Alanlar UI'da **disabled** render edilir.
    Bkz. §5A.2 madde 5 ve aşağıdaki madde 10.
+   ⚠️ **YENİDEN KARARA BAĞLANDI (05.08.2026):** yukarıdaki "501 → disabled"
+   kararı **geçersiz**. Backend artık ikisini de gerçekten çözüyor (KR-02);
+   alanlar **enabled**, değerler gönderiliyor, rakam kısıtı paylaşılan
+   `digitsOnly` girdisiyle (scope §1.7c).
 3. ~~**Per page değerleri**~~ → ✅ **YENİDEN KARARA BAĞLANDI (29.07.2026):**
    liste **pageable, varsayılan sayfa boyutu 15, seçenekler 15/30/50** — KR-04
    birebir uygulanıyor. 23.07.2026'daki "varsayılan 20, seçenekler 20/50/100"
@@ -1610,10 +1614,12 @@ Ayrıca `aria-current="page"` (aktif sayfa), `role="status"` (toast),
 9. ~~**Login ekranı**~~ → ✅ **KAPANDI (23.07.2026):** Keycloak `crm-lite` teması
    mock'un Login v2'sini birebir uyguluyor (`infra/keycloak/themes/crm-lite/`).
    Angular'da login ekranı **yazılmayacak**.
-10. **501 dönen filtrelerin görünürlüğü:** §5A.2'de "disabled render edilir"
-    kararı verildi, ama **disabled ipucu metni** (`tooltip` / `helperText`)
-    ne diyecek? Öneri: `"Available when the account/order module is released."`
-    — analist onayı gerekiyor.
+10. ~~**501 dönen filtrelerin görünürlüğü / ipucu metni**~~ → ✅ **KAPANDI
+    (05.08.2026): soru ortadan kalktı.** Alanlar artık disabled değil, dolayısıyla
+    açıklanacak bir disabled durum da yok; önerilen
+    `"Available when the account/order module is released."` metni bugün **yanlış**
+    olurdu ve `UI-SEARCH-DEFERRED-HINT` katalogdan silindi. Analist onayı
+    beklenmiyor (scope §2.24).
 11. **Backend arama hatası — `İ` ile başlayan isimler bulunamıyor.** §5A.2'de
     ölçümle birlikte tarif edildi (`lower('İbrahim') LIKE 'i̇brahim%'` → `false`).
     Java ile Postgres aynı harfi farklı küçültüyor. **Backend düzeltmesi**;

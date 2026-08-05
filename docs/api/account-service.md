@@ -345,8 +345,18 @@ curl -sS -H "Accept: application/json" \
   specified, but reachable in real use for the first time.
 - **No involvement removal exists** — not through this API, not through any
   other. Product cancellation is out of phase (KR-7).
-- customer-service's `accountNumber` search (KR-02), its customer-delete
-  active-product guard and billing-account passivation, and the address
-  `MSG-ADDR-IN-USE` in-use check remain customer-service TODOs — converting them
-  to real calls against this service is a **separate follow-up PR** (this sprint
-  does not modify customer-service).
+- ~~customer-service's `accountNumber` search (KR-02)~~ — **done 2026-08-05**:
+  customer-service now calls `GET /api/accounts/{accountNumber}` (this document's
+  detail endpoint, unchanged) to resolve the search criterion to `customerNumber`,
+  and matches only when `accountStatus` is `"Active"`. **No endpoint, field or
+  status was added here for it** — the detail representation already carried
+  everything needed, including the ADR-013 §3.6 `customerNumber`. The K-8 223's
+  404 keeps it unsearchable for free. See backend ADR-005 §Addendum 2026-08-05.
+- ~~customer-service's customer-delete billing-account passivation~~ — **done
+  2026-08-05** (AC-CUST-05-04): customer-service calls `GET /api/accounts?customerId=`
+  then `DELETE /api/accounts/{accountNumber}` for every Active row, before touching
+  its own aggregate. Both endpoints are this document's existing ones — again nothing
+  was added here. A 409 `MSG-ACCT-HAS-PRODUCTS` from the delete is relayed to the
+  caller as 409 `MSG-CUST-HAS-PRODUCTS`.
+- The address `MSG-ADDR-IN-USE` in-use check **remains a customer-service TODO**,
+  even though `cust_acct.address_id` makes it possible.

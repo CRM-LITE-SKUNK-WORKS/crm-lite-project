@@ -23,8 +23,14 @@ real PostgreSQL + HTTP, real crm-security-starter chain).
 | AC-CUST-01-03 / KR-01 word-start names | `CustomerSpecifications.wordStart` over First+Middle / Last | IT `searchWordStartSemantics`, IT `updateNationalityIdUniqueness` (post-update regression) |
 | AC-CUST-01-03 GSM prefix | `CustomerSpecifications` contact join | IT `searchByGsmPrefix` |
 | AC-CUST-01-03/04 exact + OR groups, customer-based distinct results | exact predicates, to-one joins (no fan-out) | IT `searchByExactCriteria` |
+| **AC-CUST-01-03 / KR-01 Account & Order Number exact match** | `CustomerSpecifications.addChildRecordCriterion` — equality on `cust.customer_number` after the owning service resolved the number | IT `searchByAccountNumberReturnsOwningCustomer`, `searchByOrderNumberReturnsOwningCustomer`, `childRecordNumbersKeepLeadingZeros` |
+| **AC-CUST-01-04 / KR-02 child record ⇒ owning customer, ONE row** | `CustomerServiceImpl.resolveAccountNumber` / `resolveOrderNumber` via `AccountServiceClient` / `OrderServiceClient` (ADR-013 §5, ADR-016 §3.2); resolution to a single customer number means no join and no fan-out | IT `duplicateChildRecordMatchesYieldOneCustomerRow` (totalElements = 1), `childRecordCriteriaJoinTheExistingOrExpression` |
+| **KR-02 only LIVE child records resolve** | `AccountSummary.isActive` ("Active" — FR-ACCT-04 passivation is account-service's soft delete) / `OrderSummary.isInProgress` ("MIDLWARE" — CANCELLED is a compensated sale, ADR-016 §6) | IT `inactiveChildRecordsProduceNoResult`, `childRecordOfDeletedCustomerProducesNoResult` |
+| **KR-02 unresolved number matches nothing (never browse)** | `ChildRecordCriterion.unmatched()` ⇒ `cb.disjunction()` (FALSE), deliberately not a dropped criterion | IT `unknownChildRecordNumberMatchesNothing` |
+| **KR-02 fail closed on an owning-service outage** | `AccountServiceUnavailableException` / `OrderServiceUnavailableException` ⇒ 503 `MSG-SERVICE-UNAVAILABLE` | IT `childRecordOwnerOutageFailsClosed` |
+| **KR-02 service-to-service auth (ADR-009/010)** | `accountRestClient` / `orderRestClient` with `BearerTokenPropagationInterceptor` — the user's token, no client credentials | UT `OutboundBearerPropagationTest.childRecordOwnerClientsPropagateBearer`; IT `directCallWithoutTokenIsUnauthorized` (unchanged) |
 | AC-CUST-01-05 role display | `CustomerMapper` → `ROLE.role_name` | IT `createPersistsFullAggregate` ("Customer") |
-| AC-CUST-01-07 numeric-only params | `@Pattern` on request params + type-mismatch handler | `GlobalExceptionHandlerTest` |
+| AC-CUST-01-07 numeric-only params (incl. Account & Order Number) | `@Pattern` on request params + type-mismatch handler; rejected at the controller, before any outbound call | `GlobalExceptionHandlerTest`, IT `nonNumericChildRecordNumbersAreRejectedByTheBackend` |
 | AC-CUST-01-08 only active customers | `status_id = ACTV AND deleted_date IS NULL` (local) | IT `browseWithoutCriteriaListsAllActiveCustomers` (1003 invisible), `searchWordStartSemantics`, `seedDataLoaded` |
 | AC-CUST-01-09 / KR-04 server-side paging + firstName→lastName sort | `PageRequest` + stable customerNumber tiebreak | IT `browseIsPaginated`, `browseWithoutCriteriaListsAllActiveCustomers` (order asserted) |
 | KR-04 page size: default 15, only 15/30/50 (ADR-005 §Amendment) | `@AllowedPageSize` + `@Min(0)` on `GET /api/customers` | UT `AllowedPageSizeValidatorTest`, IT `browseIsPaginated`, `rejectsInvalidPaginationParameters` |
@@ -142,11 +148,11 @@ interfaces only, which is what makes "step 4 fails" testable at all).
 
 | Requirement | Owner (planned) | Current behaviour |
 |---|---|---|
-| KR-02 `accountNumber` search resolution | customer-service → account-service (**follow-up PR**; account-service exists now, customer-service deliberately untouched this sprint) | 501 `MSG-FEATURE-NOT-IMPLEMENTED` |
-| KR-02 `orderNumber` search resolution | order-service (not started) | 501 `MSG-FEATURE-NOT-IMPLEMENTED` |
-| AC-CUST-05-03 active-product delete guard | customer-service → account/product (same follow-up PR) | documented no-op |
-| AC-CUST-05-04 billing-account passivation on customer delete | customer-service → account-service (same follow-up PR) | documented no-op (local aggregate is passivated) |
-| AC-ADDR-04-04 address in-use check (`MSG-ADDR-IN-USE`) | customer-service → account-service (same follow-up PR; `cust_acct.address_id` now exists) | documented no-op |
+| ~~KR-02 `accountNumber` search resolution~~ | — | ✅ **implemented 2026-08-05** — customer-service → account-service `GET /api/accounts/{n}`; see the Implemented section above |
+| ~~KR-02 `orderNumber` search resolution~~ | — | ✅ **implemented 2026-08-05** — customer-service → order-service `GET /api/orders/{n}` |
+| ~~AC-CUST-05-03 active-product delete guard~~ | — | ✅ **enforced 2026-08-05** — not by the upfront `checkCustomerHasNoActiveProducts` (still a no-op) but one layer deeper: a 409 from account-service's delete becomes 409 `MSG-CUST-HAS-PRODUCTS` |
+| ~~AC-CUST-05-04 billing-account passivation on customer delete~~ | — | ✅ **implemented 2026-08-05** — account-service `GET /api/accounts?customerId=` + `DELETE /api/accounts/{n}` for every Active row, run BEFORE the local passivation |
+| AC-ADDR-04-04 address in-use check (`MSG-ADDR-IN-USE`) | customer-service → account-service (**still open**; `cust_acct.address_id` now exists) | documented no-op |
 | Product involvement **population** (`cust_acct_prod_invl` writes) | future order/sale flow via an account-service command/API or consumed event — **never direct account_db writes** (ADR-013 §5). The **read** side now exists (`product-ids`, see above) | seed/test rows only (V2 + V3); real, queried guard state |
 | AC-AUTH-01-02/06/07/08/09 login-page UI details (button state, masking, 64-char cap) + LBL-LANGUAGE on the login screen | Keycloak **project theme** (future work) | standard Keycloak login page + built-in EN/TR i18n serve the flow today |
 | ~~FR-ACCT-01..04 + KR-11~~ | — | ✅ **implemented 2026-07-23** (ADR-013/014) — see the account-service section above; this row was a stale leftover |

@@ -1,6 +1,7 @@
 package com.crm.customer.account;
 
 import java.util.List;
+import java.util.Optional;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
@@ -50,6 +51,29 @@ public class HttpAccountServiceClient implements AccountServiceClient {
             // Genuine availability failures: connection errors, 5xx, "no instances
             // available". Fails the whole customer delete rather than leaving some
             // accounts silently unpassivated.
+            throw new AccountServiceUnavailableException("account-service is unavailable", e);
+        }
+    }
+
+    @Override
+    public Optional<AccountSummary> fetchAccount(String accountNumber) {
+        try {
+            return Optional.ofNullable(restClient.get()
+                    .uri("/api/accounts/{accountNumber}", accountNumber)
+                    .retrieve()
+                    .body(AccountSummary.class));
+        } catch (HttpClientErrorException.NotFound e) {
+            // Unknown number, or the K-8 223 Customer Account (indistinguishable by
+            // design — ADR-013 §4.5). Either way: nothing to match.
+            //
+            // Note this catch is what separates fetchAccount from listAccounts above:
+            // there, a 404 cannot occur (the list endpoint answers 200 [] for an unknown
+            // customer), so every RestClientException there IS an availability failure.
+            return Optional.empty();
+        } catch (RestClientException | IllegalStateException e) {
+            // Connection failures, 5xx responses and "no instances available" from the
+            // load balancer all mean the account domain is unavailable — never "the
+            // account does not exist".
             throw new AccountServiceUnavailableException("account-service is unavailable", e);
         }
     }

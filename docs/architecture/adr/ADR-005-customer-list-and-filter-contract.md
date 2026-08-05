@@ -2,7 +2,8 @@
 
 ## Status
 Accepted (2026-07-16), **amended 2026-07-29** (page-size contract — see
-§Amendment) — implements the FR/AC v8 Final revision of 16.07.2026
+§Amendment), **extended 2026-08-05** (KR-02 `accountNumber`/`orderNumber`
+resolution — see §Addendum 2026-08-05) — implements the FR/AC v8 Final revision of 16.07.2026
 (AC-CUST-01-00, KR-04, message catalog update). Extends, does not replace, the
 KR-01 search semantics already recorded in ADR-001..003-era documentation.
 
@@ -45,7 +46,8 @@ Two contract problems followed:
    Name, both = AND; `gsmNumber` = mobile-phone prefix; `nationalityId` /
    `customerId` (business customer number) = exact; filled criterion groups OR-ed;
    `accountNumber`/`orderNumber` remain **501 `MSG-FEATURE-NOT-IMPLEMENTED`** until
-   the account/order domains exist.
+   the account/order domains exist. *(The 501 clause is **superseded by §Addendum
+   2026-08-05** below; the rest of this item stands.)*
 6. **Mandatory-criteria rule removed.** `checkAtLeastOneSearchCriterionExists` is
    deleted, its tests removed, and the project-specific key
    `MSG-SEARCH-CRITERIA-REQUIRED` is retired (no other endpoint used it). The UI-level
@@ -166,6 +168,75 @@ learns the ID was never usable.
 Reviewed against FR/AC v8-2 (03.08.2026): AC-CUST-01-00 and KR-04 wording are
 unchanged from the v8 Final revision this ADR implements. **No change to this
 decision.** See `docs/requirements/document-delta.md`.
+
+## Addendum (2026-08-05) — KR-02 child-record criteria (`accountNumber`, `orderNumber`)
+
+**Status:** Accepted. Supersedes the 501 clause in Decision §5; every other decision
+above is unchanged.
+
+**Context.** §5 deferred these two criteria because their records live in domains
+that did not exist. Both now do: **account-service** owns `account_db.cust_acct`
+(2026-07-23, ADR-013) and **order-service** owns `order_db.cust_ord` (2026-08-02,
+ADR-016). KR-02 and AC-CUST-01-04 require that searching by either number returns
+*the customer that owns the matching child record*, with the result list always
+customer-based and one row per customer.
+
+**Decision.**
+
+1. **They stay criteria of `GET /api/customers`.** §1 ("one endpoint, two modes")
+   is not weakened: no `search-by-account` endpoint, no alias, no second row DTO.
+   The two criteria join the same OR expression, the same active-only rule, the same
+   sort and the same page envelope as everything else.
+2. **Resolution happens through the OWNING service's existing public API**, not
+   through its database: `GET /api/accounts/{accountNumber}` (ADR-013 §5) and
+   `GET /api/orders/{orderNumber}` (ADR-016 §3.2, which already named this as its
+   purpose). Both already return `customerNumber`, so no new endpoint, no contract
+   change and no id translation were needed on either side.
+   *Rejected alternatives:* reading `account_db`/`order_db` from customer-service
+   (violates database-per-service outright), a cross-database view or FK (same), a
+   local copy of the two tables (a second source of truth for data this service does
+   not own), and orchestrating the two lookups in the API Gateway (ADR-007 keeps the
+   gateway an edge/BFF, not a business aggregator).
+3. **Only a LIVE child record resolves.** For an account that means
+   `accountStatus = "Active"` — FR-ACCT-04 makes passivation account-service's soft
+   delete, so a Passive account must not surface its owner. For an order it means
+   `orderStatus = "MIDLWARE"`, the only status an accepted order holds (ADR-016 §6);
+   `CANCELLED` is a compensated, rolled-back sale. Each domain's own notion of
+   "live" is used — no generic ACTV check is imposed on a domain that never writes it.
+   The K-8 223 Customer Account is 404 at account-service by design (ADR-013 §4.5),
+   so it can never become a search key — the invariant that it "never appears in any
+   API response" is preserved for free by reusing that endpoint.
+4. **A filled but unresolved number matches NOTHING.** It contributes a FALSE
+   predicate, deliberately not a dropped criterion: dropping it would leave zero
+   criteria and silently return the whole active list (§2 browse mode) for a query
+   whose honest answer is "no such customer".
+5. **Distinctness and pagination are structural.** Each number is globally unique, so
+   it resolves to at most one customer number; the predicate is an equality on
+   `cust.customer_number` and adds **no join**. AC-CUST-01-04's "one row even when
+   several child records match" therefore holds by construction, and §8's guarantee
+   that page metadata counts customers (never joined rows) is untouched.
+6. **Fail closed on an outage.** An unreachable owning service answers 503
+   `MSG-SERVICE-UNAVAILABLE` — the same rule ADR-002 applies to the shared catalog.
+   Returning an empty page would report "customer not found" for a customer that
+   exists; ignoring the criterion would return everyone.
+7. **Security is unchanged (ADR-009/010).** Both calls go directly via Eureka with
+   the end user's Keycloak token propagated — same subject, same audience, same
+   `crm-user` requirement. No client credentials, no service account, no new
+   `permitAll()`, and the browser still reaches only the gateway.
+8. **Matching is EXACT**, per KR-01 and AC-CUST-01-03, which agree; the resolution
+   is recorded in `docs/requirements/document-delta.md` (conflict #7).
+
+**Consequences.**
+- `MSG-FEATURE-NOT-IMPLEMENTED` is no longer produced by any service.
+- A criterion-less browse and every pre-existing criterion still cost exactly one
+  local query: the owning services are contacted only when their field is filled.
+- customer-service now depends on account-service and order-service at *request*
+  time. This is deliberately **not** a compose `depends_on`: account-service already
+  depends on customer-service (address validation), so the reverse edge would create
+  a startup cycle. A not-yet-started dependency degrades to a 503 on that one
+  criterion, and to nothing at all on every other request.
+- The frontend's Account/Order Number inputs stop being disabled
+  (`scope-and-conflicts.md` §1.7c).
 
 ## Consequences
 - Frontend can implement AC-CUST-01-00 (post-login all-customer list) directly.

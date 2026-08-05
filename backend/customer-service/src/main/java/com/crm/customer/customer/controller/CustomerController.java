@@ -38,6 +38,11 @@ import org.springframework.web.bind.annotation.RestController;
  * <p>Pagination follows KR-04: default size 15, and only 15/30/50 are accepted
  * (ADR-005 §Amendment 2026-07-29 — the earlier "API default 20, any positive size"
  * contract is withdrawn).
+ *
+ * <p>{@code accountNumber} and {@code orderNumber} are ordinary criteria of THIS
+ * endpoint (ADR-005 §Addendum 2026-08-05): they are resolved through the owning
+ * services and folded into the same OR expression, so no second "search by child
+ * record" endpoint exists. They no longer answer 501.
  */
 @RestController
 @RequestMapping("/api/customers")

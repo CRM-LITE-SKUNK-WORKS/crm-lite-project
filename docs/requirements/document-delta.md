@@ -364,6 +364,56 @@ Documents inspected (extracted content, not just filenames):
 | 4 | Use-case FR-CUST-03 has two steps numbered "Adım 4.5" (MERNIS unavailable + duplicate NATID) | Use-case doc | Editorial defect in the source document; no behavioural ambiguity — flagged for the analysts |
 | 5 | **Workbook `USERS (Sistem Kullanicisi)` table (`username`, `password_hash`, argon2id seed placeholders) vs Keycloak as sole credential store** | Entity workbook; FR AC-AUTH-01-03 "USERS tablosunda" | **Not implemented, by decision (2026-07-17 auth milestone):** no application password table may exist; Keycloak owns credentials/enabled-state. Seed usernames mirrored as Keycloak dev users (`ayilmaz`/`edemir` enabled, `mkaya` disabled). Recorded in **ADR-011** — awaiting analyst sign-off, workbook not edited |
 | 6 | **FR-AUTH-01 UI acceptance criteria assume an in-app login form** (button state, masking, 64-char cap, MSG-AUTH-INVALID-CRED, LBL-LANGUAGE on login) | FR v8 §2.1 + §2.8 | Credentials are entered on the **Keycloak login page** (ADR-006; ROPC/Direct Grant prohibited). The generic-error behaviour of AC-AUTH-01-03/04/05 is satisfied natively; the remaining UI/i18n details bind a future Keycloak **project theme** (standard Keycloak EN/TR i18n active today). Flagged for analyst acknowledgement |
+| 7 | ~~**KR-01 vs AC-CUST-01-03: is Account/Order Number matching exact or partial?**~~ | FR §1 KR-01 vs §2.2 AC-CUST-01-03 | ✅ **CLOSED 2026-08-05 — NO conflict exists in the canonical text; both say EXACT.** Raised while activating the two filters, so it was checked against the source rather than assumed. See the section below for the quoted wording and the precedence walk |
+| 9 | ~~**The repo's FR/AC file is `CRM_Lite_FR_AC_v8-2.docx` but every doc still cites `v8-1_Final` and this file has no v8-2 section**~~ | `docs/source/requirements/`, commit `1e60686` | ✅ **CLOSED 2026-08-05 — resolved in parallel by PR #30** ("docs: reconcile FR/AC v8-2 across repo docs"), which added the v8-2 revision section above. Raised independently from the KR-02 search branch, which had deliberately left it as a separate documentation task; both landed the same day. **No contradiction between them:** conflict #7 was resolved against the v8-2 text, which is the revision #30 reconciled to |
+
+## Conflict #7 in full — KR-01 vs AC-CUST-01-03 on Account/Order Number matching
+
+**Why it was raised.** The KR-02 search work (2026-08-05) was briefed with a
+suspected conflict: KR-01 describing Account/GSM/Order Number as exact-match
+criteria while AC-CUST-01-03 "may describe partial matching for numeric criteria".
+Picking one silently would have changed observable search behaviour, so the source
+document was read instead of assumed.
+
+**What the canonical text actually says** (`CRM_Lite_FR_AC_v8-2.docx`, the only
+FR/AC document in the repo — extracted from `word/document.xml`, quoted verbatim):
+
+- **KR-01:** *"… Ad eşleşmeleri kısmi ve harf duyarsızdır; girilen değer, kelime
+  başından itibaren eşleşmelidir … GSM Number, girilen değerle başlayan numaralarla
+  kısmi eşleşir. **NAT ID, Customer ID, Account Number ve Order Number birebir (tam)
+  eşleşir.** Ad-soyad ve GSM kriterleri ile tam eşleşen kriterler OR ile bağlanır."*
+- **AC-CUST-01-03:** *"First Name kutusundaki değer … eşleşme kısmi, harf duyarsız ve
+  kelime başındandır … GSM Number, girilen değerle başlayan numaralarla eşleşir.
+  **NAT ID, Customer ID, Account Number ve Order Number birebir eşleşir.** Ad-soyad
+  ve GSM ile numara kriterleri OR ile bağlanır; yalnız aktif müşteriler döner."*
+
+**Resolution: EXACT matching — and the two sources agree.** The "kısmi" (partial)
+wording in AC-CUST-01-03 is scoped to the **name** boxes, and the "starts-with"
+wording to **GSM**; the very next sentence puts Account Number and Order Number in
+the *birebir* (exact) group in both texts. There is no contradiction to arbitrate.
+
+The precedence walk was still performed rather than skipped, in the order this
+repository defines:
+
+1. **Approved ADRs** — ADR-005 §5 records the KR-01 filter semantics and calls them
+   "analyst-approved … unchanged"; it changes nothing about number matching. No ADR
+   proposes partial matching. (ADR-005 §Addendum 2026-08-05 now adds the resolution
+   mechanism, not a new matching rule.)
+2. **PROJECTBRAIN / FRONTEND_BRAIN** — PROJECTBRAIN §4.4 states *"`nationalityId`/
+   `customerId` birebir"*; neither brain proposes partial number matching.
+3. **`docs/frontend/scope-and-conflicts.md`** — §1.7/§1.8/§1.7a/§1.7b concern only
+   whether the fields were *enabled*, never how they match.
+4. **Final FR/AC version** — quoted above: exact, twice.
+5. **Existing implemented behaviour** — `CustomerSpecifications` already matched
+   `nationalityId` and `customerNumber` with `cb.equal`; the two new criteria follow
+   the same predicate rather than inventing a second convention.
+
+Nothing supersedes KR-01, so the explicitly "decided business rule" governs and
+Account Number / Order Number are implemented as **exact** matches. A partial match
+would also be meaningless here: both are fixed-width Luhn-checked identifiers
+(KR-11 / KR-12) and a prefix of one is simply a different, invalid number.
+
+**The source document was NOT edited** to record any of this.
 
 ## Verified as unchanged
 

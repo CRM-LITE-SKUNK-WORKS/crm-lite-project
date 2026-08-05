@@ -23,14 +23,19 @@ import {
   type PageSize,
 } from '../model';
 
-/** The five filter controls that can carry a server field error (bare-name
- *  paths from `@RequestParam` validation — core/http parses them). */
+/** The seven filter controls — every one of them is sent as a query parameter
+ *  and can carry a server field error (bare-name paths from `@RequestParam`
+ *  validation — core/http parses them). `accountNumber`/`orderNumber` joined
+ *  the list on 2026-08-05 when their 501 was replaced by real cross-service
+ *  resolution in customer-service (scope §1.7c). */
 const FILTERABLE_CONTROLS = [
   'nationalityId',
   'customerId',
+  'accountNumber',
   'gsmNumber',
   'firstName',
   'lastName',
+  'orderNumber',
 ] as const;
 type FilterControlName = (typeof FILTERABLE_CONTROLS)[number];
 
@@ -45,9 +50,11 @@ type FilterControlName = (typeof FILTERABLE_CONTROLS)[number];
  * - KR-01 semantics live SERVER-side: this screen only maps inputs to the
  *   documented query parameters and never re-implements matching, folding or
  *   sorting (no `sort` param — KR-04 fixed A-Z).
- * - `accountNumber` / `orderNumber` are rendered DISABLED and are
- *   unrepresentable in the request (FE-ADR-013 §b; a 501 would be a frontend
- *   bug, FE-ADR-008 §6).
+ * - `accountNumber` / `orderNumber` are ordinary criteria since 2026-08-05:
+ *   customer-service resolves each number through its owning service and
+ *   returns the owning customer (KR-02 / AC-CUST-01-04). The screen sends them
+ *   verbatim and does NOT filter the loaded table — the deferred/disabled state
+ *   and its `UI-SEARCH-DEFERRED-HINT` are gone (scope §1.7c).
  * - Client-side checks (ID length, GSM prefix) are UX only (FE-ADR-007); the
  *   backend remains the authority and its 400 `validationErrors` are bound back
  *   onto the same fields via `matchFieldErrors` (unmatched → banner).
@@ -102,17 +109,17 @@ export class CustomerSearch {
     void this.router.navigate(['/customers', 'new']);
   }
 
-  /** 7 filter fields in mock order (§6.2). The two 501 filters are disabled at
-   *  the CONTROL level — our TextInput takes disabled state only from the form,
-   *  so they can never carry a value into a request. */
+  /** 7 filter fields in mock order (§6.2), all enabled. Values stay STRINGS —
+   *  Account/Order numbers are fixed-width identifiers, and `Number()` would
+   *  eat a leading zero. */
   protected readonly form = this.fb.group({
     nationalityId: this.fb.control(''),
     customerId: this.fb.control(''),
-    accountNumber: this.fb.control({ value: '', disabled: true }),
+    accountNumber: this.fb.control(''),
     gsmNumber: this.fb.control(''),
     firstName: this.fb.control(''),
     lastName: this.fb.control(''),
-    orderNumber: this.fb.control({ value: '', disabled: true }),
+    orderNumber: this.fb.control(''),
   });
 
   /** Per-page options (KR-04: size is always explicit; values per scope §2.4).

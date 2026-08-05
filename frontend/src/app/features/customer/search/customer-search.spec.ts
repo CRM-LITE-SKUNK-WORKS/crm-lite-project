@@ -177,18 +177,21 @@ describe('CustomerSearch', () => {
 
   // ---- AC-CUST-01-02 + filters -------------------------------------------
 
-  it('the three numeric filters accept digits ONLY — letters and symbols never enter the field or the request', () => {
+  it('all five numeric filters accept digits ONLY — letters and symbols never enter the field or the request', () => {
     const fixture = render();
     lastListRequest().flush(envelope([ALI]));
     fixture.detectChanges();
     const numericFilters = [
       'customer-search-filter-id-number-input',
       'customer-search-filter-customer-id-input',
+      'customer-search-filter-account-number-input',
       'customer-search-filter-gsm-number-input',
+      'customer-search-filter-order-number-input',
     ];
     for (const testId of numericFilters) {
       type(fixture, testId, 'a1b2-c3');
       expect((byTestId(fixture, testId) as HTMLInputElement).value).toBe('123');
+      type(fixture, testId, '');
     }
     // and the sanitized value is what the request carries
     type(fixture, 'customer-search-filter-customer-id-input', '');
@@ -228,7 +231,9 @@ describe('CustomerSearch', () => {
     req.flush(envelope([ZEYNEP]));
   });
 
-  it('renders the 501 filters disabled and unrepresentable in any request (FE-ADR-013)', () => {
+  // ---- KR-02 Account / Order Number filters (scope §1.7c — 501 gate removed) ----
+
+  it('renders the Account and Order Number filters ENABLED, with no deferred hint left', () => {
     const fixture = render();
     lastListRequest().flush(envelope([ALI]));
     fixture.detectChanges();
@@ -240,8 +245,174 @@ describe('CustomerSearch', () => {
       fixture,
       'customer-search-filter-order-number-input',
     ) as HTMLInputElement;
-    expect(account.disabled).toBe(true);
-    expect(order.disabled).toBe(true);
+    expect(account.disabled).toBe(false);
+    expect(order.disabled).toBe(false);
+    // The old "Available when the account/order module is released." helper is gone.
+    const root = fixture.nativeElement as HTMLElement;
+    expect(root.textContent).not.toContain('Available when the account/order module');
+  });
+
+  it('Account Number alone enables Search and is sent verbatim as an exact criterion (KR-01)', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    const submit = byTestId(fixture, 'customer-search-submit-button') as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+
+    type(fixture, 'customer-search-filter-account-number-input', '1261000010');
+    expect(submit.disabled).toBe(false);
+
+    clickSearch(fixture);
+    const req = lastListRequest();
+    expect(req.request.params.get('accountNumber')).toBe('1261000010');
+    expect(req.request.params.has('orderNumber')).toBe(false);
+    expect(req.request.params.get('page')).toBe('0');
+    // The screen sends the criterion and renders whatever the server resolved —
+    // it never filters the already-loaded table (KR-02 is a SERVER rule).
+    req.flush(envelope([ALI]));
+    fixture.detectChanges();
+    expect(byTestId(fixture, 'customer-search-results-row-1001')).not.toBeNull();
+    expect(byTestId(fixture, 'customer-search-results-row-1002')).toBeNull();
+  });
+
+  it('Order Number alone enables Search and is sent verbatim', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    const submit = byTestId(fixture, 'customer-search-submit-button') as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+
+    type(fixture, 'customer-search-filter-order-number-input', '1262000018');
+    expect(submit.disabled).toBe(false);
+
+    clickSearch(fixture);
+    const req = lastListRequest();
+    expect(req.request.params.get('orderNumber')).toBe('1262000018');
+    expect(req.request.params.has('accountNumber')).toBe(false);
+    req.flush(envelope([ZEYNEP]));
+    fixture.detectChanges();
+    expect(byTestId(fixture, 'customer-search-results-row-1002')).not.toBeNull();
+  });
+
+  it('keeps Account/Order numbers as STRINGS: a leading zero survives typing and the request', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+    type(fixture, 'customer-search-filter-account-number-input', '0261000010');
+    type(fixture, 'customer-search-filter-order-number-input', '0262000018');
+    expect(
+      (byTestId(fixture, 'customer-search-filter-account-number-input') as HTMLInputElement).value,
+    ).toBe('0261000010');
+    clickSearch(fixture);
+    const req = lastListRequest();
+    expect(req.request.params.get('accountNumber')).toBe('0261000010'); // not "261000010"
+    expect(req.request.params.get('orderNumber')).toBe('0262000018');
+    req.flush(envelope([ALI]));
+  });
+
+  it('sanitizes a PASTED non-digit value in both new filters (the shared digitsOnly pattern)', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+    for (const testId of [
+      'customer-search-filter-account-number-input',
+      'customer-search-filter-order-number-input',
+    ]) {
+      const input = byTestId(fixture, testId) as HTMLInputElement;
+      // A paste reaches the control as a plain `input` event with the full text —
+      // the same path `digitsOnly` sanitizes, which is why `inputMode` (a mere
+      // keyboard hint) could never have covered this.
+      input.value = '12-34 AB e+5.6';
+      input.dispatchEvent(new Event('input'));
+      fixture.detectChanges();
+      expect(input.value).toBe('123456');
+    }
+    clickSearch(fixture);
+    const req = lastListRequest();
+    expect(req.request.params.get('accountNumber')).toBe('123456');
+    expect(req.request.params.get('orderNumber')).toBe('123456');
+    req.flush(envelope([]));
+  });
+
+  it('sends Account/Order Number ALONGSIDE the existing criteria (KR-01 OR groups, server-side)', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    type(fixture, 'customer-search-filter-account-number-input', '1261000010');
+    type(fixture, 'customer-search-filter-name-input', 'Zeynep');
+    clickSearch(fixture);
+    const req = lastListRequest();
+    expect(req.request.params.get('accountNumber')).toBe('1261000010');
+    expect(req.request.params.get('firstName')).toBe('Zeynep');
+    expect(req.request.params.has('sort')).toBe(false); // KR-04 fixed server sort
+    req.flush(envelope([ALI, ZEYNEP]));
+  });
+
+  it('Clear resets the two new filters and returns to browse mode', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    type(fixture, 'customer-search-filter-account-number-input', '1261000010');
+    type(fixture, 'customer-search-filter-order-number-input', '1262000018');
+    clickSearch(fixture);
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+
+    (byTestId(fixture, 'customer-search-clear-button') as HTMLButtonElement).click();
+    fixture.detectChanges();
+    expect(
+      (byTestId(fixture, 'customer-search-filter-account-number-input') as HTMLInputElement).value,
+    ).toBe('');
+    expect(
+      (byTestId(fixture, 'customer-search-filter-order-number-input') as HTMLInputElement).value,
+    ).toBe('');
+    const req = lastListRequest();
+    expect(req.request.params.keys().sort()).toEqual(['page', 'size']); // browse again
+    req.flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    expect((byTestId(fixture, 'customer-search-submit-button') as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it('an unmatched Account Number shows the MSG-CUST-NOT-FOUND empty state (AC-CUST-01-06)', () => {
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI, ZEYNEP]));
+    fixture.detectChanges();
+    type(fixture, 'customer-search-filter-account-number-input', '9999999999');
+    clickSearch(fixture);
+    lastListRequest().flush(envelope([]));
+    fixture.detectChanges();
+    expect(byTestId(fixture, 'customer-search-empty-state')?.textContent).toContain(
+      'No customer found',
+    );
+    expect(byTestId(fixture, 'customer-search-browse-empty-state')).toBeNull();
+  });
+
+  it('binds a 400 validationErrors entry for accountNumber onto that field (backend stays authority)', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const fixture = render();
+    lastListRequest().flush(envelope([ALI]));
+    fixture.detectChanges();
+    type(fixture, 'customer-search-filter-account-number-input', '1261000010');
+    clickSearch(fixture);
+    lastListRequest().flush(
+      {
+        timestamp: '',
+        status: 400,
+        error: 'Bad Request',
+        messageKey: 'MSG-VALIDATION-ERROR',
+        message: 'raw',
+        path: '/api/customers',
+        validationErrors: { accountNumber: 'must contain digits only' },
+      },
+      { status: 400, statusText: 'Bad Request' },
+    );
+    fixture.detectChanges();
+    expect(
+      byTestId(fixture, 'customer-search-filter-account-number-error')?.textContent,
+    ).toContain('Please check this field.');
+    warn.mockRestore();
   });
 
   it('fully clearing an applied filter re-runs the search without pressing Search (mock §6.2)', () => {

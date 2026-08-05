@@ -10,7 +10,6 @@ import java.time.Period;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
-import org.springframework.util.StringUtils;
 
 @Component
 @RequiredArgsConstructor
@@ -25,16 +24,11 @@ public class CustomerBusinessRules {
     // FR/AC v8 analyst decision of 2026-07-16 (AC-CUST-01-00 + ADR-005): a request
     // with no criteria is now the valid "browse all active customers" mode.
 
-    // TODO (intentional): accountNumber/orderNumber resolve to CUST_ACCT / CUST_ORD,
-    // which belong to the future account/order domains. Until those exist this returns
-    // an explicit 501 instead of silently wrong results. gsmNumber is now local
-    // (CNTC_MEDIUM is owned by customer-service) and searchable.
-    public void checkNoUnsupportedCrossServiceSearchCriterion(String accountNumber, String orderNumber) {
-        if (StringUtils.hasText(accountNumber) || StringUtils.hasText(orderNumber)) {
-            throw new BusinessException(HttpStatus.NOT_IMPLEMENTED, MessageKeys.FEATURE_NOT_IMPLEMENTED,
-                    "Search by accountNumber/orderNumber is not implemented yet");
-        }
-    }
+    // NOTE: checkNoUnsupportedCrossServiceSearchCriterion (the 501 gate on
+    // accountNumber/orderNumber) was REMOVED once both owning domains shipped —
+    // account-service 2026-07-23 (ADR-013) and order-service 2026-08-02 (ADR-016). KR-02
+    // is now resolved for real in CustomerServiceImpl.search through those services'
+    // own APIs; MSG-FEATURE-NOT-IMPLEMENTED is no longer produced by this service.
 
     /** Resolves the public business identifier to an ACTIVE customer or 404s. */
     public Customer checkCustomerExistsAndActive(Long customerNumber) {

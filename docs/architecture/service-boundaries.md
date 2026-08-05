@@ -131,10 +131,26 @@ only). Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
    verbatim and relays the upstream's `MSG-SALE-*` / `MSG-VAL-CHAR-*` keys unchanged.
    **No basket is ever persisted** (AC-SALE-01-16 holds by construction), and
    `KR-12` (order number) is a **project-proposed** rule awaiting analyst sign-off.
-9. **Future domains** (see roadmap below): own services + own databases per the seed
+9. **KR-02 customer search over child records (ADR-005 §Addendum, 2026-08-05):**
+   `GET /api/customers?accountNumber=` / `?orderNumber=` must return the customer
+   that OWNS the record, but those records belong to other databases. customer-service
+   therefore **resolves each number through the owning service's existing public API**
+   — `GET /api/accounts/{n}` (ADR-013 §5) and `GET /api/orders/{n}` (ADR-016 §3.2),
+   direct via Eureka with the user's token (ADR-010) — and folds the returned
+   `customerNumber` into its own local predicate. This adds a *request-time*
+   dependency customer-service did not have before, in the opposite direction to the
+   account→customer address check that already existed. That reverse edge is
+   acceptable only because it is **read-only, per-criterion and fails closed**
+   (503 `MSG-SERVICE-UNAVAILABLE`); it is deliberately **not** a compose `depends_on`,
+   which would close a startup cycle with account-service. Still forbidden, and still
+   not done: reading `account_db`/`order_db`, cross-database joins or FKs, shared
+   entities, local copies of `cust_acct`/`cust_ord`, and aggregating the two lookups
+   in the gateway (which stays an edge/BFF, ADR-007).
+10. **Future domains** (see roadmap below): own services + own databases per the seed
    workbook. Until they exist, cross-domain behaviour is an explicit 501 or a
-   documented no-op TODO — never silently faked.
-10. **Ports:** 8888 config, 8761 eureka, 8080 gateway (BFF), 8180 keycloak,
+   documented no-op TODO — never silently faked. *(The `accountNumber`/`orderNumber`
+   501 was the last such gate in customer-service and is closed as of 2026-08-05.)*
+11. **Ports:** 8888 config, 8761 eureka, 8080 gateway (BFF), 8180 keycloak,
     8082 customer, 8083 lookup, 8084 mernis-stub, 8085 account, 8086 product,
     8087 order (8082–8087 host-visible only in the IDE-run topology; compose
     keeps them internal).
@@ -149,13 +165,13 @@ only). Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
 | keycloak (infra) | ✅ Implemented | Pinned 26.3.4, realm `crm-lite` committed as import, client `crm-bff` (public + PKCE), role `crm-user`, KR-9 session settings, dev users ayilmaz/edemir (+ disabled mkaya) — ADR-006/011 |
 | crm-security-starter | ✅ Implemented | Shared resource-server defaults: JWT sig/iss/aud validation, realm-role mapping, 401/403 contract, `AuditorAware` (JWT sub), bearer propagation (ADR-009). A library module, not a deployable |
 | lookup-service | ✅ Implemented | central GNL_ST/GNL_TP owner (ADR-002), Flyway-seeded contract IDs, Testcontainers IT |
-| customer-service | ✅ Implemented | full customer/address/contact aggregate (ADR-001), ADR-005 list contract; unit + Testcontainers integration suite (see build results in PROJECTBRAIN §8) |
+| customer-service | ✅ Implemented | full customer/address/contact aggregate (ADR-001), ADR-005 list contract **incl. the KR-02 `accountNumber`/`orderNumber` criteria resolved through account-/order-service (§9, 2026-08-05)**; unit + Testcontainers integration suite (see build results in PROJECTBRAIN §8) |
 | mernis-stub | ✅ Implemented | fake KPS/MERNIS (KR-10), deterministic, no DB, not gateway-exposed |
 | address-service | 🚫 Must NOT exist | internal customer-service module under ADR-001 |
 | contact-service | 🚫 Must NOT exist | internal customer-service module under ADR-001 |
 | auth / security milestone | ✅ **Implemented (2026-07-17)** | Keycloak sole authority + gateway BFF + zero-trust resource servers + JWT-sub audit (ADR-006..011). The auth-service skeleton was REMOVED (ADR-007) — it must not come back; a future profile store, if ever needed, is a new sub-keyed service per ADR-011 |
 | localization-service | 🗓️ Planned | Required by FR-LANG if the architecture keeps a central label/message catalog; **default language is now English** (16.07.2026). Backend already returns language-neutral `messageKey`s. Not started |
-| account-service | ✅ **Implemented (2026-07-23)** | FR-ACCT-01..04 + KR-11 per **ADR-013/014**: `account_db` (acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq), gateway route `/api/accounts/**`, zero-trust resource server, K-8 lazy 223, delete = passivation (stays list-visible). Unit + Testcontainers IT suite (`AccountServiceIntegrationTest`); Swagger in the unified gateway UI. customer-service's account-related 501/no-ops convert in a separate follow-up PR |
+| account-service | ✅ **Implemented (2026-07-23)** | FR-ACCT-01..04 + KR-11 per **ADR-013/014**: `account_db` (acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq), gateway route `/api/accounts/**`, zero-trust resource server, K-8 lazy 223, delete = passivation (stays list-visible). Unit + Testcontainers IT suite (`AccountServiceIntegrationTest`); Swagger in the unified gateway UI. customer-service's `accountNumber` **search** 501 converted 2026-08-05 (ADR-005 §Addendum, §9 above); its account-related delete/address **no-ops** are still open |
 | product-service | ✅ **Implemented — read slice (2026-07-29) + FR-SALE write slice (2026-08-02, ADR-015)** | **Read side:** FR-PROD-01..02 §2.6 + read-only catalog: `product_db` (prod_spec/prod_ofr/cmpg/cmpg_prod_ofr/prod/prod_spec_char/prod_spec_char_use/prod_char_val/prod_catal/prod_catal_prod_ofr), port 8086, gateway routes `/api/products/**`, `/api/offers/**`, `/api/campaigns/**`, zero-trust resource server, Swagger in the unified gateway UI. `GET /api/products` composes over account-service's `product-ids` endpoint — `PROD` carries NO account/customer column and this service never touches `account_db` (ADR-013 §5/§7). **Write side (2026-08-02, ADR-015 §5/§6):** `POST /api/products` creates a whole installation as **PNDG** in one local transaction (main/child derived from the INTERNET service type), `/confirm` promotes it to ACTV, `/cancel` is the PNDG-only compensation; `GET /api/offers/{id}/characteristics` serves the Product Configuration schema. The full `LookupCatalogClient` boundary was built **before** the first write (ADR-015 §4.1 — ADR-002 fail-closed). Basket composition (AC-SALE-01-05/08) and characteristic validation (AC-SALE-01-18/19) live here, not in order-service. PNDG rows are invisible to FR-PROD-01/02. Testcontainers IT (`ProductServiceIntegrationTest`, 24 tests) + `CharacteristicValidationRulesTest`, `ProductBusinessRulesTest`. **The ADR debt is discharged** — see `docs/api/product-service.md` |
 | order-service | ✅ **Implemented (2026-08-02)** | FR-SALE-01..02 §2.7 per **ADR-016**: `order_db` (bsn_inter/cust_ord/cust_ord_item/order_number_seq), port 8087, gateway route `/api/orders/**`, zero-trust resource server, Swagger in the unified gateway UI. Two endpoints only — Submit Order and order detail; **no basket table, no order-cancel endpoint, no order list**. Orchestrates across product-service and account-service with compensations instead of a distributed transaction. Unit (`OrderNumberFormatTest`, `LuhnCheckDigitTest`) + Testcontainers IT (`OrderServiceIntegrationTest`, 15 tests covering every compensation path). **KR-12 awaits analyst sign-off** |
 

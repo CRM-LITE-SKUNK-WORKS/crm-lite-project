@@ -131,11 +131,9 @@ export const UI = {
   },
   'UI-SEARCH-PLACEHOLDER-CUSTOMER-ID': { en: 'e.g. 3068231', tr: 'ör. 3068231' },
   'UI-SEARCH-PLACEHOLDER-GSM': { en: '05XX XXX XX XX', tr: '05XX XXX XX XX' },
-  // Disabled account/order filters (out of scope, FE-ADR-013 §b; scope-and-conflicts §2.24 wording pending analyst).
-  'UI-SEARCH-DEFERRED-HINT': {
-    en: 'Available when the account/order module is released.',
-    tr: 'Hesap/sipariş modülü yayınlandığında kullanılabilir olacak.',
-  },
+  // UI-SEARCH-DEFERRED-HINT was REMOVED on 2026-08-05: the Account/Order Number
+  // filters are live (customer-service resolves KR-02 for real), so a hint saying
+  // the module is unreleased would be a lie. scope §2.24 is closed with it.
 
   // ---- Create Customer (mock-ui-analysis §6.3) ----
   'UI-CREATE-TITLE': { en: 'Create customer', tr: 'Müşteri oluştur' },

@@ -6,7 +6,32 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-04 (**🐞 HESAP MODALI — İKİNCİ TUR.** BUG-1 onaylandı
+> **Son güncelleme:** 2026-08-05 (**🔓 CUSTOMER SEARCH: ACCOUNT NUMBER + ORDER
+> NUMBER AKTİF — üç turdur bloke olan §1.7/§1.8 KAPANDI.** Bu turda **backend'e
+> de dokunuldu** (görevin açık kapsamı): bloke edenin ta kendisi olan
+> `CustomerBusinessRules.checkNoUnsupportedCrossServiceSearchCriterion` **silindi**
+> ve yerine gerçek çözümleme kondu — `accountNumber` → `GET /api/accounts/{n}`,
+> `orderNumber` → `GET /api/orders/{n}` (ADR-005 §Addendum 2026-08-05).
+> **§1.7b'de yapılan kontrat karşılaştırması burada karşılığını verdi:** iki yanıt
+> da zaten `customerNumber` taşıdığı için **hiçbir yeni uç açılmadı**, hiçbir
+> kontrat değişmedi. **Frontend tarafı gerçekten küçüktü, §1.7a'nın öngördüğü
+> gibi:** iki `FormControl`'ün `disabled: true`'su kalktı, ikisi
+> `FILTERABLE_CONTROLS`'a girdi (Search'ü aktive ederler, istekte giderler, 400
+> alan hatası bağlanır, Clear temizler), `CustomerSearchCriteria`'ya **string**
+> olarak eklendiler. **Yeni bir sayısal giriş mekanizması YAZILMADI** — mevcut
+> `TextInput.digitsOnly` girdisi bağlandı (yapıştırma + mobil klavye dahil;
+> `type="number"` bilinçle kullanılmadı, `e`/`+`/`-`/ondalık ayırıcıyı geçirirdi).
+> Değerler **String** kalıyor: KR-11/KR-12 sabit genişlikte kimliklerdir,
+> `Number('0261000010')` baştaki sıfırı yerdi. **İstemci hiçbir filtreleme
+> yapmıyor** — KR-02 sunucu kuralıdır, yüklenmiş tabloda eleme yok.
+> `UI-SEARCH-DEFERRED-HINT` katalogdan **silindi** ve §2.24 onunla kapandı.
+> KR-01 vs AC-CUST-01-03 çelişkisi araştırıldı: **v8-2 metninde çelişki YOK**,
+> ikisi de "birebir" diyor → **exact** (backend `document-delta.md` §Conflict #7).
+> **409/409 test** (+9), lint + konvansiyon + prod build yeşil; backend 91/91.
+> Kayıtlar: scope **§1.7c** + §2.24. ⚠️ `format:check` repo genelinde 162 dosyada
+> kırmızı (dokunulmayanlar dahil) — **önceden var olan** bir durum, bu turda
+> düzeltilmedi.
+> Önceki: 2026-08-04 (**🐞 HESAP MODALI — İKİNCİ TUR.** BUG-1 onaylandı
 > (kapandı). **BUG-2 ilk turda kapanmamıştı:** düzeltme desende doğru kurulmuştu
 > ama **hata raporundaki dialoga uygulanmamıştı** (`account-form-dialog`
 > `overflowVisible` almamıştı — uygulama hatası). İkinci turda üç şey birden
@@ -511,7 +536,9 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
       Browse modu açılışta (AC-CUST-01-00), Search boşken pasif (AC-CUST-01-02),
       KR-01 parametre eşlemesi (istemci yeniden uygulamaz), KR-04 `size` daima
       açık, 12 durumun tümü (skeleton/boş×2/hata bandı/yeniden yükleme çubuğu…),
-      501 filtreleri disabled. Placeholder ekran + `UI-PLACEHOLDER-*` kaldırıldı;
+      ~~501 filtreleri disabled~~ (**05.08.2026: Account/Order Number filtreleri
+      AKTİF** — backend KR-02'yi gerçekten çözüyor, scope §1.7c).
+      Placeholder ekran + `UI-PLACEHOLDER-*` kaldırıldı;
       rota `''` artık Search. Satır linki Detail gelene kadar **pasif** (§2A.5),
       "Create new customer" **disabled** (wizard gelince `routerLink`). Uygulama
       kayıtları: `scope-and-conflicts §4.20`

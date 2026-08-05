@@ -48,6 +48,13 @@ alanlar **render edilir ama disabled**, isteğe **hiçbir zaman eklenmez**. Back
 onlara `501 MSG-FEATURE-NOT-IMPLEMENTED` döner; bu 501'i görmek **frontend
 hatası** demektir (FE-ADR-008 §6).
 
+> ⚠️ **GEÇERSİZ (05.08.2026).** Yukarıdaki paragraf tarihseldir. Her iki filtre de
+> artık **kapsam içi ve canlı** (FE-ADR-013 §Amendment C): backend numarayı sahibi
+> olan servisten çözüp **sahip müşteriyi** döndürüyor (KR-02/AC-CUST-01-04) ve ikisi
+> de **birebir** eşleşir. Alanlar enabled, değerler istekte gider; rakam kısıtı
+> paylaşılan `TextInput.digitsOnly` girdisiyle. KR-02 bir **sunucu** kuralıdır —
+> ekran yüklenmiş tabloyu filtrelemez.
+
 ---
 
 ## 3. İstek sözleşmesi
@@ -138,7 +145,7 @@ olarak çıkar.
 | 7 | **401** | Oturum düştü | Interceptor tam sayfa login'e yönlendirir — **ekran hiçbir şey yapmaz** |
 | 8 | **403 FORBIDDEN** | Rol yok | `/access-denied` (guard/interceptor) |
 | 9 | **403 CSRF** | Token bayat | Interceptor probe + **1 kez** tekrar; kullanıcı fark etmez |
-| 10 | **501** | Disabled filtre gönderildi | **Frontend hatası**; kullanıcıya mesaj değil, `console.error` (FE-ADR-008 §6) |
+| 10 | ~~**501**~~ | ~~Disabled filtre gönderildi~~ | ⚪ **Artık üretilemez (05.08.2026):** hiçbir backend `MSG-FEATURE-NOT-IMPLEMENTED` döndürmüyor. FE-ADR-008 §6'nın "501 = frontend hatası" kuralı yürürlükte kalıyor (genel kural), ama bu ekranda tetikleyecek bir kriter yok |
 | 11 | **503** | Servis kapalı | Toast: `MSG-SERVICE-UNAVAILABLE`; tablo son iyi haliyle kalır |
 | 12 | **Ağ / 5xx** | Bağlantı yok | `MSG-INTERNAL-ERROR` + **Tekrar dene** aksiyonu |
 
@@ -224,7 +231,7 @@ customer-search-pagination-page-{n}           customer-search-page-size-select
 | 3 | **Satır tıklaması nereye gider?** | 🟡 Detay ekranı henüz yok. Öneri: satır `routerLink` **hazır yazılır**, hedef rota gelene kadar pasif. Yoksa Detail yazılırken tabloya geri dönmek gerekir |
 | 4 | **Browse-boş vs arama-boş metni** | 🟡 Durum 3 için analist metni yok. Öneri: proje-yazımı `UI-SEARCH-BROWSE-EMPTY-*`, işaretli (FE-ADR-008 §7 kalıbı) |
 | 5 | **"Second name" ve "Role"** | 🟡 `scope-and-conflicts §2A` — proje kararı var, **analist onayı** isteniyor |
-| 6 | **501 filtrelerinin ipucu metni** | 🟡 `§2.24` — hâlâ analiste soruldu |
+| 6 | ~~**501 filtrelerinin ipucu metni**~~ | ⚪ **KAPANDI (05.08.2026)** — alanlar disabled değil, ipucu metni silindi (`§2.24`, `§1.7c`) |
 | 7 | **Sayfalama kaç sayfa butonu gösterecek?** | 🟡 Mock 3 gösteriyor; 137 sonuçta 7 sayfa olur. Kısaltma kuralı (`1 … 4 5 6 … 12`) mock'ta yok — karar gerekiyor |
 | 8 | **Türkçe diakritik** | ⚪ Karar verildi: backend'e göre **diakritik-duyarlı**, frontend katlama yapmaz (§2.14). Backend'e bildirilen `İ` hatası (§5.1) **açık** — arama sonuçlarında görülebilir |
 

@@ -2,8 +2,10 @@ package com.crm.customer.common.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.crm.customer.account.AccountServiceProperties;
 import com.crm.customer.lookup.LookupCatalogProperties;
 import com.crm.customer.mernis.MernisProperties;
+import com.crm.customer.order.OrderServiceProperties;
 import com.crm.security.starter.BearerTokenPropagationInterceptor;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -132,6 +134,28 @@ class OutboundBearerPropagationTest {
         lookup.get().uri("/api/lookups/statuses/ACTV").retrieve().toBodilessEntity();
 
         assertThat(AUTH_HEADER_BY_PATH).containsEntry("/api/lookups/statuses/ACTV", "Bearer user-access-token");
+    }
+
+    @Test
+    @DisplayName("account/order RestClients propagate the user's bearer token for the KR-02 search (ADR-010)")
+    void childRecordOwnerClientsPropagateBearer() {
+        // Both owning services are INTERNAL zero-trust resource servers (ADR-009), so
+        // the authorized service-to-service call carries the same operator identity —
+        // no client credentials and no service account were introduced.
+        authenticate("user-access-token");
+        HttpClientConfig config = new HttpClientConfig();
+
+        RestClient account = config.accountRestClient(passthrough(),
+                new AccountServiceProperties("http://account-service"), new BearerTokenPropagationInterceptor());
+        account.get().uri("/api/accounts/1261000010").retrieve().toBodilessEntity();
+
+        RestClient order = config.orderRestClient(passthrough(),
+                new OrderServiceProperties("http://order-service"), new BearerTokenPropagationInterceptor());
+        order.get().uri("/api/orders/1262000018").retrieve().toBodilessEntity();
+
+        assertThat(AUTH_HEADER_BY_PATH)
+                .containsEntry("/api/accounts/1261000010", "Bearer user-access-token")
+                .containsEntry("/api/orders/1262000018", "Bearer user-access-token");
     }
 
     @Test

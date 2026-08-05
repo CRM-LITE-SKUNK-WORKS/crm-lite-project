@@ -3,15 +3,17 @@
  *
  * customer-service.md documents these query params: `firstName`, `lastName`,
  * `nationalityId`, `customerId`, `gsmNumber`, `accountNumber`, `orderNumber`,
- * `page`, `size`.
+ * `page`, `size`. All seven are representable here since 2026-08-05.
  *
- * 🔴 `accountNumber` and `orderNumber` are DELIBERATELY EXCLUDED from this type.
- * The backend answers them with `501 MSG-FEATURE-NOT-IMPLEMENTED` (customer
- * search still returns 501 even after account-service shipped — the conversion
- * is a separate follow-up PR, account-service.md §Deliberate limitations). Per
- * FE-ADR-013 §b the frontend renders those inputs disabled and NEVER sends them,
- * so they must not be representable here (a 501 reaching the interceptor is a
- * frontend bug, FE-ADR-008 §6).
+ * ✅ `accountNumber` / `orderNumber` were excluded until 2026-08-05 because the
+ * backend answered them with `501 MSG-FEATURE-NOT-IMPLEMENTED`. That gate is
+ * gone: customer-service now resolves each number through its owning service
+ * (account-service / order-service) and returns the owning customer (KR-02,
+ * AC-CUST-01-04). Recorded in `scope-and-conflicts.md` §1.7c.
+ *
+ * Every value stays a **string**. Account and Order numbers are fixed-width
+ * KR-11/KR-12 identifiers, not quantities: `Number('0261000010')` would drop the
+ * leading zero and a 10-digit identifier is meaningfully a digit STRING.
  */
 export interface CustomerSearchCriteria {
   /** Word-start over First + Middle combined, case-insensitive (KR-01). */
@@ -26,6 +28,12 @@ export interface CustomerSearchCriteria {
   readonly customerId?: string;
   /** Prefix match on the mobile phone. */
   readonly gsmNumber?: string;
+  /** KR-11 billing-account number, **exact** match (KR-01: "birebir"); resolves
+   *  to the customer that owns the account. Digits only, kept as a string. */
+  readonly accountNumber?: string;
+  /** KR-12 order number, **exact** match; resolves to the customer that owns
+   *  the order. Digits only, kept as a string. */
+  readonly orderNumber?: string;
 }
 
 /**

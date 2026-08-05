@@ -46,6 +46,14 @@ crm:
     cache-max-size: 256
   mernis:
     base-url: http://mernis-stub      # fake MERNIS/KPS (KR-10)
+  # KR-02 child-record search criteria. customer-service resolves accountNumber and
+  # orderNumber through the OWNING service's public API — it never reads account_db or
+  # order_db (ADR-013 §5, ADR-016 §3.2). Reached directly via Eureka with the user's
+  # token propagated (ADR-010), never through the gateway.
+  account:
+    base-url: http://account-service  # cust_acct owner (FR-ACCT, KR-11)
+  order:
+    base-url: http://order-service    # cust_ord owner (FR-SALE, KR-12)
 
 eureka:
   client:

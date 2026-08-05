@@ -58,19 +58,23 @@
           />
         </app-form-field>
 
-        <!-- 501 filter: rendered but DISABLED at the control level; never sent
-             (FE-ADR-013 §b). Hint wording: scope §2.24 (asked to analyst). -->
+        <!-- KR-02: exact match on the KR-11 billing-account number; the backend
+             resolves it to the owning customer (scope §1.7c). Digits enforced by
+             the shared `digitsOnly` input capability, not by `type=number`. -->
         <app-form-field
           [label]="'UI-SEARCH-FILTER-ACCOUNT-NUMBER' | t"
           controlId="customer-search-account-number"
-          [helperText]="'UI-SEARCH-DEFERRED-HINT' | t"
+          [errorText]="errorTextFor('accountNumber')"
           testId="customer-search-filter-account-number"
         >
           <app-text-input
             formControlName="accountNumber"
             controlId="customer-search-account-number"
             inputMode="numeric"
+            [digitsOnly]="true"
             [placeholder]="'UI-SEARCH-FILTER-ACCOUNT-NUMBER' | t"
+            [error]="!!errorTextFor('accountNumber')"
+            describedBy="customer-search-account-number-error"
             testId="customer-search-filter-account-number-input"
           />
         </app-form-field>
@@ -128,17 +132,21 @@
           />
         </app-form-field>
 
+        <!-- KR-02: exact match on the KR-12 order number; same resolution rule. -->
         <app-form-field
           [label]="'UI-SEARCH-FILTER-ORDER-NUMBER' | t"
           controlId="customer-search-order-number"
-          [helperText]="'UI-SEARCH-DEFERRED-HINT' | t"
+          [errorText]="errorTextFor('orderNumber')"
           testId="customer-search-filter-order-number"
         >
           <app-text-input
             formControlName="orderNumber"
             controlId="customer-search-order-number"
             inputMode="numeric"
+            [digitsOnly]="true"
             [placeholder]="'UI-SEARCH-FILTER-ORDER-NUMBER' | t"
+            [error]="!!errorTextFor('orderNumber')"
+            describedBy="customer-search-order-number-error"
             testId="customer-search-filter-order-number-input"
           />
         </app-form-field>

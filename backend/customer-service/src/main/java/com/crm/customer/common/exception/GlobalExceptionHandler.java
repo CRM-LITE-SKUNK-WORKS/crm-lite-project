@@ -6,6 +6,7 @@ import com.crm.customer.lookup.LookupCatalogUnavailableException;
 import com.crm.customer.lookup.UnknownLookupCodeException;
 import com.crm.customer.mernis.MernisRejectedException;
 import com.crm.customer.mernis.MernisUnavailableException;
+import com.crm.customer.order.OrderServiceUnavailableException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -235,12 +236,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
     }
 
-    // AC-CUST-05-04 fail-closed rule: account-service could not be reached while
-    // passivating the customer's billing accounts — the whole delete is refused,
-    // nothing was persisted (the local passivation runs AFTER this step succeeds).
-    @ExceptionHandler(AccountServiceUnavailableException.class)
-    public ResponseEntity<ErrorResponse> handleAccountServiceUnavailable(AccountServiceUnavailableException ex,
-                                                                         HttpServletRequest request) {
+    // Fail-closed rule for BOTH flows that depend on another domain's service, merged
+    // into one handler because two @ExceptionHandler methods mapping the same exception
+    // type make Spring fail at startup with "Ambiguous @ExceptionHandler":
+    //
+    //   - AC-CUST-05-04: account-service could not be reached while passivating the
+    //     customer's billing accounts — the whole delete is refused, nothing was
+    //     persisted (local passivation runs only AFTER that step succeeds).
+    //   - KR-02: the owning service of a child-record search criterion
+    //     (account-service for accountNumber, order-service for orderNumber) could not
+    //     be reached, so the criterion could not be resolved. Answering 200 with an
+    //     empty page would report "no such customer" for a customer that exists, and
+    //     dropping the criterion would widen the query to every active customer.
+    //
+    // Both answer the same 503 MSG-SERVICE-UNAVAILABLE, so nothing is lost by sharing
+    // one method: the operation was not performed, and that is what the client is told.
+    @ExceptionHandler({AccountServiceUnavailableException.class, OrderServiceUnavailableException.class})
+    public ResponseEntity<ErrorResponse> handleUpstreamServiceUnavailable(RuntimeException ex,
+                                                                           HttpServletRequest request) {
         log.error("Upstream dependency unavailable on {} {}: {}", request.getMethod(), request.getRequestURI(),
                 ex.getMessage(), ex);
         ErrorResponse body = ErrorResponse.builder()

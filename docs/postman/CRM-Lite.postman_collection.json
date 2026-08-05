@@ -1915,12 +1915,12 @@
           ]
         },
         {
-          "name": "accountNumber filter -> 501 future domain",
+          "name": "accountNumber filter -> unknown number matches nothing (200, empty page)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{gatewayBaseUrl}}/api/customers?accountNumber=0101112900",
+              "raw": "{{gatewayBaseUrl}}/api/customers?accountNumber=9999999999",
               "host": [
                 "{{gatewayBaseUrl}}"
               ],
@@ -1931,7 +1931,7 @@
               "query": [
                 {
                   "key": "accountNumber",
-                  "value": "0101112900"
+                  "value": "9999999999"
                 }
               ]
             }
@@ -1942,11 +1942,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 501\", function () {",
-                  "    pm.response.to.have.status(501);",
+                  "// KR-02 (ADR-005 §Addendum 2026-08-05): the 501 this request used to assert is gone.",
+                  "// customer-service resolves the number through its owning service; an unknown one",
+                  "// matches NOTHING and must NOT fall back to the criterion-less browse mode.",
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"messageKey is MSG-FEATURE-NOT-IMPLEMENTED\", function () {",
-                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-FEATURE-NOT-IMPLEMENTED\");",
+                  "pm.test(\"No customer matches an unknown accountNumber\", function () {",
+                  "    pm.expect(pm.response.json().content).to.be.an(\"array\").that.is.empty;",
+                  "    pm.expect(pm.response.json().totalElements).to.eql(0);",
                   "});"
                 ]
               }
@@ -1954,12 +1958,12 @@
           ]
         },
         {
-          "name": "orderNumber filter -> 501 future domain",
+          "name": "orderNumber filter -> unknown number matches nothing (200, empty page)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "{{gatewayBaseUrl}}/api/customers?orderNumber=5001",
+              "raw": "{{gatewayBaseUrl}}/api/customers?orderNumber=9999999999",
               "host": [
                 "{{gatewayBaseUrl}}"
               ],
@@ -1970,7 +1974,7 @@
               "query": [
                 {
                   "key": "orderNumber",
-                  "value": "5001"
+                  "value": "9999999999"
                 }
               ]
             }
@@ -1981,11 +1985,15 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test(\"Status is 501\", function () {",
-                  "    pm.response.to.have.status(501);",
+                  "// KR-02 (ADR-005 §Addendum 2026-08-05): the 501 this request used to assert is gone.",
+                  "// customer-service resolves the number through its owning service; an unknown one",
+                  "// matches NOTHING and must NOT fall back to the criterion-less browse mode.",
+                  "pm.test(\"Status is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
                   "});",
-                  "pm.test(\"messageKey is MSG-FEATURE-NOT-IMPLEMENTED\", function () {",
-                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-FEATURE-NOT-IMPLEMENTED\");",
+                  "pm.test(\"No customer matches an unknown orderNumber\", function () {",
+                  "    pm.expect(pm.response.json().content).to.be.an(\"array\").that.is.empty;",
+                  "    pm.expect(pm.response.json().totalElements).to.eql(0);",
                   "});"
                 ]
               }

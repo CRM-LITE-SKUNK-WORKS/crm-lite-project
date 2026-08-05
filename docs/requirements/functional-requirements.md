@@ -125,9 +125,13 @@ search-criteria rule (ADR-005); no endpoint uses it anymore.
   `MSG-CUST-HAS-PRODUCTS`; account-service unreachable fails the whole delete closed
   with 503. The upfront `checkCustomerHasNoActiveProducts` guard stays a no-op — the
   same rejection is now discovered one layer deeper, at the account-service call.
-- Address in-use check (AC-ADDR-04-04, MSG-ADDR-IN-USE) → still a customer-service
-  no-op; billing accounts now reference addresses (`cust_acct.address_id`), so the
-  real check is possible but not part of the KR-02 search change.
+- ~~Address in-use check, Billing Account branch (AC-ADDR-04-04, MSG-ADDR-IN-USE)~~ —
+  **done 2026-08-05 (BUG-API-ADDR-04-03)**: `DELETE /api/customers/{n}/addresses/{id}`
+  now lists the customer's Billing Accounts through account-service; an Active account
+  whose `billingAddressId` matches the address answers 409 `MSG-ADDR-IN-USE`, Passive
+  accounts and Active accounts on a different address do not block, and account-service
+  unreachable fails the delete closed with 503. The service-address/product-service
+  branch of AC-ADDR-04-04 is **still open** — out of scope for this fix.
 - ~~**Product involvement sync**~~ — **done 2026-08-02** (ADR-013 §7/§8):
   `cust_acct_prod_invl` is now populated by real sales through account-service's own
   command endpoint. It remains **single-writer**; no other service writes `account_db`.

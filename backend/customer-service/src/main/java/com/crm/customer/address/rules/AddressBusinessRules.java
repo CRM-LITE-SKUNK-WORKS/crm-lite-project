@@ -1,5 +1,6 @@
 package com.crm.customer.address.rules;
 
+import com.crm.customer.account.AccountSummary;
 import com.crm.customer.address.entity.Address;
 import com.crm.customer.address.entity.City;
 import com.crm.customer.address.entity.District;
@@ -8,6 +9,7 @@ import com.crm.customer.address.repository.CityRepository;
 import com.crm.customer.address.repository.DistrictRepository;
 import com.crm.customer.common.exception.BusinessException;
 import com.crm.customer.common.exception.MessageKeys;
+import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -60,10 +62,22 @@ public class AddressBusinessRules {
         }
     }
 
-    // TODO (intentional): AC-ADDR-04-04 (MSG-ADDR-IN-USE) blocks deleting an address
-    // linked to an active billing account or service address. Those records live in the
-    // future account/product domains; until they exist this check is a documented no-op.
-    public void checkAddressIsNotInUse(Long addressId) {
-        // no-op
+    /**
+     * AC-ADDR-04-04 / BUG-API-ADDR-04-03: the Billing Account half of the in-use guard —
+     * an Active account still billing to this address blocks the delete. The caller
+     * (AddressServiceImpl) fetches {@code accounts} via AccountServiceClient; this class
+     * stays free of the HTTP/account-service dependency, matching the existing
+     * business-rule vs. service-orchestration split.
+     *
+     * <p>The service-address / product-service half of AC-ADDR-04-04 is not covered here —
+     * see PROJECTBRAIN.md §9.3.
+     */
+    public void checkAddressIsNotInUse(Long addressId, List<AccountSummary> accounts) {
+        boolean inUse = accounts.stream()
+                .anyMatch(account -> account.isActive() && addressId.equals(account.billingAddressId()));
+        if (inUse) {
+            throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.ADDR_IN_USE,
+                    "Address is linked to an active billing account: " + addressId);
+        }
     }
 }

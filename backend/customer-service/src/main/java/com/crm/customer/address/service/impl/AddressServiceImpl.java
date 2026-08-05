@@ -1,5 +1,6 @@
 package com.crm.customer.address.service.impl;
 
+import com.crm.customer.account.AccountServiceClient;
 import com.crm.customer.address.dto.AddressRequest;
 import com.crm.customer.address.dto.AddressResponse;
 import com.crm.customer.address.entity.Address;
@@ -31,6 +32,9 @@ public class AddressServiceImpl implements AddressService {
     private final AddressBusinessRules addressBusinessRules;
     private final CustomerBusinessRules customerBusinessRules;
     private final LookupCatalogService lookupCatalogService;
+    // AC-ADDR-04-04 / BUG-API-ADDR-04-03: account-service boundary for the address-in-use
+    // guard (ADR-013 §5) — the same client the customer-delete flow already uses.
+    private final AccountServiceClient accountServiceClient;
     // Audit attribution (ADR-004): Keycloak sub of the authenticated request.
     private final CurrentActorProvider currentActor;
 
@@ -112,7 +116,7 @@ public class AddressServiceImpl implements AddressService {
         Address address = addressBusinessRules.checkAddressExistsAndActive(addressId, party.getId());
         addressBusinessRules.checkAddressIsNotTheLastOne(party.getId());
         addressBusinessRules.checkAddressIsNotPrimary(address);
-        addressBusinessRules.checkAddressIsNotInUse(addressId);
+        addressBusinessRules.checkAddressIsNotInUse(addressId, accountServiceClient.listAccounts(customerNumber));
 
         long passiveStatusId = lookupCatalogService.resolveStatusId("status",
                 LookupContract.STATUS_PASSIVE, LookupContract.STATUS_DOMAIN_GENERAL);

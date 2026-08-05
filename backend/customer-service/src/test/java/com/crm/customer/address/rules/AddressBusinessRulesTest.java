@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.crm.customer.account.AccountSummary;
 import com.crm.customer.address.entity.Address;
 import com.crm.customer.address.entity.City;
 import com.crm.customer.address.entity.District;
@@ -13,6 +14,7 @@ import com.crm.customer.address.repository.CityRepository;
 import com.crm.customer.address.repository.DistrictRepository;
 import com.crm.customer.common.exception.BusinessException;
 import com.crm.customer.common.exception.MessageKeys;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -113,5 +115,37 @@ class AddressBusinessRulesTest {
         Address secondary = new Address();
         secondary.setPrimary(false);
         rules.checkAddressIsNotPrimary(secondary);
+    }
+
+    @Test
+    void activeBillingAccountOnThisAddress_blocksDelete_AC_ADDR_04_04_BUG_API_ADDR_04_03() {
+        List<AccountSummary> accounts = List.of(new AccountSummary("1261000010", 1001L, "Active", 42L));
+
+        assertThatThrownBy(() -> rules.checkAddressIsNotInUse(42L, accounts))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(ex -> {
+                    BusinessException be = (BusinessException) ex;
+                    assertThat(be.getStatus()).isEqualTo(HttpStatus.CONFLICT);
+                    assertThat(be.getMessageKey()).isEqualTo(MessageKeys.ADDR_IN_USE);
+                });
+    }
+
+    @Test
+    void passiveBillingAccountOnThisAddress_doesNotBlockDelete_AC_ADDR_04_04() {
+        List<AccountSummary> accounts = List.of(new AccountSummary("1261000028", 1001L, "Passive", 42L));
+
+        rules.checkAddressIsNotInUse(42L, accounts);
+    }
+
+    @Test
+    void activeBillingAccountOnAnotherAddress_doesNotBlockDelete_AC_ADDR_04_04() {
+        List<AccountSummary> accounts = List.of(new AccountSummary("1261000010", 1001L, "Active", 99L));
+
+        rules.checkAddressIsNotInUse(42L, accounts);
+    }
+
+    @Test
+    void noBillingAccounts_doesNotBlockDelete_AC_ADDR_04_04() {
+        rules.checkAddressIsNotInUse(42L, List.of());
     }
 }

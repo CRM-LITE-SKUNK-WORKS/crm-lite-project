@@ -1363,8 +1363,13 @@ lokalizasyon (varsayılan dil İngilizce), Keycloak login sayfası proje teması
   hesap 409 `MSG-CUST-HAS-PRODUCTS`, servis erişilemezse 503. Erken
   `checkCustomerHasNoActiveProducts` guard'ı **bilinçli olarak no-op kaldı** — aynı ret zaten
   bir katman derinde yakalanıyor.
-- [ ] `checkAddressIsNotInUse` (AC-ADDR-04-04, `MSG-ADDR-IN-USE`) — `cust_acct.address_id` artık
-  var; **hâlâ no-op**, tek kalan cross-service TODO.
+- [x] ~~`checkAddressIsNotInUse` (AC-ADDR-04-04, `MSG-ADDR-IN-USE`)~~ — **Billing Account bacağı
+  TAMAMLANDI 05.08.2026 (BUG-API-ADDR-04-03):** silme sırasında `AddressServiceImpl`,
+  `AccountServiceClient.listAccounts(customerNumber)` ile hesapları çeker; Active bir hesap
+  silinen adrese (`billingAddressId`) atıflıysa 409 `MSG-ADDR-IN-USE`, Passive hesaplar veya
+  başka adrese atıflı Active hesaplar engellemiyor, account-service erişilemezse 503
+  `MSG-SERVICE-UNAVAILABLE` (adres yerelde dokunulmadan kalır). **AC-ADDR-04-04'ün servis-adresi/
+  product-service bacağı hâlâ açık** — o kapsam bu değişikliğe dahil değil, ayrı takip gerektirir.
 - [ ] Arama performansı: kelime-başı `'% q%'` LIKE deseni index kullanamaz — veri hacmi büyürse `pg_trgm`
   değerlendirilmeli (şu an bootcamp ölçeğinde sorun değil).
 
@@ -1441,9 +1446,10 @@ serbest (PR squash'lanıyor).
   `cust_acct_prod_invl`'e **yazma** hâlâ uygulanmadı (yalnız okuma ucu var); karakteristik
   tabloları endpoint'siz; teklif fiyatları analist onayı bekleyen fixture. Hiçbiri
   "yapıldı" diye iddia edilmiyor — bkz. §4.9 + §9.1b.
-- **customer-service: `MSG-ADDR-IN-USE` kontrolü hâlâ no-op** — geriye kalan tek cross-service TODO
-  (bkz. §9.3); "yapıldığı" HİÇBİR yerde iddia edilmiyor. Fatura hesabı pasifleştirme ve aktif ürün
-  kontrolü **05.08.2026'da gerçek çağrıya çevrildi** (PR #29); erken
+- **customer-service: `MSG-ADDR-IN-USE` kontrolü — Billing Account bacağı gerçek çağrıya çevrildi
+  05.08.2026 (BUG-API-ADDR-04-03, bkz. §9.3)**; AC-ADDR-04-04'ün servis-adresi/product-service
+  bacağı **hâlâ açık** — "tamamlandığı" o kapsam için iddia edilmiyor. Fatura hesabı pasifleştirme
+  ve aktif ürün kontrolü **05.08.2026'da gerçek çağrıya çevrildi** (PR #29); erken
   `checkCustomerHasNoActiveProducts` guard'ı bilinçli no-op kaldı, ret bir katman derinde yakalanıyor.
 - **Testcontainers kurulu** — entegrasyon testleri Docker gerektirir; Docker kapalıysa yalnız o test
   sınıfları düşer (birim testleri etkilenmez). Surefire `-Dapi.version=1.44` pin'i: Testcontainers 1.21.3'ün

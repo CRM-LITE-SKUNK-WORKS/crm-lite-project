@@ -654,7 +654,7 @@ class CustomerServiceIntegrationTest {
 
     private void stubActiveAccount(String accountNumber, long ownerCustomerNumber) {
         Mockito.when(accountServiceClient.fetchAccount(accountNumber))
-                .thenReturn(Optional.of(new AccountSummary(accountNumber, ownerCustomerNumber, "Active")));
+                .thenReturn(Optional.of(new AccountSummary(accountNumber, ownerCustomerNumber, "Active", null)));
     }
 
     private void stubInProgressOrder(String orderNumber, long ownerCustomerNumber) {
@@ -703,7 +703,7 @@ class CustomerServiceIntegrationTest {
         // FR-ACCT-04: delete = passivation, so "Passive" IS account-service's soft
         // delete; a passivated billing account must not resolve to its owner.
         Mockito.when(accountServiceClient.fetchAccount("1261000028"))
-                .thenReturn(Optional.of(new AccountSummary("1261000028", 1001L, "Passive")));
+                .thenReturn(Optional.of(new AccountSummary("1261000028", 1001L, "Passive", null)));
         assertThat(searchResultNumbers("accountNumber=1261000028")).isEmpty();
 
         // ADR-016 §6: CANCELLED is a compensated (rolled-back) sale, not a live order.
@@ -872,8 +872,8 @@ class CustomerServiceIntegrationTest {
         long number = ((Number) created.getBody().get("customerNumber")).longValue();
 
         Mockito.when(accountServiceClient.listAccounts(number)).thenReturn(List.of(
-                new AccountSummary("1261000010", number, "Active"),
-                new AccountSummary("1261000028", number, "Passive")));
+                new AccountSummary("1261000010", number, "Active", null),
+                new AccountSummary("1261000028", number, "Passive", null)));
 
         ResponseEntity<Map> deleted = http.method(HttpMethod.DELETE)
                 .uri("/api/customers/" + number).retrieve().toEntity(Map.class);
@@ -892,7 +892,7 @@ class CustomerServiceIntegrationTest {
         long number = ((Number) created.getBody().get("customerNumber")).longValue();
 
         Mockito.when(accountServiceClient.listAccounts(number))
-                .thenReturn(List.of(new AccountSummary("1261000051", number, "Active")));
+                .thenReturn(List.of(new AccountSummary("1261000051", number, "Active", null)));
         Mockito.doThrow(new AccountHasActiveProductsException("1261000051"))
                 .when(accountServiceClient).passivateAccount("1261000051");
 
@@ -972,6 +972,121 @@ class CustomerServiceIntegrationTest {
         assertThat(listAddresses(base)).hasSize(1);
     }
 
+    // ------------------------------------ AC-ADDR-04-04 / BUG-API-ADDR-04-03: address in-use
+
+    @Test
+    @DisplayName("AC-ADDR-04-04 / BUG-API-ADDR-04-03: an Active Billing Account on this address blocks delete -> 409 MSG-ADDR-IN-USE")
+    void deleteBlockedByActiveBillingAccountOnThisAddress() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Faturali", "Musteri", "40000000040"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+        String base = "/api/customers/" + number + "/addresses";
+
+        ResponseEntity<Map> second = post(base, """
+                {"cityId": 2, "districtId": 3, "street": "Ikinci", "houseFlatNumber": "2",
+                 "addressDescription": "is", "primary": false}
+                """);
+        long secondId = ((Number) second.getBody().get("addressId")).longValue();
+
+        Mockito.when(accountServiceClient.listAccounts(number))
+                .thenReturn(List.of(new AccountSummary("1261000060", number, "Active", secondId)));
+
+        ResponseEntity<Map> delete = http.method(HttpMethod.DELETE).uri(base + "/" + secondId)
+                .retrieve().toEntity(Map.class);
+        assertThat(delete.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(delete.getBody().get("messageKey")).isEqualTo("MSG-ADDR-IN-USE");
+
+        var address = addressRepository.findById(secondId).orElseThrow();
+        assertThat(address.isActive()).isTrue();
+        assertThat(address.getDeletedDate()).isNull();
+        assertThat(listAddresses(base)).extracting(a -> ((Number) a.get("addressId")).longValue())
+                .contains(secondId);
+
+        deleteTestCustomer(number);
+    }
+
+    @Test
+    @DisplayName("AC-ADDR-04-04: a Passive Billing Account on this address does not block delete")
+    void deleteAllowedWhenBillingAccountOnThisAddressIsPassive() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Pasif", "Hesapli", "40000000041"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+        String base = "/api/customers/" + number + "/addresses";
+
+        ResponseEntity<Map> second = post(base, """
+                {"cityId": 2, "districtId": 3, "street": "Ikinci", "houseFlatNumber": "2",
+                 "addressDescription": "is", "primary": false}
+                """);
+        long secondId = ((Number) second.getBody().get("addressId")).longValue();
+
+        Mockito.when(accountServiceClient.listAccounts(number))
+                .thenReturn(List.of(new AccountSummary("1261000061", number, "Passive", secondId)));
+
+        ResponseEntity<Map> delete = http.method(HttpMethod.DELETE).uri(base + "/" + secondId)
+                .retrieve().toEntity(Map.class);
+        assertThat(delete.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        deleteTestCustomer(number);
+    }
+
+    @Test
+    @DisplayName("AC-ADDR-04-04: an Active Billing Account on a DIFFERENT address does not block delete")
+    void deleteAllowedWhenActiveBillingAccountReferencesAnotherAddress() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Baska", "Adresli", "40000000042"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+        String base = "/api/customers/" + number + "/addresses";
+
+        ResponseEntity<Map> second = post(base, """
+                {"cityId": 2, "districtId": 3, "street": "Ikinci", "houseFlatNumber": "2",
+                 "addressDescription": "is", "primary": false}
+                """);
+        long secondId = ((Number) second.getBody().get("addressId")).longValue();
+        long firstId = listAddresses(base).stream()
+                .map(a -> ((Number) a.get("addressId")).longValue())
+                .filter(id -> id != secondId).findFirst().orElseThrow();
+
+        // The Active account bills to the customer's OTHER (primary) address, not the one being deleted.
+        Mockito.when(accountServiceClient.listAccounts(number))
+                .thenReturn(List.of(new AccountSummary("1261000062", number, "Active", firstId)));
+
+        ResponseEntity<Map> delete = http.method(HttpMethod.DELETE).uri(base + "/" + secondId)
+                .retrieve().toEntity(Map.class);
+        assertThat(delete.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+
+        deleteTestCustomer(number);
+    }
+
+    @Test
+    @DisplayName("AC-ADDR-04-04: account-service unavailable during the in-use check -> 503, address left unchanged")
+    void deleteFailsClosedWhenAccountServiceUnavailableDuringInUseCheck() {
+        ResponseEntity<Map> created = post("/api/customers", createBody("Erisilemez", "Adres", "40000000043"));
+        long number = ((Number) created.getBody().get("customerNumber")).longValue();
+        String base = "/api/customers/" + number + "/addresses";
+
+        ResponseEntity<Map> second = post(base, """
+                {"cityId": 2, "districtId": 3, "street": "Ikinci", "houseFlatNumber": "2",
+                 "addressDescription": "is", "primary": false}
+                """);
+        long secondId = ((Number) second.getBody().get("addressId")).longValue();
+
+        Mockito.when(accountServiceClient.listAccounts(number))
+                .thenThrow(new AccountServiceUnavailableException("account-service is unavailable", null));
+
+        ResponseEntity<Map> delete = http.method(HttpMethod.DELETE).uri(base + "/" + secondId)
+                .retrieve().toEntity(Map.class);
+        assertThat(delete.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+        assertThat(delete.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
+
+        var address = addressRepository.findById(secondId).orElseThrow();
+        assertThat(address.isActive()).isTrue();
+        assertThat(address.getDeletedDate()).isNull();
+
+        // Cleanup: the outage was specific to the in-use check above, not a lasting
+        // account-service outage — restore normal behaviour so cleanup can complete.
+        // doReturn (not when/thenReturn) because the mock is currently stubbed to
+        // THROW on this exact call: when(...) would re-invoke it and throw immediately.
+        Mockito.doReturn(List.of()).when(accountServiceClient).listAccounts(number);
+        deleteTestCustomer(number);
+    }
+
     @Test
     @DisplayName("FR-CNTC-02: contact medium update validates formats and updates in place")
     void contactMediumUpdate() {
@@ -1048,6 +1163,13 @@ class CustomerServiceIntegrationTest {
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> listAddresses(String base) {
         return http.get().uri(base).retrieve().toEntity(List.class).getBody();
+    }
+
+    // Soft-deletes a dedicated test customer so it drops out of the active browse
+    // list (KR-04 default page size 15) and doesn't push unrelated pagination-order
+    // tests (e.g. absentChildRecordCriteriaMakeNoOutboundCall) off their first page.
+    private void deleteTestCustomer(long customerNumber) {
+        http.method(HttpMethod.DELETE).uri("/api/customers/" + customerNumber).retrieve().toEntity(Map.class);
     }
 
     private ResponseEntity<Map> putJson(String path, String json) {

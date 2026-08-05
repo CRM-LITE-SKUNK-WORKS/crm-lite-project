@@ -10,13 +10,16 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
  * serves the KR-02 Account Number search: it is the PUBLIC business customer number
  * (added by the ADR-013 §3.6 amendment) — exactly the identifier
  * {@code cust.customer_number} carries, so no id translation is needed anywhere.
+ * {@code billingAddressId} serves the AC-ADDR-04-04 address-in-use guard (BUG-API-ADDR-04-03):
+ * the customer-service address id ({@code cust_acct.address_id}) the account currently bills to.
  *
  * <p>Unknown properties are ignored on purpose: account-service owns that contract
  * and may add fields; a consumer that breaks on additive changes would make every
  * upstream improvement a coordinated release.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record AccountSummary(String accountNumber, Long customerNumber, String accountStatus) {
+public record AccountSummary(String accountNumber, Long customerNumber, String accountStatus,
+        Long billingAddressId) {
 
     /**
      * account-service derives this label from its own soft-delete invariant

@@ -248,10 +248,17 @@ springdoc:
 # NOTE: /actuator/gateway/routes is a WebFlux-only endpoint; the WebMVC gateway
 # does not provide it. In WebMVC, routes are registered as RouterFunction beans,
 # so they show up under /actuator/mappings instead.
-# Security hardening (ADR-009): only health stays anonymous; info/mappings require
-# an authenticated crm-user session (see SecurityConfig).
+# Security hardening (ADR-009): only health stays anonymous; info/mappings/prometheus
+# require an authenticated crm-user session (see SecurityConfig) — deliberately NOT
+# added to the permitAll list like the other services' /actuator/prometheus, because
+# this is the one deployable with a HOST-PUBLISHED port (8080): permitting it here
+# would put JVM/HTTP metrics on the public internet edge, not just "internal". The
+# Prometheus scrape config (infra/observability/prometheus.yml) therefore does not
+# target api-gateway; wiring a dedicated internal-only management port is left as
+# documented follow-up (docs/runbooks/observability.md) rather than risking this
+# gateway's carefully-tuned security chain in this change.
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,mappings
+        include: health,info,mappings,prometheus

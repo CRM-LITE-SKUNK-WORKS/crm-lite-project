@@ -30,6 +30,7 @@ crm:
     # no business data, safe to leave anonymous like the docs page itself.
     permit-paths:
       - /actuator/health
+      - /actuator/prometheus
       - /v3/api-docs/**
 
 eureka:
@@ -47,4 +48,4 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus

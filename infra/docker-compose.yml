@@ -448,9 +448,84 @@ services:
     networks:
       - crm-net
 
+  # ---------------------------------------------------------------------------
+  # Observability stack (docs/runbooks/observability.md) — OPT-IN via the
+  # "observability" Compose profile, never started by a plain `docker compose up`:
+  #   docker compose --profile observability up -d
+  # None of these publish a host port that overlaps an application concern;
+  # Prometheus/Grafana/Loki ports below ARE published for local dashboard/API
+  # access (this is a local dev stack, ADR-009's "no host port" rule targets the
+  # APPLICATION services, not the monitoring tooling that observes them).
+  # ---------------------------------------------------------------------------
+
+  prometheus:
+    image: prom/prometheus:v3.7.3
+    container_name: prometheus
+    profiles: ["observability"]
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - crm-net
+
+  loki:
+    image: grafana/loki:3.5.6
+    container_name: loki
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/loki-config.yml"]
+    volumes:
+      - ./observability/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - crm-net
+
+  alloy:
+    image: grafana/alloy:v1.11.2
+    container_name: alloy
+    profiles: ["observability"]
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./observability/alloy-config.alloy:/etc/alloy/config.alloy:ro
+      # Read-only docker socket access to discover containers and tail their
+      # stdout (the structured JSON every service now emits).
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on:
+      - loki
+    networks:
+      - crm-net
+
+  grafana:
+    image: grafana/grafana:12.3.0
+    container_name: grafana
+    profiles: ["observability"]
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      # Local-only dev convenience, same posture as the Keycloak bootstrap admin
+      # above — never used in a real deployment of this stack.
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - crm-net
+
 networks:
   crm-net:
     driver: bridge
 
 volumes:
   postgres-data:
+  prometheus-data:
+  loki-data:
+  grafana-data:

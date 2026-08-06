@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Structured JSON logging (SLF4J + Logback, no Log4j2) — see
+     crm-observability-starter's logback-json-base.xml for the shared appender
+     (fields, MDC inclusion, sensitive-data masking) and docs/runbooks/observability.md. -->
+<configuration>
+    <include resource="logback-json-base.xml"/>
+    <root level="INFO">
+        <appender-ref ref="JSON_CONSOLE"/>
+    </root>
+</configuration>

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.crm.account.customer.CustomerServiceProperties;
 import com.crm.account.lookup.LookupCatalogProperties;
+import com.crm.observability.starter.CorrelationIdPropagationInterceptor;
 import com.crm.security.starter.BearerTokenPropagationInterceptor;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -128,7 +129,7 @@ class OutboundBearerPropagationTest {
         HttpClientConfig config = new HttpClientConfig();
         RestClient lookup = config.lookupRestClient(passthrough(),
                 new LookupCatalogProperties("http://lookup-service", null, null),
-                new BearerTokenPropagationInterceptor());
+                new BearerTokenPropagationInterceptor(), new CorrelationIdPropagationInterceptor());
 
         lookup.get().uri("/api/lookups/statuses/ACTV").retrieve().toBodilessEntity();
 
@@ -142,7 +143,7 @@ class OutboundBearerPropagationTest {
         HttpClientConfig config = new HttpClientConfig();
         RestClient customer = config.customerRestClient(passthrough(),
                 new CustomerServiceProperties("http://customer-service"),
-                new BearerTokenPropagationInterceptor());
+                new BearerTokenPropagationInterceptor(), new CorrelationIdPropagationInterceptor());
 
         customer.get().uri("/api/customers/1001/addresses").retrieve().toBodilessEntity();
 

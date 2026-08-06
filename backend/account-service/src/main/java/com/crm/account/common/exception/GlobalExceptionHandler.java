@@ -4,6 +4,8 @@ import com.crm.account.account.number.AccountNumberCapacityExceededException;
 import com.crm.account.customer.CustomerServiceUnavailableException;
 import com.crm.account.lookup.LookupCatalogUnavailableException;
 import com.crm.account.lookup.UnknownLookupCodeException;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -120,9 +122,30 @@ public class GlobalExceptionHandler {
                 "A required service is unavailable; the operation was not performed", request, null));
     }
 
+    // Resilience4j fail-closed rule (docs/runbooks/resilience.md): an open circuit
+    // breaker or a full bulkhead is thrown by the AOP proxy BEFORE the Http*Client
+    // method body runs, so without this it would fall through to the generic 500
+    // handler below — never a fake fallback, always the same 503 contract a genuine
+    // connection failure already uses.
+    @ExceptionHandler({CallNotPermittedException.class, BulkheadFullException.class})
+    public ResponseEntity<ErrorResponse> handleResilienceProtectionEngaged(RuntimeException ex,
+                                                                           HttpServletRequest request) {
+        log.error("Circuit breaker or bulkhead protection engaged on {} {}: {}", request.getMethod(),
+                request.getRequestURI(), ex.getMessage(), ex);
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body(HttpStatus.SERVICE_UNAVAILABLE,
+                MessageKeys.SERVICE_UNAVAILABLE,
+                "A required service is unavailable; the operation was not performed", request, null));
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
-        log.error("Unexpected error handling {} {}", request.getMethod(), request.getRequestURI(), ex);
+        // exceptionType (requirement 4, "where available"): set only around this log line.
+        org.slf4j.MDC.put(com.crm.observability.starter.MdcKeys.EXCEPTION_TYPE, ex.getClass().getName());
+        try {
+            log.error("Unexpected error handling {} {}", request.getMethod(), request.getRequestURI(), ex);
+        } finally {
+            org.slf4j.MDC.remove(com.crm.observability.starter.MdcKeys.EXCEPTION_TYPE);
+        }
         return ResponseEntity.internalServerError().body(body(HttpStatus.INTERNAL_SERVER_ERROR,
                 MessageKeys.INTERNAL_ERROR, "Unexpected error", request, null));
     }

@@ -6,6 +6,7 @@ import com.crm.customer.account.AccountServiceProperties;
 import com.crm.customer.lookup.LookupCatalogProperties;
 import com.crm.customer.mernis.MernisProperties;
 import com.crm.customer.order.OrderServiceProperties;
+import com.crm.observability.starter.CorrelationIdPropagationInterceptor;
 import com.crm.security.starter.BearerTokenPropagationInterceptor;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
@@ -129,7 +130,7 @@ class OutboundBearerPropagationTest {
         HttpClientConfig config = new HttpClientConfig();
         RestClient lookup = config.lookupRestClient(passthrough(),
                 new LookupCatalogProperties("http://lookup-service", null, null),
-                new BearerTokenPropagationInterceptor());
+                new BearerTokenPropagationInterceptor(), new CorrelationIdPropagationInterceptor());
 
         lookup.get().uri("/api/lookups/statuses/ACTV").retrieve().toBodilessEntity();
 
@@ -146,11 +147,13 @@ class OutboundBearerPropagationTest {
         HttpClientConfig config = new HttpClientConfig();
 
         RestClient account = config.accountRestClient(passthrough(),
-                new AccountServiceProperties("http://account-service"), new BearerTokenPropagationInterceptor());
+                new AccountServiceProperties("http://account-service"), new BearerTokenPropagationInterceptor(),
+                new CorrelationIdPropagationInterceptor());
         account.get().uri("/api/accounts/1261000010").retrieve().toBodilessEntity();
 
         RestClient order = config.orderRestClient(passthrough(),
-                new OrderServiceProperties("http://order-service"), new BearerTokenPropagationInterceptor());
+                new OrderServiceProperties("http://order-service"), new BearerTokenPropagationInterceptor(),
+                new CorrelationIdPropagationInterceptor());
         order.get().uri("/api/orders/1262000018").retrieve().toBodilessEntity();
 
         assertThat(AUTH_HEADER_BY_PATH)
@@ -163,7 +166,8 @@ class OutboundBearerPropagationTest {
     void mernisClientSendsNoBearer() {
         authenticate("user-access-token");
         HttpClientConfig config = new HttpClientConfig();
-        RestClient mernis = config.mernisRestClient(passthrough(), new MernisProperties("http://mernis-stub"));
+        RestClient mernis = config.mernisRestClient(passthrough(), new MernisProperties("http://mernis-stub"),
+                new CorrelationIdPropagationInterceptor());
 
         mernis.post().uri("/api/mernis/verify").body("{}").retrieve().toBodilessEntity();
 

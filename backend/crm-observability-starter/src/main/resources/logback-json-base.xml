@@ -1,0 +1,32 @@
+<!--
+  Shared JSON logging fragment (SLF4J + Logback, no Log4j2). Every service includes
+  this from its own logback-spring.xml:
+
+      <include resource="logback-json-base.xml"/>
+      <root level="INFO"><appender-ref ref="JSON_CONSOLE"/></root>
+
+  Fields: "service" and "environment" are static per-process; "message"/"level"/
+  "timestamp" are LogstashEncoder defaults; everything currently in the SLF4J MDC
+  (correlationId always, traceId/spanId when Micrometer Tracing is on the
+  classpath, orderNumber/sagaId/eventId/exceptionType where a service sets them)
+  is included automatically — LogstashEncoder serializes the whole MDC map unless
+  told to whitelist/exclude keys, and nothing here does either, so "where
+  available" needs no per-key wiring here.
+
+  SensitiveDataMaskingDecorator (crm-observability-starter) runs on every string
+  value written to this JSON, regardless of which field it ends up in — the
+  "never log JWTs/passwords/cookies/full National IDs/credentials" backstop.
+-->
+<included>
+    <springProperty scope="context" name="crmServiceName" source="spring.application.name"
+                     defaultValue="unknown-service"/>
+    <springProperty scope="context" name="crmEnvironment" source="crm.observability.environment"
+                     defaultValue="local"/>
+
+    <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <customFields>{"service":"${crmServiceName}","environment":"${crmEnvironment}"}</customFields>
+            <jsonGeneratorDecorator class="com.crm.observability.starter.SensitiveDataMaskingDecorator"/>
+        </encoder>
+    </appender>
+</included>

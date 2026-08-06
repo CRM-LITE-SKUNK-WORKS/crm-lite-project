@@ -1,5 +1,6 @@
 package com.crm.order.order.service.impl;
 
+import com.crm.observability.starter.MdcKeys;
 import com.crm.order.account.AccountSummary;
 import com.crm.order.common.CurrentActorProvider;
 import com.crm.order.lookup.LookupCatalogService;
@@ -22,6 +23,7 @@ import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -86,6 +88,9 @@ public class OrderPersistence {
 
         CustomerOrder order = new CustomerOrder();
         order.setOrderNumber(numberGenerator.next(OrderContract.SEGMENT_NEW_SALE));
+        // Available to every log statement for the rest of THIS request (compensation
+        // included) from here on; OrderController clears it once the response is built.
+        MDC.put(MdcKeys.ORDER_NUMBER, order.getOrderNumber());
         order.setCustomerNumber(account.customerNumber());
         order.setBusinessInteraction(interaction);
         order.setStatusId(inProgressStatusId);

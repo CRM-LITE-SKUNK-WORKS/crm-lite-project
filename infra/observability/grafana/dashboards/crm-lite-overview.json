@@ -1,0 +1,141 @@
+{
+  "title": "CRM Lite — Overview",
+  "uid": "crm-lite-overview",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["crm-lite"],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request rate (per service)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error rate — 5xx (per service)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{status=~\"5..\"}[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Latency — p95 request duration (per service)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service))",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Service health (1 = up)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        { "expr": "up{job=\"crm-lite-services\"}", "legendFormat": "{{service}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "JVM heap memory used (per service)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "GC pause time (per service)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(jvm_gc_pause_seconds_sum[5m])) by (service)",
+          "legendFormat": "{{service}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "HikariCP pool usage — active vs idle (per service)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(hikaricp_connections_active) by (service)",
+          "legendFormat": "{{service}} active"
+        },
+        {
+          "expr": "sum(hikaricp_connections_idle) by (service)",
+          "legendFormat": "{{service}} idle"
+        },
+        {
+          "expr": "sum(hikaricp_connections_pending) by (service)",
+          "legendFormat": "{{service}} pending"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Downstream HTTP failures — Resilience4j circuit-breaker calls (docs/runbooks/resilience.md)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{kind=\"failed\"}[5m])) by (service, name)",
+          "legendFormat": "{{service}}/{{name}} failed"
+        },
+        {
+          "expr": "sum(rate(resilience4j_circuitbreaker_calls_seconds_count{kind=\"not_permitted\"}[5m])) by (service, name)",
+          "legendFormat": "{{service}}/{{name}} circuit-open-rejected"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Circuit breaker state (0=CLOSED, 1=OPEN, 2=HALF_OPEN)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "targets": [
+        {
+          "expr": "resilience4j_circuitbreaker_state{state=\"open\"}",
+          "legendFormat": "{{service}}/{{name}} open"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Order submit outcomes — POST /api/orders (ADR-016)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{service=\"order-service\", uri=\"/api/orders\", method=\"POST\"}[5m])) by (status)",
+          "legendFormat": "status {{status}}"
+        }
+      ]
+    }
+  ]
+}

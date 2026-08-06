@@ -1,0 +1,38 @@
+# Prometheus scrape config for the opt-in "observability" Compose profile
+# (docs/runbooks/observability.md). Every target is reached over the crm-net
+# docker network by its Compose service name — no host port is published for any
+# of them (ADR-009 is unchanged; this container joins the SAME internal network
+# rather than the exposure model changing).
+#
+# api-gateway is deliberately NOT scraped here: /actuator/prometheus on that one
+# service stays behind the crm-user JWT (it is the ONE service with a
+# host-published port, :8080) — see the note in config-repo/api-gateway.yml and
+# docs/runbooks/observability.md "api-gateway" section.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  - job_name: crm-lite-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["config-server:8888"]
+        labels: { service: config-server }
+      - targets: ["discovery-server:8761"]
+        labels: { service: discovery-server }
+      - targets: ["customer-service:8082"]
+        labels: { service: customer-service }
+      - targets: ["lookup-service:8083"]
+        labels: { service: lookup-service }
+      - targets: ["mernis-stub:8084"]
+        labels: { service: mernis-stub }
+      - targets: ["account-service:8085"]
+        labels: { service: account-service }
+      - targets: ["product-service:8086"]
+        labels: { service: product-service }
+      - targets: ["order-service:8087"]
+        labels: { service: order-service }

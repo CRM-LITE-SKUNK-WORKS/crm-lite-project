@@ -49,6 +49,19 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.crm</groupId>
+            <artifactId>crm-observability-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- Hosts the single unified Swagger UI (customer-service + lookup-service docs
              proxied via the routes below); Try it out reuses the existing BFF session. -->
         <dependency>

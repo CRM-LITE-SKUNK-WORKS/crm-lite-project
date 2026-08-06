@@ -38,6 +38,7 @@ crm:
     # no business data, safe to leave anonymous like the docs page itself.
     permit-paths:
       - /actuator/health
+      - /actuator/prometheus
       - /v3/api-docs/**
   account:
     base-url: http://account-service    # FR-PROD-01 composition (ADR-013 §7 read side)
@@ -61,4 +62,66 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+
+# Resilience4j (docs/runbooks/resilience.md): lookup/account/customer READS only —
+# never POST /api/products, /confirm or /compensate (the FR-SALE write slice
+# order-service drives, ADR-015 §5, which is scheduled to move to messaging).
+resilience4j:
+  circuitbreaker:
+    instances:
+      lookup-service:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.product.lookup.LookupCatalogUnavailableException
+      account-service-read:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.product.account.AccountServiceUnavailableException
+      customer-service-read:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.product.customer.CustomerServiceUnavailableException
+  bulkhead:
+    instances:
+      lookup-service:
+        max-concurrent-calls: 20
+      account-service-read:
+        max-concurrent-calls: 10
+      customer-service-read:
+        max-concurrent-calls: 10
+  retry:
+    instances:
+      lookup-service:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.product.lookup.LookupCatalogUnavailableException
+      account-service-read:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.product.account.AccountServiceUnavailableException
+      customer-service-read:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.product.customer.CustomerServiceUnavailableException

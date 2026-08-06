@@ -1,5 +1,8 @@
 package com.crm.customer.account;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -9,6 +12,17 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+/**
+ * Resilience4j boundary "account-service-read" (docs/runbooks/resilience.md)
+ * applies ONLY to {@link #listAccounts} and {@link #fetchAccount} — both plain
+ * GETs. {@link #passivateAccount} is deliberately left WITHOUT
+ * {@code @CircuitBreaker}/{@code @Bulkhead}/{@code @Retry}: it is a DELETE, and
+ * per the class's pre-existing note on {@code accountRestClient}, is already
+ * known not to be idempotent — automatically retrying it is exactly the failure
+ * mode this whole addendum exists to prevent, so it stays outside the
+ * resilience-annotated boundary entirely rather than being given a
+ * no-retry-configured instance that would be easy to misconfigure later.
+ */
 @Component
 public class HttpAccountServiceClient implements AccountServiceClient {
 
@@ -19,6 +33,9 @@ public class HttpAccountServiceClient implements AccountServiceClient {
     }
 
     @Override
+    @CircuitBreaker(name = "account-service-read")
+    @Bulkhead(name = "account-service-read")
+    @Retry(name = "account-service-read")
     public List<AccountSummary> listAccounts(Long customerNumber) {
         try {
             List<AccountSummary> accounts = restClient.get()
@@ -56,6 +73,9 @@ public class HttpAccountServiceClient implements AccountServiceClient {
     }
 
     @Override
+    @CircuitBreaker(name = "account-service-read")
+    @Bulkhead(name = "account-service-read")
+    @Retry(name = "account-service-read")
     public Optional<AccountSummary> fetchAccount(String accountNumber) {
         try {
             return Optional.ofNullable(restClient.get()

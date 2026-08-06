@@ -7,6 +7,8 @@ import com.crm.customer.lookup.UnknownLookupCodeException;
 import com.crm.customer.mernis.MernisRejectedException;
 import com.crm.customer.mernis.MernisUnavailableException;
 import com.crm.customer.order.OrderServiceUnavailableException;
+import io.github.resilience4j.bulkhead.BulkheadFullException;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -267,6 +269,36 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
     }
 
+    // Resilience4j fail-closed rule (docs/runbooks/resilience.md): an open circuit
+    // breaker or a full bulkhead never reaches the try/catch inside the Http*Client
+    // methods (the AOP proxy throws BEFORE the method body runs), so without this
+    // handler both would fall through to the generic 500 handler below — a real
+    // regression against "fail closed with the approved service-unavailable
+    // contract" (never a fake fallback). The circuit-breaker NAME tells us which
+    // boundary tripped, so Mernis keeps its own analyst message key exactly as
+    // handleMernisUnavailable below does for a genuine connection failure.
+    @ExceptionHandler({CallNotPermittedException.class, BulkheadFullException.class})
+    public ResponseEntity<ErrorResponse> handleResilienceProtectionEngaged(RuntimeException ex,
+                                                                           HttpServletRequest request) {
+        log.error("Circuit breaker or bulkhead protection engaged on {} {}: {}", request.getMethod(),
+                request.getRequestURI(), ex.getMessage(), ex);
+        boolean isMernis = ex instanceof CallNotPermittedException cnp
+                && "mernis".equals(cnp.getCausingCircuitBreakerName());
+        String messageKey = isMernis ? MessageKeys.MERNIS_UNAVAILABLE : MessageKeys.SERVICE_UNAVAILABLE;
+        String message = isMernis
+                ? "The identity verification service is currently unavailable; the operation was not performed"
+                : "A required service is unavailable; the operation was not performed";
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.SERVICE_UNAVAILABLE.value())
+                .error(HttpStatus.SERVICE_UNAVAILABLE.getReasonPhrase())
+                .messageKey(messageKey)
+                .message(message)
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    }
+
     // KR-10 / AC-CUST-03-06 fail-closed rule: MERNIS/KPS could not be reached — the
     // customer is not created. Uses the analyst catalog key MSG-MERNIS-UNAVAILABLE
     // (v8 Final), not the generic MSG-SERVICE-UNAVAILABLE.
@@ -303,7 +335,13 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleUnexpected(Exception ex, HttpServletRequest request) {
-        log.error("Unexpected error handling {} {}", request.getMethod(), request.getRequestURI(), ex);
+        // exceptionType (requirement 4, "where available"): set only around this log line.
+        org.slf4j.MDC.put(com.crm.observability.starter.MdcKeys.EXCEPTION_TYPE, ex.getClass().getName());
+        try {
+            log.error("Unexpected error handling {} {}", request.getMethod(), request.getRequestURI(), ex);
+        } finally {
+            org.slf4j.MDC.remove(com.crm.observability.starter.MdcKeys.EXCEPTION_TYPE);
+        }
         ErrorResponse body = ErrorResponse.builder()
                 .timestamp(Instant.now())
                 .status(HttpStatus.INTERNAL_SERVER_ERROR.value())

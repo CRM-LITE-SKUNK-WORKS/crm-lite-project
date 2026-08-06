@@ -35,6 +35,7 @@ crm:
     # no business data, safe to leave anonymous like the docs page itself.
     permit-paths:
       - /actuator/health
+      - /actuator/prometheus
       - /v3/api-docs/**
   lookup:
     base-url: http://lookup-service     # central GNL_ST/GNL_TP owner (ADR-002)
@@ -58,4 +59,51 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+
+# Resilience4j (docs/runbooks/resilience.md): lookup-service and customer-service
+# reads only — never the SALE write path (POST .../product-involvements has none of
+# this, ADR-016 §5 stays a plain synchronous call). Per-call order: connect/read
+# timeout (HttpClientConfig#resilientRequestFactory) → bulkhead → circuit breaker →
+# retry (outermost).
+resilience4j:
+  circuitbreaker:
+    instances:
+      lookup-service:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.account.lookup.LookupCatalogUnavailableException
+      customer-service-read:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.account.customer.CustomerServiceUnavailableException
+  bulkhead:
+    instances:
+      lookup-service:
+        max-concurrent-calls: 20
+      customer-service-read:
+        max-concurrent-calls: 10
+  retry:
+    instances:
+      lookup-service:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.account.lookup.LookupCatalogUnavailableException
+      customer-service-read:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.account.customer.CustomerServiceUnavailableException

@@ -36,6 +36,7 @@ crm:
     # no business data, safe to leave anonymous like the docs page itself.
     permit-paths:
       - /actuator/health
+      - /actuator/prometheus
       - /v3/api-docs/**
   account:
     base-url: http://account-service    # precondition read + involvement command (ADR-013 §7/§8)
@@ -59,4 +60,34 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+
+# Resilience4j (docs/runbooks/resilience.md): lookup-service reads ONLY.
+# Requirement 9: NO circuit breaker/bulkhead/retry instance exists for
+# account-service or product-service here — those are the SALE-write boundary
+# (ADR-016 §5) scheduled to move to messaging, and stay exactly as ADR-016 §5.3b
+# already left them (transport auto-retry disabled, nothing else).
+resilience4j:
+  circuitbreaker:
+    instances:
+      lookup-service:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.order.lookup.LookupCatalogUnavailableException
+  bulkhead:
+    instances:
+      lookup-service:
+        max-concurrent-calls: 20
+  retry:
+    instances:
+      lookup-service:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.order.lookup.LookupCatalogUnavailableException

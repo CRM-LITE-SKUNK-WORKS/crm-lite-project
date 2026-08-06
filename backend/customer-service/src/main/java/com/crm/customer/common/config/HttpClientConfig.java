@@ -4,9 +4,13 @@ import com.crm.customer.account.AccountServiceProperties;
 import com.crm.customer.lookup.LookupCatalogProperties;
 import com.crm.customer.mernis.MernisProperties;
 import com.crm.customer.order.OrderServiceProperties;
+import com.crm.observability.starter.CorrelationIdPropagationInterceptor;
 import com.crm.security.starter.BearerTokenPropagationInterceptor;
+import java.time.Duration;
+import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.client5.http.impl.classic.HttpClients;
+import org.apache.hc.core5.util.Timeout;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.cloud.client.loadbalancer.LoadBalancerClient;
 import org.springframework.cloud.client.loadbalancer.LoadBalancerInterceptor;
@@ -42,11 +46,16 @@ public class HttpClientConfig {
 
     @Bean
     public RestClient lookupRestClient(LoadBalancerClient loadBalancerClient, LookupCatalogProperties properties,
-                                       BearerTokenPropagationInterceptor bearerTokenPropagation) {
+                                       BearerTokenPropagationInterceptor bearerTokenPropagation,
+                                       CorrelationIdPropagationInterceptor correlationIdPropagation) {
         // ADR-010: lookup-service is an INTERNAL zero-trust resource server — the
         // end-user's Keycloak token is propagated so the subject and audience reach it.
+        // Resilience4j boundary (docs/runbooks/resilience.md): HttpLookupCatalogClient's
+        // reads carry @CircuitBreaker/@Bulkhead/@Retry(name="lookup-service").
         return RestClient.builder()
+                .requestFactory(resilientRequestFactory())
                 .requestInterceptor(bearerTokenPropagation)
+                .requestInterceptor(correlationIdPropagation)
                 .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
                 .baseUrl(properties.baseUrl())
                 .build();
@@ -54,7 +63,8 @@ public class HttpClientConfig {
 
     @Bean
     public RestClient accountRestClient(LoadBalancerClient loadBalancerClient, AccountServiceProperties properties,
-                                        BearerTokenPropagationInterceptor bearerTokenPropagation) {
+                                        BearerTokenPropagationInterceptor bearerTokenPropagation,
+                                        CorrelationIdPropagationInterceptor correlationIdPropagation) {
         // ADR-010: account-service is an INTERNAL zero-trust resource server reached
         // directly via Eureka (never through the gateway, ADR-007). The end-user's
         // Keycloak token is propagated, so the subject and audience survive the hop —
@@ -66,11 +76,13 @@ public class HttpClientConfig {
         // but-unacknowledged passivation would surface as a spurious conflict instead of
         // the success it actually was. Same rationale order-service already applies to
         // its own account/product clients (ADR-016 §5.3b) — retrying is the caller's
-        // decision, never the transport's. The KR-02 search shares this bean and only
-        // GETs through it, so the stricter setting costs it nothing.
+        // decision, never the transport's (and now, for the two READ methods sharing
+        // this bean, Resilience4j's decision — @Retry(name="account-service-read") is
+        // deliberately NOT applied to passivateAccount, see HttpAccountServiceClient).
         return RestClient.builder()
-                .requestFactory(nonRetryingRequestFactory())
+                .requestFactory(resilientRequestFactory())
                 .requestInterceptor(bearerTokenPropagation)
+                .requestInterceptor(correlationIdPropagation)
                 .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
                 .baseUrl(properties.baseUrl())
                 .build();
@@ -78,31 +90,54 @@ public class HttpClientConfig {
 
     @Bean
     public RestClient orderRestClient(LoadBalancerClient loadBalancerClient, OrderServiceProperties properties,
-                                      BearerTokenPropagationInterceptor bearerTokenPropagation) {
-        // ADR-010, same reasoning as accountRestClient above. No non-retrying factory
-        // here: customer-service only ever GETs a single order (KR-02 resolution), which
-        // is idempotent — the same reason lookupRestClient above does without one. If a
-        // write to order-service is ever added, this bean must gain the factory too.
+                                      BearerTokenPropagationInterceptor bearerTokenPropagation,
+                                      CorrelationIdPropagationInterceptor correlationIdPropagation) {
+        // ADR-010, same reasoning as accountRestClient above. customer-service only
+        // ever GETs a single order (KR-02 resolution) through this bean, which is
+        // idempotent — safe for the Resilience4j retry policy
+        // (name="order-service-read") HttpOrderServiceClient applies.
         return RestClient.builder()
+                .requestFactory(resilientRequestFactory())
                 .requestInterceptor(bearerTokenPropagation)
+                .requestInterceptor(correlationIdPropagation)
                 .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
                 .baseUrl(properties.baseUrl())
                 .build();
     }
 
     @Bean
-    public RestClient mernisRestClient(LoadBalancerClient loadBalancerClient, MernisProperties properties) {
+    public RestClient mernisRestClient(LoadBalancerClient loadBalancerClient, MernisProperties properties,
+                                       CorrelationIdPropagationInterceptor correlationIdPropagation) {
         // ADR-010: mernis-stub simulates an EXTERNAL KPS system. Deliberately NO
         // bearer propagation — a real KPS would never accept a CRM-realm JWT; user
         // attribution for verifications lives in CRM-side audit/log context instead.
+        // Resilience4j boundary (docs/runbooks/resilience.md §Mernis): despite the POST
+        // verb, HttpMernisClient#verify is a pure verification with no side effect, so
+        // it is safe to retry — explicitly named in the requirement this addendum
+        // implements ("Mernis/KPS verification").
         return RestClient.builder()
+                .requestFactory(resilientRequestFactory())
+                .requestInterceptor(correlationIdPropagation)
                 .requestInterceptor(new LoadBalancerInterceptor(loadBalancerClient))
                 .baseUrl(properties.baseUrl())
                 .build();
     }
 
-    private ClientHttpRequestFactory nonRetryingRequestFactory() {
+    /**
+     * Explicit connect + read timeout (requirement order: timeout before
+     * bulkhead/circuit-breaker/retry, docs/runbooks/resilience.md) and automatic
+     * transport-level retries disabled — same reasoning as the pre-existing
+     * {@code accountRestClient} note above, now applied uniformly: retrying is
+     * Resilience4j's decision (selective, read-only, see each Http*Client), never
+     * httpclient5's default strategy silently re-executing a call underneath it.
+     */
+    private ClientHttpRequestFactory resilientRequestFactory() {
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(Timeout.of(Duration.ofSeconds(2)))
+                .setResponseTimeout(Timeout.of(Duration.ofSeconds(5)))
+                .build();
         CloseableHttpClient httpClient = HttpClients.custom()
+                .setDefaultRequestConfig(requestConfig)
                 .disableAutomaticRetries()
                 .build();
         return new HttpComponentsClientHttpRequestFactory(httpClient);

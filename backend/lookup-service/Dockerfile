@@ -8,6 +8,10 @@ COPY pom.xml pom.xml
 RUN mvn -f pom.xml install -N -B
 COPY backend/crm-security-starter backend/crm-security-starter
 RUN mvn -f backend/crm-security-starter/pom.xml install -DskipTests -B
+# crm-observability-starter (observability/resilience addendum): same reasoning
+# as crm-security-starter above — not on Maven Central, must be installed here.
+COPY backend/crm-observability-starter backend/crm-observability-starter
+RUN mvn -f backend/crm-observability-starter/pom.xml install -DskipTests -B
 COPY backend/lookup-service/pom.xml backend/lookup-service/pom.xml
 RUN mvn -f backend/lookup-service/pom.xml dependency:go-offline -B
 COPY backend/lookup-service/src backend/lookup-service/src

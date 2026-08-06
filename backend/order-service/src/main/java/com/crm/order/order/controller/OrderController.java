@@ -1,11 +1,13 @@
 package com.crm.order.order.controller;
 
+import com.crm.observability.starter.MdcKeys;
 import com.crm.order.order.dto.request.OrderCreateRequest;
 import com.crm.order.order.dto.response.OrderResponse;
 import com.crm.order.order.idempotency.IdempotencyContract;
 import com.crm.order.order.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -54,7 +56,14 @@ public class OrderController {
     public ResponseEntity<OrderResponse> submit(
             @RequestHeader(IdempotencyContract.HEADER) String idempotencyKey,
             @Valid @RequestBody OrderCreateRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.submit(request, idempotencyKey));
+        try {
+            // orderNumber is unknown until step 1 (OrderPersistence#persistOrder) sets
+            // it into the MDC itself — this clears it for whatever runs next on this
+            // (pooled) thread. See MdcKeys for why sagaId/eventId are not set anywhere.
+            return ResponseEntity.status(HttpStatus.CREATED).body(orderService.submit(request, idempotencyKey));
+        } finally {
+            MDC.remove(MdcKeys.ORDER_NUMBER);
+        }
     }
 
     /**
@@ -65,6 +74,11 @@ public class OrderController {
      */
     @GetMapping("/{orderNumber}")
     public ResponseEntity<OrderResponse> detail(@PathVariable String orderNumber) {
-        return ResponseEntity.ok(orderService.getByOrderNumber(orderNumber));
+        MDC.put(MdcKeys.ORDER_NUMBER, orderNumber);
+        try {
+            return ResponseEntity.ok(orderService.getByOrderNumber(orderNumber));
+        } finally {
+            MDC.remove(MdcKeys.ORDER_NUMBER);
+        }
     }
 }

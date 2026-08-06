@@ -39,6 +39,7 @@ crm:
     # no business data, safe to leave anonymous like the docs page itself.
     permit-paths:
       - /actuator/health
+      - /actuator/prometheus
       - /v3/api-docs/**
   lookup:
     base-url: http://lookup-service   # central GNL_ST/GNL_TP owner (ADR-002)
@@ -70,4 +71,89 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+
+# Resilience4j (docs/runbooks/resilience.md): applied ONLY to durable synchronous
+# reads — mernis (verification, no side effect despite the POST verb), lookup-service
+# (shared catalog) and the two KR-02 cross-service search reads. Order matters
+# per-call: connect/read timeout (HttpClientConfig#resilientRequestFactory) happens
+# first inside the HTTP call itself, then bulkhead, then circuit breaker, then retry
+# (outermost) — never applied to a write (HttpAccountServiceClient#passivateAccount
+# is deliberately outside every instance below).
+resilience4j:
+  circuitbreaker:
+    instances:
+      mernis:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.customer.mernis.MernisUnavailableException
+      lookup-service:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.customer.lookup.LookupCatalogUnavailableException
+      account-service-read:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.customer.account.AccountServiceUnavailableException
+      order-service-read:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 10
+        minimum-number-of-calls: 5
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 10s
+        permitted-number-of-calls-in-half-open-state: 3
+        automatic-transition-from-open-to-half-open-enabled: true
+        record-exceptions:
+          - com.crm.customer.order.OrderServiceUnavailableException
+  bulkhead:
+    instances:
+      mernis:
+        max-concurrent-calls: 10
+      lookup-service:
+        max-concurrent-calls: 20
+      account-service-read:
+        max-concurrent-calls: 10
+      order-service-read:
+        max-concurrent-calls: 10
+  retry:
+    instances:
+      # Selective retry — ONLY the converted "unavailable" exception, never a
+      # not-found (returned as Optional.empty(), not thrown) or a validation error.
+      mernis:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.customer.mernis.MernisUnavailableException
+      lookup-service:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.customer.lookup.LookupCatalogUnavailableException
+      account-service-read:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.customer.account.AccountServiceUnavailableException
+      order-service-read:
+        max-attempts: 3
+        wait-duration: 200ms
+        retry-exceptions:
+          - com.crm.customer.order.OrderServiceUnavailableException

@@ -1,5 +1,8 @@
 package com.crm.product.customer;
 
+import io.github.resilience4j.bulkhead.annotation.Bulkhead;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -9,6 +12,7 @@ import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+/** Resilience4j boundary "customer-service-read" (docs/runbooks/resilience.md). */
 @Component
 public class HttpCustomerServiceClient implements CustomerServiceClient {
 
@@ -19,6 +23,9 @@ public class HttpCustomerServiceClient implements CustomerServiceClient {
     }
 
     @Override
+    @CircuitBreaker(name = "customer-service-read")
+    @Bulkhead(name = "customer-service-read")
+    @Retry(name = "customer-service-read")
     public Optional<CustomerAddress> fetchAddress(long addressId) {
         try {
             return Optional.ofNullable(restClient.get()
@@ -38,6 +45,9 @@ public class HttpCustomerServiceClient implements CustomerServiceClient {
     }
 
     @Override
+    @CircuitBreaker(name = "customer-service-read")
+    @Bulkhead(name = "customer-service-read")
+    @Retry(name = "customer-service-read")
     public List<CustomerAddress> fetchAddresses(long customerNumber) {
         try {
             List<CustomerAddress> addresses = restClient.get()

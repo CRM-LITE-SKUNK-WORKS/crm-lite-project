@@ -4,7 +4,82 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-06 (**FR-SALE idempotency temeli UYGULANDI —
+> **Son güncelleme:** 2026-08-06 (**Observability + Resilience eki UYGULANDI —
+> üretim odaklı gözlemlenebilirlik ve senkron sınırların korunması:**
+> **(1) Actuator + Micrometer Prometheus** her 9 deployable'a eklendi
+> (`GET /actuator/prometheus`), **internal-only** — 8 servis zaten host portu
+> yayınlamıyor (ADR-009) o yüzden yeni bir erişim-kontrol katmanı gerekmedi,
+> `crm-security-starter` kullanan 5 servi'de `/actuator/health` ile AYNI şekilde
+> `permit-paths`'e eklendi (JWT gerektirmiyor — bir Prometheus scraper Keycloak
+> oturumu tutamaz). **api-gateway TEK istisna** (host portu `:8080` yayınlıyor):
+> `/actuator/prometheus` orada BİLEREK mevcut `crm-user` JWT kuralının ARKASINDA
+> bırakıldı (permitAll'a EKLENMEDİ) — Compose Prometheus'u bu yüzden
+> api-gateway'i scrape ETMİYOR (dedicated internal management port ayrı takip).
+> **(2) Yapılandırılmış JSON log'lama:** yeni paylaşılan modül
+> `backend/crm-observability-starter` (crm-security-starter'a PARALEL, ayrı —
+> hiç security starter'ı olmayan servisler de (mernis-stub, discovery-server,
+> config-server) buna bağımlı). `logback-json-base.xml` fragment'i her servisin
+> kendi `logback-spring.xml`'inden `<include>` edilir; `net.logstash.logback:
+> logstash-logback-encoder` kullanılıyor — **Log4j2 YOK**, mevcut SLF4J+Logback
+> yığını korunuyor. MDC alanları (`com.crm.observability.starter.MdcKeys`):
+> `correlationId` (yeni `CorrelationIdFilter`, `X-Correlation-Id` header'ı okur/
+> üretir, Spring Security zincirinden ÖNCE — `Ordered.HIGHEST_PRECEDENCE` —
+> çalışır ki 401/403'ler de taşısın; yeni `CorrelationIdPropagationInterceptor`
+> ile outbound RestClient çağrılarına da taşınır, `BearerTokenPropagationInterceptor`
+> ile aynı opt-in desende), `traceId`/`spanId` (yeni `micrometer-tracing-bridge-
+> brave` bağımlılığı — collector YOK, sadece MDC yazımı), `orderNumber`
+> (order-service, KR-12 numarası atanır atanmaz `OrderPersistence`'ta set edilir,
+> `OrderController` finally'de temizler), `exceptionType` (4 servisin
+> `GlobalExceptionHandler#handleUnexpected`'inde log satırının etrafında set/
+> clear), **`sagaId`/`eventId` REZERVE — hiçbir kod bunları doldurmuyor** (gelecekteki
+> messaging tabanlı SALE akışı için, bkz. ADR-016 §5.4'ün "bu bir saga framework'ü
+> DEĞİL" notu — bu eklenti tam olarak o geçişe hazırlanıyor). **Hassas veri
+> maskeleme:** `SensitiveDataMaskingDecorator` (bir `JsonGeneratorDecorator`) JSON'a
+> yazılan HER string değeri regex'ten geçiriyor (JWT, `Bearer ...`, `Cookie`/
+> `Set-Cookie` header satırları — header adı kalır değer maskelenir, 11 haneli
+> TC kimlik — 10 haneli KR-11/KR-12 iş numaralarına DOKUNMUYOR, credential-şekilli
+> key/value çiftleri); gerçek bir `LogstashEncoder` üzerinden uçtan uca test edildi
+> (`LogstashJsonMaskingIntegrationTest`) çünkü ilk MDC alanları maskelemeyen bir
+> `writeString` override'ı YAKALANDI ve düzeltildi (`writeObjectField`/`writeObject`
+> override'ları eksikti — Jackson'ın generic Object yazma yolu `writeString`'i
+> bypass ediyordu). **(3) Resilience4j SADECE kalıcı senkron OKUMA sınırlarına:**
+> Mernis doğrulama (POST ama yan etkisiz, bu yüzden retry güvenli), lookup-service
+> okumaları (4 servisin HEPSİNDE), KR-02 account/order-number arama okumaları
+> (customer-service), customer/address doğrulama okumaları (account+product-service).
+> **order-service → product-service/account-service SALE-write sınırına HİÇBİR ŞEY
+> eklenmedi** (requirement 9) — bu tam olarak messaging'e taşınacak sınır;
+> `NoResilienceOnSaleWriteClientsTest` reflection ile bu iki client'ta
+> `@CircuitBreaker`/`@Bulkhead`/`@Retry` YOKLUĞUNU kanıtlıyor.
+> `HttpAccountServiceClient#passivateAccount` (customer-service, DELETE, idempotent
+> DEĞİL) de bilerek dışarıda — hiçbir resilience4j annotation'ı yok. Sıra:
+> explicit connect(2s)/read(5s) timeout (httpclient5 auto-retry KAPALI, ADR-016
+> §5.3b'nin AYNI gerekçesi) → bulkhead → circuit breaker (count-based, pencere 10,
+> min 5 çağrı, %50 hata eşiği, 10s open, 3 half-open deneme) → retry (max 3, 200ms,
+> SADECE dönüştürülmüş `*UnavailableException` tiplerine selective). **Sahte
+> fallback YOK** — `fallbackMethod` hiçbir yerde kullanılmadı; `CallNotPermittedException`/
+> `BulkheadFullException` her 4 servisin `GlobalExceptionHandler`'ına eklenen yeni
+> handler'larla AYNI 503 `MSG-SERVICE-UNAVAILABLE` (Mernis için `MSG-MERNIS-UNAVAILABLE`)
+> sözleşmesine düşüyor — önceden bu iki exception generic 500'e düşerdi (regresyon
+> olurdu). `resilience4j-micrometer` ile CB/retry/bulkhead metrikleri de Prometheus'a
+> otomatik bağlandı. **(4) Compose'a opt-in `observability` profile:** Prometheus
+> (`:9090`) + Loki (`:3100`) + Grafana Alloy (docker socket read-only, container
+> log'larını Loki'ye taşır) + Grafana (`:3000`, datasource+dashboard otomatik
+> provision). Tek dashboard "CRM Lite — Overview": request rate, error rate, p95
+> latency, service health, JVM heap, GC pause, HikariCP pool, downstream HTTP
+> hataları + circuit breaker state, order submit outcomes. **Gerçekten başlatılıp
+> doğrulandı** (2026-08-06): Prometheus healthy + 8 hedefi scrape ediyor (bazı
+> hedefler bu commit'ten ÖNCEKİ eski image'lar çalıştığı için 401/404 gösterdi —
+> aktif kullanımda olabilecek stack'i yeniden başlatmamak için image'lar
+> REBUILD EDİLMEDİ), Grafana healthy + dashboard otomatik yüklendi, Loki + Alloy
+> başladı. Spring Cloud Gateway KORUNDU (Zuul eklenmedi), mevcut RestClient
+> adapter'ları KORUNDU (OpenFeign eklenmedi). Test kanıtı: crm-observability-starter
+> 9/9 (masking regex + gerçek LogstashEncoder ile uçtan uca), customer-service
+> 107/107 (5 yeni resilience testi: timeout, open circuit, half-open recovery,
+> safe-read retry, no-retry-on-write, bulkhead dahil), account-service 51/51,
+> product-service 37/37, order-service 31/31 (yeni reflection guard testi dahil),
+> lookup-service 4/4, mernis-stub 3/3 — tüm reactor `mvn compile` YEŞİL.
+> Detay: `docs/runbooks/observability.md`, `docs/runbooks/resilience.md`.)
+> Önceki durum: 2026-08-06 (**FR-SALE idempotency temeli UYGULANDI —
 > `POST /api/orders` artık `Idempotency-Key` zorunlu (ADR-016 §10 eki):** aynı
 > anahtar + aynı normalize edilmiş gövde → ilk sonuç **aynen replay** edilir
 > (`Idempotency-Replayed: true`); aynı anahtar + farklı gövde → 409

@@ -23,6 +23,15 @@ public final class MessageKeys {
     // is exactly the duplicated basket logic the boundary exists to prevent.
     // MSG-SALE-ORDER-CONFIRM is frontend-only (the AC-SALE-01-15 modal).
 
+    // Idempotency foundation for POST /api/orders (project addition, ADR-016
+    // idempotency addendum 2026-08-06) — no analyst key exists for any of this.
+    /** Same key, a request body whose normalized hash differs from the one on file. */
+    public static final String IDEMPOTENCY_KEY_CONFLICT = "MSG-IDEMPOTENCY-KEY-CONFLICT";
+    /** Same key + same payload, but a concurrent request for it is still running. */
+    public static final String IDEMPOTENCY_KEY_IN_PROGRESS = "MSG-IDEMPOTENCY-KEY-IN-PROGRESS";
+    /** The Idempotency-Key header is absent or not a UUID. */
+    public static final String IDEMPOTENCY_KEY_REQUIRED = "MSG-IDEMPOTENCY-KEY-REQUIRED";
+
     // Established platform keys (same semantics as the other domain services).
     public static final String VALIDATION_ERROR = "MSG-VALIDATION-ERROR";
     public static final String INTERNAL_ERROR = "MSG-INTERNAL-ERROR";

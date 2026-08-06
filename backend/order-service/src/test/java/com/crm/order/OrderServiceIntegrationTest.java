@@ -178,7 +178,7 @@ class OrderServiceIntegrationTest {
     private void stubProductService() {
         Mockito.when(productServiceClient.createProducts(Mockito.any())).thenReturn(CREATION);
         Mockito.doNothing().when(productServiceClient).confirmProducts(Mockito.anyList());
-        Mockito.doNothing().when(productServiceClient).cancelProducts(Mockito.anyList());
+        Mockito.doNothing().when(productServiceClient).compensateProducts(Mockito.anyString(), Mockito.anyList());
     }
 
     /** What product-service answers for the standard ADSL basket (offers 1/2/3). */
@@ -205,9 +205,26 @@ class OrderServiceIntegrationTest {
         return http.get().uri(path).retrieve().toEntity(Map.class);
     }
 
+    /**
+     * A fresh {@code Idempotency-Key} per call, matching the frontend's own "one UUID
+     * per logical submit attempt" rule (ADR-016 idempotency addendum) — each of these
+     * calls represents an INDEPENDENT sale attempt unless a test says otherwise, so
+     * they must never collide with each other's replay/conflict bookkeeping. Tests
+     * that exercise the idempotency contract itself use {@link #post(String, String, String)}
+     * to control the key directly.
+     */
     private ResponseEntity<Map> post(String path, String json) {
+        return post(path, json, java.util.UUID.randomUUID().toString());
+    }
+
+    private ResponseEntity<Map> post(String path, String json, String idempotencyKey) {
         return http.post().uri(path)
-                .headers(h -> h.setContentType(MediaType.APPLICATION_JSON))
+                .headers(h -> {
+                    h.setContentType(MediaType.APPLICATION_JSON);
+                    if (idempotencyKey != null) {
+                        h.set("Idempotency-Key", idempotencyKey);
+                    }
+                })
                 .body(json).retrieve().toEntity(Map.class);
     }
 
@@ -300,7 +317,8 @@ class OrderServiceIntegrationTest {
     @Order(4)
     @DisplayName("submit: KR-12 number continues the seed, MIDLWARE, product ids + amount snapshots attached")
     void submitCreatesOrder() {
-        ResponseEntity<Map> response = post("/api/orders", VALID_ORDER);
+        String idempotencyKey = java.util.UUID.randomUUID().toString();
+        ResponseEntity<Map> response = post("/api/orders", VALID_ORDER, idempotencyKey);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         Map<String, Object> body = response.getBody();
@@ -336,7 +354,7 @@ class OrderServiceIntegrationTest {
         Mockito.verify(productServiceClient).createProducts(creationCommand.capture());
         Mockito.verify(productServiceClient).confirmProducts(List.of(21L, 22L, 23L));
         Mockito.verify(accountServiceClient).linkProducts(ACTIVE_ACCOUNT, List.of(21L, 22L, 23L));
-        Mockito.verify(productServiceClient, Mockito.never()).cancelProducts(Mockito.anyList());
+        Mockito.verify(productServiceClient, Mockito.never()).compensateProducts(Mockito.anyString(), Mockito.anyList());
 
         // ADR-015 §5.9: product-service checks the service address against this
         // customer, and the number it checks against comes from the ACCOUNT — never
@@ -346,6 +364,10 @@ class OrderServiceIntegrationTest {
         assertThat(sent.customerNumber()).isEqualTo(1001L);
         assertThat(sent.serviceAddressId()).isEqualTo(1L);
         assertThat(VALID_ORDER).doesNotContain("customerNumber");
+        // ADR-015 idempotency addendum: the client's Idempotency-Key IS the stable
+        // operation identifier forwarded to product-service — order-service invents
+        // no id of its own.
+        assertThat(sent.saleOperationId()).isEqualTo(idempotencyKey);
     }
 
     @Test
@@ -426,7 +448,7 @@ class OrderServiceIntegrationTest {
         // The order written in step 1 must not linger as a half-made sale.
         assertLastOrderCancelled();
         // Nothing was created, so there is nothing to discard.
-        Mockito.verify(productServiceClient, Mockito.never()).cancelProducts(Mockito.anyList());
+        Mockito.verify(productServiceClient, Mockito.never()).compensateProducts(Mockito.anyString(), Mockito.anyList());
         Mockito.verify(accountServiceClient, Mockito.never()).linkProducts(Mockito.anyString(), Mockito.anyList());
     }
 
@@ -458,7 +480,7 @@ class OrderServiceIntegrationTest {
         assertLastOrderCancelled();
         // The compensation targets exactly what step 2 created — still PNDG, so the
         // PNDG-only guard in product-service is never violated (ADR-015 §5.7).
-        Mockito.verify(productServiceClient).cancelProducts(List.of(21L, 22L, 23L));
+        Mockito.verify(productServiceClient).compensateProducts(Mockito.anyString(), Mockito.eq(List.of(21L, 22L, 23L)));
         // Confirm is BEFORE the commit point, so no involvement exists to undo.
         Mockito.verify(accountServiceClient, Mockito.never()).linkProducts(Mockito.anyString(), Mockito.anyList());
     }
@@ -475,7 +497,7 @@ class OrderServiceIntegrationTest {
         assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
 
         assertLastOrderCancelled();
-        Mockito.verify(productServiceClient).cancelProducts(List.of(21L, 22L, 23L));
+        Mockito.verify(productServiceClient).compensateProducts(Mockito.anyString(), Mockito.eq(List.of(21L, 22L, 23L)));
     }
 
     @Test
@@ -492,7 +514,7 @@ class OrderServiceIntegrationTest {
         assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-ACCT-NOT-ACTIVE");
 
         assertLastOrderCancelled();
-        Mockito.verify(productServiceClient).cancelProducts(List.of(21L, 22L, 23L));
+        Mockito.verify(productServiceClient).compensateProducts(Mockito.anyString(), Mockito.eq(List.of(21L, 22L, 23L)));
     }
 
     @Test
@@ -562,5 +584,109 @@ class OrderServiceIntegrationTest {
         assertThat(numbers).doesNotHaveDuplicates();
         assertThat(numbers).allSatisfy(number -> assertThat(
                 com.crm.order.order.number.LuhnCheckDigit.isValid(number)).isTrue());
+    }
+
+    // ---------------------------------------------------------------- idempotency (ADR-016 addendum)
+
+    @org.springframework.beans.factory.annotation.Autowired
+    com.crm.order.order.idempotency.IdempotencyService idempotencyService;
+
+    @Test
+    @Order(16)
+    @DisplayName("idempotency: duplicate same-key/same-request submit replays the FIRST result — "
+            + "covers both an intentional duplicate AND a client retry after a perceived timeout")
+    void duplicateSameKeySameRequestReplaysOriginalResult() {
+        String key = java.util.UUID.randomUUID().toString();
+        int before = orderCount();
+
+        ResponseEntity<Map> first = post("/api/orders", VALID_ORDER, key);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(first.getHeaders().getFirst("Idempotency-Replayed")).isNull();
+        assertThat(orderCount()).isEqualTo(before + 1);
+
+        // The exact same key, the exact same body — the server cannot tell "the client
+        // is retrying because it never saw the first response" apart from "the client
+        // sent the same request twice on purpose". Both must produce the ORIGINAL
+        // result, not a second order.
+        ResponseEntity<Map> second = post("/api/orders", VALID_ORDER, key);
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(second.getHeaders().getFirst("Idempotency-Replayed")).isEqualTo("true");
+        assertThat(second.getBody()).isEqualTo(first.getBody());
+        assertThat(orderCount()).isEqualTo(before + 1);   // NOT before + 2
+
+        // The orchestration itself ran exactly once — a replay never touches
+        // account-service or product-service again.
+        Mockito.verify(productServiceClient, Mockito.times(1)).createProducts(Mockito.any());
+        Mockito.verify(accountServiceClient, Mockito.times(1)).linkProducts(Mockito.anyString(), Mockito.anyList());
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("idempotency: same key + a DIFFERENT payload -> 409, nothing processed")
+    void sameKeyDifferentPayloadConflicts() {
+        String key = java.util.UUID.randomUUID().toString();
+        int before = orderCount();
+
+        ResponseEntity<Map> first = post("/api/orders", VALID_ORDER, key);
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+
+        // Same key, a basket with one extra characteristic value — a different
+        // normalized request body.
+        String differentPayload = VALID_ORDER.replace(
+                "{\"offerId\": 3, \"characteristics\": []}",
+                "{\"offerId\": 3, \"characteristics\": [{\"characteristicId\": 99, \"value\": \"x\"}]}");
+        ResponseEntity<Map> conflict = post("/api/orders", differentPayload, key);
+        assertThat(conflict.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(conflict.getBody().get("messageKey")).isEqualTo("MSG-IDEMPOTENCY-KEY-CONFLICT");
+
+        // Only the FIRST call's order exists — the conflicting one was never run.
+        assertThat(orderCount()).isEqualTo(before + 1);
+    }
+
+    @Test
+    @Order(18)
+    @DisplayName("idempotency: a concurrent, still-IN_PROGRESS key is refused — the DB unique constraint is the "
+            + "final guard, not an in-memory check; two concurrent requests can never both create an order")
+    void concurrentSameKeyRequestCannotCreateDuplicateOrder() {
+        String key = java.util.UUID.randomUUID().toString();
+        int before = orderCount();
+
+        // Simulates the exact state a genuinely concurrent second request would race
+        // against: a reservation row for this key already committed (by
+        // IdempotencyPersistence#reserve's REQUIRES_NEW insert), no terminal response
+        // recorded yet. Computed with the service's OWN normalization so this test
+        // exercises the real hash-match branch, not an incidental mismatch.
+        String requestHash = idempotencyService.normalizedRequestHash(VALID_ORDER.getBytes(
+                java.nio.charset.StandardCharsets.UTF_8));
+        jdbcTemplate.update(
+                "INSERT INTO idempotency_key (idempotency_key, request_hash, status, created_date, expires_at) "
+                        + "VALUES (?, ?, 'IN_PROGRESS', now(), now() + interval '1 day')",
+                key, requestHash);
+
+        ResponseEntity<Map> response = post("/api/orders", VALID_ORDER, key);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-IDEMPOTENCY-KEY-IN-PROGRESS");
+
+        // Nothing was created — the second (this) request never reached the orchestration.
+        assertThat(orderCount()).isEqualTo(before);
+        Mockito.verify(productServiceClient, Mockito.never()).createProducts(Mockito.any());
+    }
+
+    @Test
+    @Order(19)
+    @DisplayName("idempotency: missing or malformed Idempotency-Key -> 400, nothing written")
+    void missingOrMalformedIdempotencyKeyIsRejected() {
+        int before = orderCount();
+
+        ResponseEntity<Map> missing = post("/api/orders", VALID_ORDER, null);
+        assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missing.getBody().get("messageKey")).isEqualTo("MSG-IDEMPOTENCY-KEY-REQUIRED");
+
+        ResponseEntity<Map> malformed = post("/api/orders", VALID_ORDER, "not-a-uuid");
+        assertThat(malformed.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(malformed.getBody().get("messageKey")).isEqualTo("MSG-IDEMPOTENCY-KEY-REQUIRED");
+
+        assertThat(orderCount()).isEqualTo(before);
+        Mockito.verify(productServiceClient, Mockito.never()).createProducts(Mockito.any());
     }
 }

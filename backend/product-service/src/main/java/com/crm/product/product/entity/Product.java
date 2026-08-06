@@ -69,4 +69,14 @@ public class Product extends StatusAwareEntity {
 
     @Column(name = "service_address_id")
     private Long serviceAddressId;
+
+    /**
+     * Project addition (ADR-015 idempotency addendum): the sale operation (order-service's
+     * Idempotency-Key) that created this row. The ownership key
+     * {@code POST /api/products/compensate} checks before passivating anything, so a
+     * caller can never touch a product that belongs to a different sale operation.
+     * NULL for anything created before this column existed (seed fixtures).
+     */
+    @Column(name = "sale_operation_id")
+    private String saleOperationId;
 }

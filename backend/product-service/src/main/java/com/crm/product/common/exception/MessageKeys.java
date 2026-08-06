@@ -39,11 +39,13 @@ public final class MessageKeys {
     // product the customer owns (ADR-015 §5.5).
     public static final String PROD_NOT_FOUND = "MSG-PROD-NOT-FOUND";
 
-    // Documented project addition: `cancel` refused because the product is not PNDG.
-    // The guard matters — an endpoint able to passivate a COMMITTED product would be
-    // the KR-7 product cancellation that is out of phase, arriving by the back door
-    // (ADR-015 §5.7).
-    public static final String PROD_NOT_PENDING = "MSG-PROD-NOT-PENDING";
+    // Product-creation idempotency (ADR-015 idempotency addendum, 2026-08-06) — project
+    // additions, no analyst key exists for any of this.
+    /** A concurrent, still-in-flight POST /api/products for the same saleOperationId. */
+    public static final String SALE_OPERATION_IN_PROGRESS = "MSG-SALE-OPERATION-IN-PROGRESS";
+    /** POST /api/products/compensate named a product that belongs to a DIFFERENT
+     *  sale operation — the sale-scoped ownership check refusing to touch it. */
+    public static final String SALE_OPERATION_MISMATCH = "MSG-SALE-OPERATION-MISMATCH";
 
     // Established platform keys (same semantics as the other domain services).
     public static final String VALIDATION_ERROR = "MSG-VALIDATION-ERROR";

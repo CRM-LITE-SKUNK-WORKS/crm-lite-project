@@ -116,13 +116,49 @@ export class OrderSubmitStore {
   /** Once the order exists, no further submit may ever be attempted. */
   readonly locked = computed(() => this._inFlight() || this.succeeded());
 
+  /**
+   * The Idempotency-Key for the CURRENT logical submit attempt (ADR-016
+   * idempotency addendum) and the exact body it was minted for. `undefined`
+   * until the first submit — nothing to reuse yet.
+   */
+  private _idempotencyKey: string | undefined;
+  private _idempotencyKeyBody: string | undefined;
+
+  /**
+   * One UUID per logical submit attempt, reused across retries of that SAME
+   * attempt — never minted fresh just because `submit()` was called again.
+   *
+   * "Same attempt" is decided the only way that does not require this store to
+   * duplicate the backend's own request-hash logic: byte-identical JSON. A
+   * failed/timed-out submit followed by clicking Submit again with an
+   * UNCHANGED basket is a retry — reuse the key, so the backend's own replay
+   * protection (same key, same normalized body) answers with the original
+   * result instead of re-running the three-service orchestration. Editing the
+   * basket (or the address, or the campaign) between attempts changes the JSON,
+   * which is precisely when a NEW key is required: reusing the old one would
+   * hit the backend's same-key-different-payload 409 instead of submitting the
+   * edited sale. `OrderSubmitStore` is provided per wizard flow (dies with it),
+   * so this key never leaks into an unrelated sale.
+   */
+  private idempotencyKeyFor(body: SubmitOrderRequest): string {
+    const bodyJson = JSON.stringify(body);
+    if (this._idempotencyKey !== undefined && this._idempotencyKeyBody === bodyJson) {
+      return this._idempotencyKey;
+    }
+    const key = crypto.randomUUID();
+    this._idempotencyKey = key;
+    this._idempotencyKeyBody = bodyJson;
+    return key;
+  }
+
   submit(body: SubmitOrderRequest): void {
     if (this.locked()) return;
+    const idempotencyKey = this.idempotencyKeyFor(body);
     this._inFlight.set(true);
     this._error.set(null);
     this._failed.set(false);
 
-    this.api.submit(body).subscribe({
+    this.api.submit(body, idempotencyKey).subscribe({
       next: (order) => {
         this._order.set(order);
         // Deliberately NOT clearing `_inFlight` before setting `_order`: between

@@ -1,7 +1,11 @@
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { type Observable } from 'rxjs';
 import { type OrderResponse, type SubmitOrderRequest } from '../model';
+
+/** Wire header name for the idempotency contract (ADR-016 idempotency addendum,
+ *  2026-08-06) — kept here, not in the model, since it is transport, not payload. */
+export const IDEMPOTENCY_KEY_HEADER = 'Idempotency-Key';
 
 /**
  * order-service HTTP client (docs/api/order-service.md). The ONLY place
@@ -29,14 +33,20 @@ export class OrderApiService {
    * `POST /api/orders` — submit the whole basket as one atomic command; 201
    * with the created order (AC-SALE-01-15).
    *
-   * ⚠ NOT IDEMPOTENT. A retry creates a SECOND set of products and orphans the
-   * first, which is exactly why the backend disabled transport retries on its
-   * own outbound clients (ADR-016 §5.3b). This method therefore never retries,
-   * and the caller (`OrderSubmitStore`) guards against duplicate submits with
-   * an in-flight flag.
+   * The backend is now idempotent PER `Idempotency-Key` (ADR-016 idempotency
+   * addendum): the same key + the same body replays the original result
+   * instead of creating a second order. That does NOT make this method safe
+   * to call speculatively — `idempotencyKey` must be the SAME UUID for every
+   * transport-level attempt of one logical submit and a FRESH one for a new
+   * attempt (`OrderSubmitStore` owns that decision); a wrong key here would
+   * either create a duplicate order (a fresh key on a real retry) or wrongly
+   * replay a stale result (a reused key on a genuinely new submit). The
+   * in-flight guard in `OrderSubmitStore` still stands — this header closes a
+   * different gap (server-observed retries), not the client's own double-click.
    */
-  submit(body: SubmitOrderRequest): Observable<OrderResponse> {
-    return this.http.post<OrderResponse>(OrderApiService.BASE, body);
+  submit(body: SubmitOrderRequest, idempotencyKey: string): Observable<OrderResponse> {
+    const headers = new HttpHeaders().set(IDEMPOTENCY_KEY_HEADER, idempotencyKey);
+    return this.http.post<OrderResponse>(OrderApiService.BASE, body, { headers });
   }
 
   /** `GET /api/orders/{orderNumber}` — order detail by its KR-12 public number.

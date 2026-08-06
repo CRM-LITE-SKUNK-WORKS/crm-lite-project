@@ -57,6 +57,50 @@ describe('OrderSubmitStore', () => {
     expect(store.order()?.orderNumber).toBe('2026000018');
   });
 
+  // --- Idempotency-Key (ADR-016 idempotency addendum) -----------------------
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  describe('Idempotency-Key: one UUID per logical submit attempt, reused across retries', () => {
+    it('sends a UUID-shaped Idempotency-Key header on submit', () => {
+      store.submit(BODY);
+      const req = http.expectOne((r) => r.url === '/api/orders');
+      expect(req.request.headers.get('Idempotency-Key')).toMatch(UUID_RE);
+      req.flush(CREATED);
+    });
+
+    it('reuses the SAME key when the identical body is retried after a failure', () => {
+      store.submit(BODY);
+      const firstReq = http.expectOne((r) => r.url === '/api/orders');
+      const firstKey = firstReq.request.headers.get('Idempotency-Key');
+      firstReq.flush({ messageKey: 'MSG-SALE-SUBMIT-UNAVAILABLE' }, { status: 503, statusText: 'Unavailable' });
+
+      // Same click target, same basket: this IS a retry of the same attempt —
+      // the backend's own replay protection depends on the key matching.
+      store.submit(BODY);
+      const secondReq = http.expectOne((r) => r.url === '/api/orders');
+      expect(secondReq.request.headers.get('Idempotency-Key')).toBe(firstKey);
+      secondReq.flush(CREATED);
+    });
+
+    it('mints a NEW key when the body changed since the last attempt', () => {
+      store.submit(BODY);
+      const firstReq = http.expectOne((r) => r.url === '/api/orders');
+      const firstKey = firstReq.request.headers.get('Idempotency-Key');
+      firstReq.flush({ messageKey: 'MSG-SALE-DUP-OFFER' }, { status: 400, statusText: 'Bad Request' });
+
+      // The user edited the basket before submitting again — a genuinely
+      // different sale, so reusing the old key would hit the backend's
+      // same-key-different-payload 409 instead of submitting the edit.
+      const editedBody: SubmitOrderRequest = { ...BODY, serviceAddressId: 8 };
+      store.submit(editedBody);
+      const secondReq = http.expectOne((r) => r.url === '/api/orders');
+      const secondKey = secondReq.request.headers.get('Idempotency-Key');
+      expect(secondKey).not.toBe(firstKey);
+      expect(secondKey).toMatch(UUID_RE);
+      secondReq.flush(CREATED);
+    });
+  });
+
   // --- The duplicate-submit guard (ADR-016 §5.3b) ---------------------------
   describe('duplicate-submit guard — POST /api/orders is NOT idempotent', () => {
     it('ignores a second submit while the first is in flight', () => {

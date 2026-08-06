@@ -1,5 +1,6 @@
 package com.crm.product.product.service;
 
+import com.crm.product.product.dto.request.ProductCompensationRequest;
 import com.crm.product.product.dto.request.ProductCreateRequest;
 import com.crm.product.product.dto.request.ProductLifecycleRequest;
 import com.crm.product.product.dto.response.ProductCreateResponse;
@@ -21,6 +22,11 @@ public interface ProductService {
     /** ADR-015 §5.6: promote PNDG products (and their characteristic values) to ACTV. Idempotent. */
     void confirm(ProductLifecycleRequest request);
 
-    /** ADR-015 §5.7: compensation — soft-passivate never-committed (PNDG) products. */
-    void cancel(ProductLifecycleRequest request);
+    /**
+     * Sale-scoped compensation (ADR-015 §5.7, revised by the idempotency addendum,
+     * 2026-08-06): soft-passivate PNDG products created by the given
+     * {@code saleOperationId}. Idempotent (already-passivated = no-op success);
+     * refuses a product owned by a different operation rather than touching it.
+     */
+    void compensate(ProductCompensationRequest request);
 }

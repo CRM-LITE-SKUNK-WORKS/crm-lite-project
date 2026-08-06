@@ -19,6 +19,16 @@ Companions: **ADR-002** (shared catalogs), **ADR-009** (zero-trust),
 (`cust_acct_prod_invl` single-writer, read and write commands),
 **ADR-016** (order-service boundary and the sale orchestration that drives §5–§7).
 
+**Amended 2026-08-06 (§9 — Idempotency addendum):** ADR-016 §5.3b already recorded
+that a retried `POST /api/products` creates a SECOND set of PNDG products with no
+way to find or discard the first — the reason transport-level retries were disabled
+there. §9 closes the same hazard from the orchestrator's own crash-recovery side:
+order-service's new `Idempotency-Key` foundation (ADR-016 §10) can, in the one case
+it deliberately leaves unresolved (a stuck `IN_PROGRESS` reservation), be asked to
+re-enter `submit()` — and §9 makes that re-entry safe by construction rather than by
+hoping it never happens. It also replaces the old generic `/cancel(productIds)`
+with a sale-scoped, genuinely idempotent `/compensate`.
+
 ## Context
 
 FR §2.6 (FR-PROD-01..02) lists and details a customer's products; FR §2.7
@@ -284,6 +294,56 @@ closed, nothing persisted; customer-service is now on the **write** path too, §
    (`cmpg.activation_end_date`). §2.6 asks for no such filter and inventing one
    would silently hide catalog rows. The write path does check that a claimed
    campaign is **Active** (§6), which is a status check, not a date check.
+
+### 9. Idempotency addendum (2026-08-06)
+
+1. **`POST /api/products` gains a required `saleOperationId`** — a stable operation
+   identifier the caller supplies, forwarded verbatim by order-service from its own
+   client-facing `Idempotency-Key` (ADR-016 §10). product-service does not mint one
+   and does not interpret it beyond using it as a dedup key.
+2. **New table `sale_operation`** (Flyway V5 — project addition, not a workbook
+   table): `sale_operation_id` (**UNIQUE**), a response snapshot (NULL until the
+   creation that reserved it completes), the main product id, timestamps.
+   `prod.sale_operation_id` (also V5, nullable) tags every created row with its
+   owning operation.
+3. **Replay, not re-creation, on a repeated id:** a `saleOperationId` matching a
+   PREVIOUSLY SUCCESSFUL creation returns that first response unchanged — no basket
+   re-validation, no new rows. **The concurrency guard is the UNIQUE constraint on
+   `sale_operation.sale_operation_id`, not an in-memory check** — the reservation
+   INSERT (`SaleOperationPersistence#reserve`, its own `REQUIRES_NEW` transaction)
+   either wins the row or fails against it; the loser re-reads it in a fresh
+   transaction to decide replay vs. `409 MSG-SALE-OPERATION-IN-PROGRESS`.
+4. **A FAILED creation attempt releases its reservation** (deletes the row) rather
+   than leaving it stuck: unlike a successful creation, a failed one — the whole
+   transaction rolled back — persisted nothing, so there is no duplication risk to
+   protect against, and a genuine retry with the same id deserves a clean second
+   attempt rather than a permanent 409. This is the one place idempotency policy
+   deliberately differs from order-service's own (ADR-016 §10.5, which replays
+   failures too): the risk each layer is guarding against is different — order-service
+   is guarding a THREE-service orchestration's worth of side effects, product-service
+   is guarding one local, all-or-nothing transaction that a failure already fully
+   undid.
+5. **`/cancel(productIds)` is replaced by `/compensate({saleOperationId, productIds})`**
+   — sale-scoped and genuinely idempotent, fixing a real defect the old endpoint had:
+   calling it twice on the same ids always 409'd `MSG-PROD-NOT-PENDING` on the second
+   call (the products were PASV by then, never PNDG again), which made a legitimate
+   retry indistinguishable from an actual conflict.
+   - already-resolved (PASV, or ACTV after §5.6's confirm) → **no-op success**, not
+     an error;
+   - owned by a DIFFERENT `saleOperationId` → **409 `MSG-SALE-OPERATION-MISMATCH`**,
+     refused outright rather than silently skipped or touched — "cannot cancel
+     products belonging to another sale operation";
+   - unknown id → ignored, same as "already resolved": a caller cannot be made to
+     tell "already gone" apart from "never existed";
+   - still PNDG and owned by this operation → passivated, exactly as `/cancel` did.
+   It remains, as `/cancel` was, an internal service-to-service command — never
+   user-facing, and never a route to the KR-7 product cancellation that stays out of
+   phase.
+6. **No reclaim of a stuck `IN_PROGRESS` `sale_operation` row.** If the owning
+   request crashes between reserving and completing/releasing, a retry with that id
+   is refused (409) rather than reclaimed after a timeout — the same bounded,
+   logged-residue trade-off §8.4 already accepts for a stuck PNDG row, not a new
+   policy invented for this table.
 
 ## Consequences
 

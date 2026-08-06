@@ -18,6 +18,19 @@ write slice and where basket/characteristic validation lives), **ADR-014** (the
 KR-11 generator this ADR's §4 copies), **ADR-002** (shared catalogs),
 **ADR-009/010/012** (zero-trust, service-to-service auth, unified Swagger).
 
+**Amended 2026-08-06 (§10 — Idempotency addendum):** §5.3b already recorded a real
+production incident — httpclient5's default retry strategy silently re-executing a
+503'd `POST /api/products` and producing two orders from one client request — and
+disabled transport-level retries as the fix. That closed the SERVER's own retry
+hazard but left the CLIENT's: a client that never sees the response (a timeout, a
+dropped connection) has no safe way to know whether the sale happened, and the
+project-wide rule against automatic retries on unsafe writes (unchanged, still
+applies) means the client cannot just try again blindly. §10 adds an
+`Idempotency-Key` foundation to `POST /api/orders` that answers exactly that
+question — closing the gap from the OTHER side of the same incident §5.3b already
+fixed. No Kafka, no Debezium, no asynchronous processing or saga state is
+introduced; the synchronous orchestration in §5 is otherwise unchanged.
+
 ## Context
 
 FR §2.7 defines the only multi-service write flow in the system. The entity
@@ -367,6 +380,58 @@ backend never produces it.
   to §3.2 is the same follow-up PR that wires `accountNumber`.
 - **Product cancellation / order cancellation** (KR-7) and the transfer /
   service-address-change flows (§8.2).
+
+### 10. Idempotency addendum (2026-08-06)
+
+1. **`POST /api/orders` requires an `Idempotency-Key` header** — a client-generated
+   UUID, one per logical submit attempt. Enforced by a servlet filter
+   (`IdempotencyKeyFilter`) positioned AFTER Spring Security's chain (so 401/403 still
+   preempt it, exactly as for every other rule) and BEFORE the controller, so it can
+   both reject before any work happens and capture the SAME response
+   `GlobalExceptionHandler` (or the 201 path) produced, for replay.
+2. **New table `idempotency_key`** (Flyway V3 — project addition, not a workbook
+   table, the same class of deviation as `order_number_seq`): key, normalized request
+   hash, status (`IN_PROGRESS`/`COMPLETED`), order number (once known), a response
+   snapshot + HTTP status, created/updated timestamps, and a retention `expires_at`.
+   Normalization round-trips the request through its own DTO (parse → re-serialize)
+   before hashing — cheap, and sufficient because a genuine retry resends
+   byte-identical JSON; it is not a general-purpose canonical-JSON algorithm.
+3. **Enforcement, in order:**
+   - missing/non-UUID key → `400 MSG-IDEMPOTENCY-KEY-REQUIRED`;
+   - same key + same normalized body → the ORIGINAL response is replayed verbatim,
+     the orchestration does not run again — this is deliberately the SAME answer for
+     an intentional duplicate call and for a retry after a lost response, because the
+     server has no way to tell the two apart and does not need to;
+   - same key + a different normalized body → `409 MSG-IDEMPOTENCY-KEY-CONFLICT`;
+   - same key, a concurrent request for it still `IN_PROGRESS` → `409
+     MSG-IDEMPOTENCY-KEY-IN-PROGRESS`.
+4. **The database UNIQUE constraint on `idempotency_key.idempotency_key` is the
+   final concurrency guard, not an in-memory check.** The reservation INSERT
+   (`IdempotencyPersistence#reserve`, its own `REQUIRES_NEW` transaction, committed
+   independently and immediately) either wins the row or fails against it; the loser
+   re-reads the row in a fresh transaction to decide replay vs. conflict. Two
+   concurrent requests for the same key can therefore never both reach the
+   orchestration.
+5. **Every terminal outcome is recorded and replayed alike — success or a handled
+   failure (400/404/409/503).** This is a deliberate simplification, not an
+   oversight: distinguishing "safe to silently re-run" failures from "must replay"
+   ones would require a second policy on top of the one this addendum already adds,
+   for a benefit no test or requirement asks for. A stuck `IN_PROGRESS` row (the
+   owning request crashed before `complete()` ran) is bounded, logged residue —
+   the same class of trade-off §5.3's stuck-PNDG residue and ADR-015 §8.4 already
+   accept, not a speculative reclaim-after-timeout policy.
+6. **The same client-supplied key is forwarded, unchanged, as product-service's
+   `saleOperationId`** (ADR-015's own idempotency addendum) and to the sale-scoped
+   `POST /api/products/compensate`. order-service invents no operation id of its
+   own and does not interpret the key beyond forwarding it — it is opaque here.
+7. **The Angular client mints the key** (`crypto.randomUUID()` in
+   `OrderSubmitStore`) once per logical submit attempt and reuses it for a retry of
+   the SAME attempt (identical request body); editing the basket before resubmitting
+   changes the body and therefore mints a fresh key — reusing a stale one would hit
+   this addendum's own same-key-different-payload 409 instead of submitting the
+   edit. This is a client-side decision, not a new transport-level retry: the
+   project-wide rule against automatic retries on unsafe writes (§5.3b) is
+   unchanged — `OrderApiService.submit` still never retries a call itself.
 
 ## Consequences
 

@@ -2,6 +2,7 @@ package com.crm.order.order.controller;
 
 import com.crm.order.order.dto.request.OrderCreateRequest;
 import com.crm.order.order.dto.response.OrderResponse;
+import com.crm.order.order.idempotency.IdempotencyContract;
 import com.crm.order.order.service.OrderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +12,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -36,10 +38,23 @@ public class OrderController {
 
     private final OrderService orderService;
 
-    /** AC-SALE-01-15: the single Submit-Order command; the whole basket in one body. */
+    /**
+     * AC-SALE-01-15: the single Submit-Order command; the whole basket in one body.
+     *
+     * <p>{@code Idempotency-Key} is validated and its replay/conflict semantics are
+     * fully handled by {@link com.crm.order.order.idempotency.IdempotencyKeyFilter}
+     * BEFORE this method ever runs — {@code required = true} here is defence in depth
+     * (Spring's own {@code MissingRequestHeaderException} → 400), not the primary
+     * enforcement point. The same key value is also the stable operation identifier
+     * forwarded to product-service so a re-entered {@link OrderService#submit} (the
+     * filter's own crash-recovery gap, documented on {@code IdempotencyPersistence})
+     * cannot create a second set of products (ADR-015 idempotency addendum).
+     */
     @PostMapping
-    public ResponseEntity<OrderResponse> submit(@Valid @RequestBody OrderCreateRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.submit(request));
+    public ResponseEntity<OrderResponse> submit(
+            @RequestHeader(IdempotencyContract.HEADER) String idempotencyKey,
+            @Valid @RequestBody OrderCreateRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(orderService.submit(request, idempotencyKey));
     }
 
     /**

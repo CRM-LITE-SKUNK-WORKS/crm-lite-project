@@ -16,6 +16,7 @@ import com.crm.product.customer.CustomerServiceClient;
 import com.crm.product.lookup.LookupCatalogService;
 import com.crm.product.lookup.LookupContract;
 import com.crm.product.product.dto.request.ProductCharacteristicValueRequest;
+import com.crm.product.product.dto.request.ProductCompensationRequest;
 import com.crm.product.product.dto.request.ProductCreateItemRequest;
 import com.crm.product.product.dto.request.ProductCreateRequest;
 import com.crm.product.product.dto.request.ProductLifecycleRequest;
@@ -26,6 +27,8 @@ import com.crm.product.product.dto.response.ProductRowResponse;
 import com.crm.product.product.dto.response.ServiceAddressResponse;
 import com.crm.product.product.entity.Product;
 import com.crm.product.product.entity.ProductCharValue;
+import com.crm.product.product.idempotency.SaleOperationCoordinator;
+import com.crm.product.product.idempotency.SaleOperationDecision;
 import com.crm.product.product.mapper.ProductMapper;
 import com.crm.product.product.repository.ProductCharValueRepository;
 import com.crm.product.product.repository.ProductRepository;
@@ -33,6 +36,8 @@ import com.crm.product.product.rules.BasketValidationRules;
 import com.crm.product.product.rules.CharacteristicValidationRules;
 import com.crm.product.product.rules.ProductBusinessRules;
 import com.crm.product.product.service.ProductService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -62,6 +67,8 @@ public class ProductServiceImpl implements ProductService {
     private final CustomerServiceClient customerClient;
     private final LookupCatalogService lookupCatalog;
     private final CurrentActorProvider actorProvider;
+    private final SaleOperationCoordinator saleOperationCoordinator;
+    private final ObjectMapper objectMapper;
 
     /**
      * FR-PROD-01 composition (ADR-013 §5 read side): the product ↔ account link is
@@ -132,10 +139,57 @@ public class ProductServiceImpl implements ProductService {
      * </ol>
      * Any failure rolls the whole transaction back: nothing is persisted, which is
      * what lets ADR-016 §5.1 treat a failed step 2 as "no external state to unwind".
+     *
+     * <p>ADR-015 idempotency addendum (2026-08-06): {@link SaleOperationCoordinator#resolve}
+     * runs in its OWN independent transaction ({@code REQUIRES_NEW} — it is a
+     * different bean, so the {@code @Transactional} proxy on THIS method has no
+     * bearing on it) and is called first. A REPLAY short-circuits everything below —
+     * no validation, no writes, because they already happened for this exact
+     * operation id. A PROCEED wraps the rest of this method: on ANY failure the
+     * reservation is released (this method's own transaction rolls back with it, so
+     * nothing was persisted either way) so a genuine retry with the same id gets a
+     * clean second attempt rather than a permanent 409. {@code complete()} — also
+     * {@code REQUIRES_NEW} — commits independently just before this method returns,
+     * so the recorded snapshot is available to a replay the instant this response
+     * reaches the caller.
      */
     @Override
     @Transactional
     public ProductCreateResponse create(ProductCreateRequest request) {
+        SaleOperationDecision decision = saleOperationCoordinator.resolve(request.getSaleOperationId());
+        if (decision instanceof SaleOperationDecision.Replay replay) {
+            return readSnapshot(replay.responseSnapshot());
+        }
+        long reservationId = ((SaleOperationDecision.Proceed) decision).reservationId();
+        try {
+            ProductCreateResponse response = doCreate(request);
+            saleOperationCoordinator.complete(reservationId, writeSnapshot(response), response.mainProductId());
+            return response;
+        } catch (RuntimeException e) {
+            saleOperationCoordinator.release(reservationId);
+            throw e;
+        }
+    }
+
+    private ProductCreateResponse readSnapshot(String json) {
+        try {
+            return objectMapper.readValue(json, ProductCreateResponse.class);
+        } catch (JsonProcessingException e) {
+            // Written by writeSnapshot() below and never hand-edited — this cannot
+            // happen outside data corruption, which is not this method's job to fix.
+            throw new IllegalStateException("Corrupt sale-operation response snapshot", e);
+        }
+    }
+
+    private String writeSnapshot(ProductCreateResponse response) {
+        try {
+            return objectMapper.writeValueAsString(response);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Could not snapshot product-creation response", e);
+        }
+    }
+
+    private ProductCreateResponse doCreate(ProductCreateRequest request) {
         List<Long> offerIds = request.getItems().stream().map(ProductCreateItemRequest::getOfferId).toList();
         basketRules.checkNoDuplicateOffers(offerIds);
 
@@ -173,7 +227,7 @@ public class ProductServiceImpl implements ProductService {
                         "Composition rules passed but no internet offer was found"));
 
         Product mainProduct = persistProduct(mainOffer, null, campaign, request.getServiceAddressId(),
-                pendingStatusId, actor, validatedValues.get(mainOffer.getId()));
+                pendingStatusId, actor, validatedValues.get(mainOffer.getId()), request.getSaleOperationId());
 
         List<CreatedProductResponse> created = new ArrayList<>();
         created.add(toCreated(mainOffer, mainProduct, true));
@@ -185,7 +239,7 @@ public class ProductServiceImpl implements ProductService {
             // by walking up to the parent, and storing a copy would create a second
             // truth that could drift.
             Product child = persistProduct(offer, mainProduct, campaign, null,
-                    pendingStatusId, actor, validatedValues.get(offer.getId()));
+                    pendingStatusId, actor, validatedValues.get(offer.getId()), request.getSaleOperationId());
             created.add(toCreated(offer, child, false));
         }
 
@@ -237,34 +291,56 @@ public class ProductServiceImpl implements ProductService {
     }
 
     /**
-     * ADR-015 §5.7: the compensation counterpart — soft-passivates products that
-     * were reserved but never committed, with the full invariant (PASV +
+     * ADR-015 §5.7, revised by the idempotency addendum (2026-08-06): the
+     * compensation counterpart — soft-passivates PNDG products that belong to
+     * {@code request.saleOperationId}, with the full invariant (PASV +
      * deleted_date/by), cascading to their characteristic values. Physical deletion
      * is never used anywhere in this project.
      *
-     * <p><b>PNDG only.</b> A non-PNDG id is 409 MSG-PROD-NOT-PENDING, and that guard
-     * is the point: an endpoint able to passivate a committed product would be the
-     * KR-7 product cancellation that is out of phase, arriving through the back door.
+     * <p>Replaces the old generic {@code cancel(productIds)}, which rejected a
+     * repeat call outright (a second call always found the products already PASV,
+     * hence never PNDG) and had no notion of WHICH sale a product belonged to. This
+     * version is genuinely idempotent — see the three cases below — and sale-scoped:
+     * <ul>
+     *   <li>unknown id → ignored (nothing to compensate, not an error: a caller
+     *       cannot be made to distinguish "already gone" from "never existed");
+     *   <li>found but owned by a DIFFERENT {@code saleOperationId} → 409
+     *       {@code MSG-SALE-OPERATION-MISMATCH}, refused outright — this is the
+     *       "cannot cancel products belonging to another sale operation" guarantee;
+     *   <li>found, owned by THIS operation, already PASV (or, after ADR-016 §5.3's
+     *       confirm step, ACTV) → left untouched, no-op success;
+     *   <li>found, owned by THIS operation, still PNDG → passivated.
+     * </ul>
      */
     @Override
     @Transactional
-    public void cancel(ProductLifecycleRequest request) {
-        List<Product> products = loadProductsForLifecycle(request.getProductIds());
-        List<Long> notPending = products.stream().filter(product -> !product.isPending())
-                .map(Product::getId).toList();
-        if (!notPending.isEmpty()) {
-            throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.PROD_NOT_PENDING,
-                    "These products are not pending and cannot be cancelled: " + notPending);
+    public void compensate(ProductCompensationRequest request) {
+        List<Product> products = productRepository.findAllById(request.getProductIds());
+
+        List<Long> mismatched = products.stream()
+                .filter(product -> !request.getSaleOperationId().equals(product.getSaleOperationId()))
+                .map(Product::getId)
+                .toList();
+        if (!mismatched.isEmpty()) {
+            throw new BusinessException(HttpStatus.CONFLICT, MessageKeys.SALE_OPERATION_MISMATCH,
+                    "These products do not belong to sale operation " + request.getSaleOperationId()
+                            + ": " + mismatched);
+        }
+
+        List<Product> stillPending = products.stream().filter(Product::isPending).toList();
+        if (stillPending.isEmpty()) {
+            return;   // everything requested is unknown or already resolved — no-op
         }
 
         long passiveStatusId = lookupCatalog.resolveStatusId("status",
                 LookupContract.STATUS_PASSIVE, LookupContract.STATUS_DOMAIN_GENERAL);
         String actor = actorProvider.get();
 
-        for (ProductCharValue value : charValueRepository.findByProductIdIn(request.getProductIds())) {
+        List<Long> pendingIds = stillPending.stream().map(Product::getId).toList();
+        for (ProductCharValue value : charValueRepository.findByProductIdIn(pendingIds)) {
             value.passivate(passiveStatusId, actor);
         }
-        for (Product product : products) {
+        for (Product product : stillPending) {
             product.passivate(passiveStatusId, actor);
         }
     }
@@ -323,12 +399,13 @@ public class ProductServiceImpl implements ProductService {
     }
 
     private Product persistProduct(ProductOffer offer, Product parent, Campaign campaign, Long serviceAddressId,
-                                   long statusId, String actor, Map<Long, String> values) {
+                                   long statusId, String actor, Map<Long, String> values, String saleOperationId) {
         Product product = new Product();
         product.setOffer(offer);
         product.setSpec(offer.getSpec());
         product.setParent(parent);
         product.setCampaign(campaign);
+        product.setSaleOperationId(saleOperationId);
         // The workbook's PROD rows name the product after what was sold; there is no
         // FR-defined naming rule, so the offer's own name is the honest default.
         product.setName(offer.getName());

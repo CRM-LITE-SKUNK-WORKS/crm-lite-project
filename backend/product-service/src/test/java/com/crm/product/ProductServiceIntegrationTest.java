@@ -186,15 +186,28 @@ class ProductServiceIntegrationTest {
     /** Seed customer 1001 (Ali Yildiz) owns addresses 1 and 2 — the sale fixtures. */
     static final long CUSTOMER = 1001L;
 
-    /** A complete, valid ADSL basket: offers 1 (INTERNET) + 2 (RESOURCE) + 3 (ACTIVATION). */
-    private static final String VALID_BASKET = """
-            {"customerNumber": 1001, "serviceAddressId": 1, "campaignId": "CMP-ADSL-01", "items": [
-              {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"},
-                                                 {"characteristicId": 2, "value": "true"}]},
-              {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
-              {"offerId": 3, "characteristics": []}
-            ]}
-            """;
+    /**
+     * A complete, valid ADSL basket: offers 1 (INTERNET) + 2 (RESOURCE) + 3 (ACTIVATION).
+     * A METHOD, not a constant — {@code saleOperationId} must be a fresh UUID each
+     * call (ADR-015 idempotency addendum) so unrelated tests never collide on the
+     * same operation id and silently replay each other's products. Use
+     * {@link #validBasket(String)} to reuse a specific id on purpose (replay tests).
+     */
+    private String validBasket() {
+        return validBasket(java.util.UUID.randomUUID().toString());
+    }
+
+    private String validBasket(String saleOperationId) {
+        return """
+                {"customerNumber": 1001, "serviceAddressId": 1, "campaignId": "CMP-ADSL-01", \
+                "saleOperationId": "%s", "items": [
+                  {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"},
+                                                     {"characteristicId": 2, "value": "true"}]},
+                  {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
+                  {"offerId": 3, "characteristics": []}
+                ]}
+                """.formatted(saleOperationId);
+    }
 
     private static final Set<String> ROW_KEYS = Set.of(
             "productId", "productName", "campaignName", "campaignId", "productStatus");
@@ -235,7 +248,8 @@ class ProductServiceIntegrationTest {
         assertThat(tables).containsExactlyInAnyOrder(
                 "prod_spec", "prod_ofr", "cmpg", "cmpg_prod_ofr", "prod",
                 "prod_spec_char", "prod_spec_char_use", "prod_char_val",
-                "prod_catal", "prod_catal_prod_ofr", "flyway_schema_history");
+                "prod_catal", "prod_catal_prod_ofr", "flyway_schema_history",
+                "sale_operation");   // ADR-015 idempotency addendum, 2026-08-06 (V5)
     }
 
     @Test
@@ -248,7 +262,8 @@ class ProductServiceIntegrationTest {
                 "id", "parent_prod_id", "product_offer_id", "product_spec_id", "name", "description",
                 "transaction_id", "campaign_id", "service_start_date", "service_address_id",
                 "created_date", "created_by", "updated_date", "updated_by", "status_id",
-                "deleted_date", "deleted_by");
+                "deleted_date", "deleted_by",
+                "sale_operation_id");   // ADR-015 idempotency addendum, 2026-08-06 (V5)
     }
 
     // ---------------------------------------------------------------- FR-PROD-01 list
@@ -520,7 +535,7 @@ class ProductServiceIntegrationTest {
     @Test
     @DisplayName("create: main/child derived from service type, PNDG, char values persisted, total derived")
     void createProductsAsPending() {
-        ResponseEntity<Map> response = post("/api/products", VALID_BASKET);
+        ResponseEntity<Map> response = post("/api/products", validBasket());
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         Map<String, Object> body = response.getBody();
@@ -580,9 +595,47 @@ class ProductServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("idempotency addendum: duplicate saleOperationId replays the FIRST response, creates no new products")
+    void duplicateSaleOperationIdReplaysWithoutDuplicating() {
+        String operationId = java.util.UUID.randomUUID().toString();
+        int before = productCount();
+
+        ResponseEntity<Map> first = post("/api/products", validBasket(operationId));
+        assertThat(first.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        int afterFirst = productCount();
+        assertThat(afterFirst).isEqualTo(before + 3);   // main + 2 children
+
+        // A second call with the SAME operation id and SAME body — the scenario a
+        // re-entered order-service submit (crash/retry) would produce (ADR-016
+        // idempotency addendum) — must return the identical result and write nothing.
+        ResponseEntity<Map> second = post("/api/products", validBasket(operationId));
+        assertThat(second.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+        assertThat(productCount()).isEqualTo(afterFirst);   // NOT afterFirst + 3
+
+        assertThat(second.getBody().get("mainProductId")).isEqualTo(first.getBody().get("mainProductId"));
+        assertThat(second.getBody().get("products")).isEqualTo(first.getBody().get("products"));
+        assertThat(second.getBody().get("totalAmount")).isEqualTo(first.getBody().get("totalAmount"));
+    }
+
+    @Test
+    @DisplayName("idempotency addendum: a concurrent, still-reserved operation id is refused, not silently duplicated")
+    void concurrentSaleOperationInProgressIsRefused() {
+        // Simulates the narrow race window between reserve() and complete(): a row
+        // exists for this operation id but nothing has completed for it yet. A second
+        // caller must be told so (409), never allowed to proceed as if it were fresh.
+        String operationId = java.util.UUID.randomUUID().toString();
+        jdbcTemplate.update("INSERT INTO sale_operation (sale_operation_id, created_date) VALUES (?, now())",
+                operationId);
+
+        ResponseEntity<Map> response = post("/api/products", validBasket(operationId));
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SALE-OPERATION-IN-PROGRESS");
+    }
+
+    @Test
     @DisplayName("confirm: PNDG -> ACTV incl. characteristic values; idempotent on retry; product becomes visible")
     void confirmPromotesPendingProducts() {
-        Map<String, Object> created = post("/api/products", VALID_BASKET).getBody();
+        Map<String, Object> created = post("/api/products", validBasket()).getBody();
         List<Map<String, Object>> products = (List<Map<String, Object>>) created.get("products");
         List<Long> ids = products.stream().map(p -> ((Number) p.get("productId")).longValue()).toList();
         long mainProductId = ((Number) created.get("mainProductId")).longValue();
@@ -608,16 +661,21 @@ class ProductServiceIntegrationTest {
         assertThat(detail.getBody().keySet()).isEqualTo(DETAIL_KEYS);
     }
 
+    private ResponseEntity<Map> compensate(String saleOperationId, List<Long> productIds) {
+        return post("/api/products/compensate",
+                "{\"saleOperationId\": \"" + saleOperationId + "\", \"productIds\": " + productIds + "}");
+    }
+
     @Test
-    @DisplayName("cancel: PNDG-only compensation, full soft-delete invariant; a committed product -> 409")
-    void cancelPassivatesOnlyPendingProducts() {
-        Map<String, Object> created = post("/api/products", VALID_BASKET).getBody();
+    @DisplayName("compensate: PNDG-only, full soft-delete invariant; repeating the call is a no-op, not an error")
+    void compensatePassivatesOnlyPendingProductsAndIsIdempotent() {
+        String operationId = java.util.UUID.randomUUID().toString();
+        Map<String, Object> created = post("/api/products", validBasket(operationId)).getBody();
         List<Map<String, Object>> products = (List<Map<String, Object>>) created.get("products");
         List<Long> ids = products.stream().map(p -> ((Number) p.get("productId")).longValue()).toList();
         long mainProductId = ((Number) created.get("mainProductId")).longValue();
 
-        assertThat(post("/api/products/cancel", "{\"productIds\": " + ids + "}").getStatusCode())
-                .isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(compensate(operationId, ids).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         // Full invariant, never a physical delete: PASV + deleted/updated metadata.
         Map<String, Object> row = jdbcTemplate.queryForMap(
@@ -625,22 +683,50 @@ class ProductServiceIntegrationTest {
         assertThat(((Number) row.get("status_id")).longValue()).isEqualTo(2L);
         assertThat(row.get("deleted_date")).isNotNull();
         assertThat(row.get("deleted_by")).isEqualTo(TestSecurity.OPERATOR_SUBJECT);
-        assertThat(row.get("updated_date")).isNotNull();
+        Object firstUpdatedDate = row.get("updated_date");
+        assertThat(firstUpdatedDate).isNotNull();
 
         List<Long> valueStatuses = jdbcTemplate.queryForList(
                 "SELECT status_id FROM prod_char_val WHERE product_id = ?", Long.class, mainProductId);
         assertThat(valueStatuses).isNotEmpty().allMatch(status -> status == 2L);
 
-        // ADR-015 §5.7: the guard is the point. Cancelling a COMMITTED product would
-        // be the KR-7 cancellation that is out of phase, arriving by the back door.
-        ResponseEntity<Map> committed = post("/api/products/cancel", "{\"productIds\": [1]}");
-        assertThat(committed.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(committed.getBody().get("messageKey")).isEqualTo("MSG-PROD-NOT-PENDING");
-        assertThat(statusOf(1L)).isEqualTo(1L);   // untouched
+        int countAfterFirstCompensation = productCount();
 
-        ResponseEntity<Map> unknown = post("/api/products/cancel", "{\"productIds\": [999999]}");
-        assertThat(unknown.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(unknown.getBody().get("messageKey")).isEqualTo("MSG-PROD-NOT-FOUND");
+        // Requirement: "already released/passivated products return success/no-op"
+        // and "duplicate compensation does not create additional writes" — repeating
+        // the EXACT same call must succeed again, untouched, not 409 (the old generic
+        // /cancel threw MSG-PROD-NOT-PENDING here, which made a legitimate retry after
+        // a network timeout indistinguishable from a genuine conflict).
+        assertThat(compensate(operationId, ids).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(productCount()).isEqualTo(countAfterFirstCompensation);
+        Map<String, Object> rowAfterRetry = jdbcTemplate.queryForMap(
+                "SELECT status_id, updated_date FROM prod WHERE id = ?", mainProductId);
+        assertThat(((Number) rowAfterRetry.get("status_id")).longValue()).isEqualTo(2L);
+        assertThat(rowAfterRetry.get("updated_date")).isEqualTo(firstUpdatedDate);   // no additional write
+
+        // A CONFIRMED (ACTV) product that still belongs to this operation is likewise
+        // a no-op, not an error: §5.3's confirm-then-compensate ordering must never
+        // 409 on its own committed rows.
+        String confirmedOperationId = java.util.UUID.randomUUID().toString();
+        Map<String, Object> confirmedCreation = post("/api/products", validBasket(confirmedOperationId)).getBody();
+        List<Long> confirmedIds = ((List<Map<String, Object>>) confirmedCreation.get("products")).stream()
+                .map(p -> ((Number) p.get("productId")).longValue()).toList();
+        assertThat(post("/api/products/confirm", "{\"productIds\": " + confirmedIds + "}").getStatusCode())
+                .isEqualTo(HttpStatus.NO_CONTENT);
+        assertThat(compensate(confirmedOperationId, confirmedIds).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+        confirmedIds.forEach(id -> assertThat(statusOf(id)).isEqualTo(1L));   // still ACTV, untouched
+
+        // Sale-scoped ownership: a product created by a DIFFERENT operation is refused
+        // outright, never silently skipped or touched — "cannot cancel products
+        // belonging to another sale operation". confirmedIds belongs to
+        // confirmedOperationId, not operationId.
+        ResponseEntity<Map> foreignOwner = compensate(operationId, List.of(confirmedIds.get(0)));
+        assertThat(foreignOwner.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(foreignOwner.getBody().get("messageKey")).isEqualTo("MSG-SALE-OPERATION-MISMATCH");
+
+        // An unknown id is ignored, not an error — a caller cannot be made to
+        // distinguish "already gone" from "never existed".
+        assertThat(compensate(operationId, List.of(999999L)).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
     }
 
     @Test
@@ -693,6 +779,12 @@ class ProductServiceIntegrationTest {
                 "{\"serviceAddressId\": 1, \"items\": [{\"offerId\": 1, \"characteristics\": []}]}"),
                 "MSG-VALIDATION-ERROR");
 
+        // A missing saleOperationId is the same shape of failure (bean validation) —
+        // ADR-015 idempotency addendum requires it on every create call.
+        assertKey(post("/api/products",
+                "{\"customerNumber\": 1001, \"serviceAddressId\": 1, \"items\": "
+                        + "[{\"offerId\": 1, \"characteristics\": []}]}"), "MSG-VALIDATION-ERROR");
+
         // Nothing was persisted by ANY of the rejections.
         assertThat(productCount()).isEqualTo(before);
     }
@@ -704,11 +796,11 @@ class ProductServiceIntegrationTest {
 
         // Address 3 exists and is active, but it belongs to customer 1002 — attaching
         // it would make FR-PROD-02 display another customer's address (ADR-015 §5.9).
-        assertKey(post("/api/products", VALID_BASKET.replace("\"serviceAddressId\": 1",
+        assertKey(post("/api/products", validBasket().replace("\"serviceAddressId\": 1",
                 "\"serviceAddressId\": 3")), "MSG-VALIDATION-ERROR");
 
         // A nonexistent address is rejected the same way.
-        assertKey(post("/api/products", VALID_BASKET.replace("\"serviceAddressId\": 1",
+        assertKey(post("/api/products", validBasket().replace("\"serviceAddressId\": 1",
                 "\"serviceAddressId\": 987654")), "MSG-VALIDATION-ERROR");
 
         assertThat(productCount()).isEqualTo(before);
@@ -716,7 +808,7 @@ class ProductServiceIntegrationTest {
         // The customer's OTHER active address is accepted — the rule is ownership,
         // not "must be the primary one" (AC-SALE-01-11 allows choosing another).
         ResponseEntity<Map> secondary = post("/api/products",
-                VALID_BASKET.replace("\"serviceAddressId\": 1", "\"serviceAddressId\": 2"));
+                validBasket().replace("\"serviceAddressId\": 1", "\"serviceAddressId\": 2"));
         assertThat(secondary.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         long mainProductId = ((Number) secondary.getBody().get("mainProductId")).longValue();
         Long stored = jdbcTemplate.queryForObject(
@@ -731,7 +823,7 @@ class ProductServiceIntegrationTest {
         Mockito.when(customerServiceClient.fetchAddresses(Mockito.anyLong()))
                 .thenThrow(new CustomerServiceUnavailableException("customer-service down", null));
 
-        ResponseEntity<Map> response = post("/api/products", VALID_BASKET);
+        ResponseEntity<Map> response = post("/api/products", validBasket());
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
         assertThat(productCount()).isEqualTo(before);
@@ -791,7 +883,7 @@ class ProductServiceIntegrationTest {
     void campaignCoherenceRules() {
         int before = productCount();
 
-        assertKey(post("/api/products", VALID_BASKET.replace("CMP-ADSL-01", "CMP-NOPE-99")),
+        assertKey(post("/api/products", validBasket().replace("CMP-ADSL-01", "CMP-NOPE-99")),
                 "MSG-VALIDATION-ERROR");
 
         // Offer 9 (ADSL 16MB) is a member of CMP-ADSL-02, not CMP-ADSL-01 — a basket
@@ -804,7 +896,7 @@ class ProductServiceIntegrationTest {
         assertThat(productCount()).isEqualTo(before);
 
         // No campaign at all is legal: a basket assembled offer by offer.
-        ResponseEntity<Map> noCampaign = post("/api/products", VALID_BASKET
+        ResponseEntity<Map> noCampaign = post("/api/products", validBasket()
                 .replace("\"campaignId\": \"CMP-ADSL-01\", ", ""));
         assertThat(noCampaign.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(noCampaign.getBody().get("campaignId")).isNull();
@@ -818,7 +910,7 @@ class ProductServiceIntegrationTest {
         Mockito.when(lookupCatalogClient.fetchStatus("PNDG"))
                 .thenThrow(new LookupCatalogUnavailableException("catalog down", null));
 
-        ResponseEntity<Map> response = post("/api/products", VALID_BASKET);
+        ResponseEntity<Map> response = post("/api/products", validBasket());
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
         assertThat(response.getBody().get("messageKey")).isEqualTo("MSG-SERVICE-UNAVAILABLE");
         assertThat(productCount()).isEqualTo(before);
@@ -838,7 +930,8 @@ class ProductServiceIntegrationTest {
     }
 
     private String basket(String... items) {
-        return "{\"customerNumber\": " + CUSTOMER + ", \"serviceAddressId\": 1, \"items\": ["
+        return "{\"customerNumber\": " + CUSTOMER + ", \"serviceAddressId\": 1, \"saleOperationId\": \""
+                + java.util.UUID.randomUUID() + "\", \"items\": ["
                 + String.join(",", items) + "]}";
     }
 

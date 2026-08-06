@@ -4,7 +4,53 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-05 (**KR-02 UYGULANDI — Customer Search'ün
+> **Son güncelleme:** 2026-08-06 (**FR-SALE idempotency temeli UYGULANDI —
+> `POST /api/orders` artık `Idempotency-Key` zorunlu (ADR-016 §10 eki):** aynı
+> anahtar + aynı normalize edilmiş gövde → ilk sonuç **aynen replay** edilir
+> (`Idempotency-Replayed: true`); aynı anahtar + farklı gövde → 409
+> `MSG-IDEMPOTENCY-KEY-CONFLICT`; aynı anahtarla eşzamanlı ikinci istek → 409
+> `MSG-IDEMPOTENCY-KEY-IN-PROGRESS`; eksik/UUID olmayan anahtar → 400
+> `MSG-IDEMPOTENCY-KEY-REQUIRED`. Uygulama katmanı `IdempotencyKeyFilter`
+> (Spring Security zincirinden SONRA, controller'dan ÖNCE çalışır — 401/403 hep
+> önce kazanır) + yeni `idempotency_key` tablosu (`order_db`, Flyway V3,
+> workbook DIŞI proje eklentisi). **Eşzamanlılık garantisi bellek-içi kontrol
+> DEĞİL, veritabanı UNIQUE kısıtı**: rezervasyon INSERT'i kendi bağımsız
+> transaction'ında (`REQUIRES_NEW`) commit olur; yarışı kaybeden istek satırı
+> yeniden okuyup replay/conflict kararını verir. Terminal her sonuç (başarı VEYA
+> ele alınmış hata: 400/404/409/503) aynı şekilde kaydedilip replay edilir —
+> ayrı bir "hangi hata cache'lenir" politikası icat edilmedi. **Aynı anahtar
+> product-service'e `saleOperationId` olarak GÖNDERİLİR** (ADR-015 §9 eki):
+> `POST /api/products` artık bu kimliğe göre replay-safe — yeni `sale_operation`
+> tablosu (`product_db`, Flyway V5, UNIQUE `sale_operation_id`) + `prod.sale_operation_id`
+> kolonu (aynı migration) her ürünü yaratan operasyona etiketler. Başarısız
+> yaratma denemesi rezervasyonu SİLER (temiz retry mümkün); başarılı olan
+> KALICI replay kaydı bırakır — order-service'in "her sonucu cache'le" kuralından
+> BİLİNÇLİ olarak farklı (gerekçe: product-service'in yazımı tek yerel
+> transaction, başarısızlık zaten hiçbir şey bırakmıyor). **Belirsiz genel
+> `/api/products/cancel(productIds)` KALDIRILDI, yerine sale-scoped
+> `/api/products/compensate({saleOperationId, productIds})` geldi:** artık
+> gerçekten idempotent (zaten pasifleştirilmiş/PASV veya confirm sonrası ACTV
+> ürün → no-op, eskiden 409 `MSG-PROD-NOT-PENDING` fırlatıyordu — bu da meşru
+> bir retry'ı gerçek çakışmadan ayırt edilemez kılıyordu); **başka bir
+> `saleOperationId`'ye ait ürüne dokunmayı REDDEDER** (409
+> `MSG-SALE-OPERATION-MISMATCH`) — "başka bir satış operasyonuna ait ürünü iptal
+> edemez" garantisi budur. Angular tarafında `OrderSubmitStore` artık her
+> mantıksal submit denemesi için TEK bir `crypto.randomUUID()` üretir ve AYNI
+> gövdeyle yapılan tekrar denemede (timeout/hata sonrası) AYNI anahtarı
+> yeniden kullanır — gövde değişirse (sepet düzenlendiyse) YENİ anahtar
+> üretilir, aksi halde eski anahtar backend'in "aynı anahtar farklı gövde" 409'una
+> çarpardı. **Kafka/Debezium/asenkron işleme/saga state YOK** — mevcut senkron
+> akış (ADR-016 §5) değişmedi, yalnız istemci tekrar denemelerine karşı
+> korunuyor. Kod: `com.crm.order.order.idempotency` (order-service),
+> `com.crm.product.product.idempotency` (product-service). Test kanıtı: yeni
+> idempotency testleri her iki serviste eklendi (order-service
+> `OrderServiceIntegrationTest` @Order(16-19); product-service
+> `ProductServiceIntegrationTest` — replay, eşzamanlı-devam-eden-operasyon,
+> compensate idempotency/ownership); frontend `order-submit.store.spec.ts`'e
+> anahtar-yeniden-kullanım testleri eklendi. Detay: `docs/api/order-service.md`
+> §Idempotency, `docs/api/product-service.md` §Idempotency addendum, ADR-016
+> §10, ADR-015 §9.)
+> Önceki durum: 2026-08-05 (**KR-02 UYGULANDI — Customer Search'ün
 > `accountNumber`/`orderNumber` kriterleri artık GERÇEK: 501 kapısı KALKTI.**
 > `CustomerBusinessRules.checkNoUnsupportedCrossServiceSearchCriterion` **silindi**;
 > `MSG-FEATURE-NOT-IMPLEMENTED` artık **hiçbir servis tarafından üretilmiyor**.
@@ -750,6 +796,12 @@ crm-lite-project-dev/
   (`document-delta.md` P5-P9). Yeni testler: `ProductServiceIntegrationTest`'e 3 IT
   (çoklu-aile hesap, ürünsüz hesap, çocuk ürünün non-primary ebeveyn adresi) +
   yeni birim test sınıfı `ProductBusinessRulesTest` (çok seviyeli ebeveyn zinciri).
+- **2026-08-06 idempotency eki (ADR-015 §9):** `POST /api/products` artık zorunlu
+  `saleOperationId` ile replay-safe (yeni `sale_operation` tablosu, V5, UNIQUE
+  kısıt); `prod.sale_operation_id` her ürünü yaratan operasyona etiketler. Eski
+  belirsiz `/cancel(productIds)` KALDIRILDI, yerine sale-scoped, idempotent
+  `/compensate({saleOperationId, productIds})` geldi. Detay: dosyanın başındaki
+  "Son güncelleme" girdisi ve `docs/api/product-service.md` §Idempotency addendum.
 
 
 ### 4.10 order-service ✅ + product/account yazma dilimleri (YENİ — 2026-08-02, ADR-015/016)
@@ -835,6 +887,10 @@ crm-lite-project-dev/
 - **Analist onayı bekleyenler:** KR-12 (ADR-016 §4), teklif fiyatları (P1/P5),
   AC-SALE-01-12'nin "Order ID submit'ten önce" ifadesi (ADR-016 §8.3), transfer/
   service-address-change akışları (§8.2), PNDG'nin anlamı (ADR-015 §8.3).
+- **2026-08-06 idempotency eki (ADR-016 §10):** `POST /api/orders` artık zorunlu
+  `Idempotency-Key`; `idempotency_key` tablosu (V3) + `IdempotencyKeyFilter`.
+  Detay: dosyanın başındaki "Son güncelleme" girdisi ve `docs/api/order-service.md`
+  §Idempotency.
 
 ---
 

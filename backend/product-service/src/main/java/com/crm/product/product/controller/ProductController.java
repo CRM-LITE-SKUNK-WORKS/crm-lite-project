@@ -1,5 +1,6 @@
 package com.crm.product.product.controller;
 
+import com.crm.product.product.dto.request.ProductCompensationRequest;
 import com.crm.product.product.dto.request.ProductCreateRequest;
 import com.crm.product.product.dto.request.ProductLifecycleRequest;
 import com.crm.product.product.dto.response.ProductCreateResponse;
@@ -65,10 +66,18 @@ public class ProductController {
         return ResponseEntity.noContent().build();
     }
 
-    /** Compensation: soft-passivates never-committed (PNDG only) products. */
-    @PostMapping("/cancel")
-    public ResponseEntity<Void> cancel(@Valid @RequestBody ProductLifecycleRequest request) {
-        productService.cancel(request);
+    /**
+     * Sale-scoped compensation (ADR-015 §5.7, revised by the idempotency addendum,
+     * 2026-08-06): soft-passivates PNDG products created by THIS
+     * {@code saleOperationId}. Fully idempotent — an already-passivated product is a
+     * no-op success, and repeating the call creates no additional writes — and refuses
+     * (409) a product that belongs to a different operation rather than touching it.
+     * Replaces the old generic {@code /cancel(productIds)}, which had neither
+     * property.
+     */
+    @PostMapping("/compensate")
+    public ResponseEntity<Void> compensate(@Valid @RequestBody ProductCompensationRequest request) {
+        productService.compensate(request);
         return ResponseEntity.noContent().build();
     }
 }

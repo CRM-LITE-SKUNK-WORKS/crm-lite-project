@@ -18,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -72,6 +73,21 @@ public class GlobalExceptionHandler {
         Map<String, String> validationErrors = new LinkedHashMap<>();
         ex.getBindingResult().getFieldErrors()
                 .forEach(error -> validationErrors.putIfAbsent(error.getField(), error.getDefaultMessage()));
+        return badRequest(request, validationErrors);
+    }
+
+    /**
+     * Defence in depth: {@code IdempotencyKeyFilter} rejects a missing/malformed
+     * {@code Idempotency-Key} before the controller ever runs, so this path is not the
+     * primary enforcement (ADR-016 idempotency addendum) — but a required header whose
+     * absence fell through to a raw 500 would be a real regression if the filter's
+     * route match ever drifted from the controller's.
+     */
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException ex,
+                                                              HttpServletRequest request) {
+        Map<String, String> validationErrors = new LinkedHashMap<>();
+        validationErrors.put(ex.getHeaderName(), "is required");
         return badRequest(request, validationErrors);
     }
 

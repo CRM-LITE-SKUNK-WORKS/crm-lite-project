@@ -42,17 +42,17 @@ public class HttpProductServiceClient implements ProductServiceClient {
 
     @Override
     public void confirmProducts(List<Long> productIds) {
-        post("/api/products/confirm", productIds);
+        post("/api/products/confirm", Map.of("productIds", productIds));
     }
 
     @Override
-    public void cancelProducts(List<Long> productIds) {
-        post("/api/products/cancel", productIds);
+    public void compensateProducts(String saleOperationId, List<Long> productIds) {
+        post("/api/products/compensate", Map.of("saleOperationId", saleOperationId, "productIds", productIds));
     }
 
-    private void post(String uri, List<Long> productIds) {
+    private void post(String uri, Map<String, ?> body) {
         try {
-            restClient.post().uri(uri).body(Map.of("productIds", productIds)).retrieve().toBodilessEntity();
+            restClient.post().uri(uri).body(body).retrieve().toBodilessEntity();
         } catch (HttpClientErrorException e) {
             throw toValidationException(e);
         } catch (RestClientException | IllegalStateException e) {
@@ -112,6 +112,7 @@ public class HttpProductServiceClient implements ProductServiceClient {
         body.put("serviceAddressId", command.serviceAddressId());
         body.put("campaignId", command.campaignId());
         body.put("items", items);
+        body.put("saleOperationId", command.saleOperationId());
         return body;
     }
 }

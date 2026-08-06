@@ -20,10 +20,12 @@ gateway UI (`http://localhost:8080/swagger-ui.html`, dropdown entry
 `product-service`, ADR-012).
 
 **Two slices.** The FR-PROD-01..02 read side (2026-07-29) and the FR-SALE write
-side (2026-08-02, ADR-015 §5/§6 — see below). Still absent by design: no basket, no
-order, no Kafka or Redis. **Product cancellation remains out of phase**
-(KR-7, AC-PROD-01-04: the Action column offers only a view icon) — the `/cancel`
-command below is compensation for never-committed rows, not the same thing.
+side (2026-08-02, ADR-015 §5/§6 — see below), revised by the idempotency addendum
+(2026-08-06). Still absent by design: no basket, no order, no Kafka or Redis.
+**Product cancellation remains out of phase**
+(KR-7, AC-PROD-01-04: the Action column offers only a view icon) — the
+`/compensate` command below is compensation for never-committed rows, not the same
+thing.
 
 ## Endpoints (complete list — deliberately nothing else)
 
@@ -207,11 +209,16 @@ FR/AC) and `PROD.transaction_id` (empty in every workbook row; presumably a
 future order/business-interaction reference — the order domain does not exist
 yet).
 
-## Database (`product_db`, Flyway V1/V2)
+## Database (`product_db`, Flyway V1–V5)
 
-Ten tables, faithful to the workbook: `prod_spec`, `prod_ofr`, `cmpg`,
+Ten workbook tables: `prod_spec`, `prod_ofr`, `cmpg`,
 `cmpg_prod_ofr`, `prod`, `prod_spec_char`, `prod_spec_char_use`,
-`prod_char_val`, `prod_catal`, `prod_catal_prod_ofr`.
+`prod_char_val`, `prod_catal`, `prod_catal_prod_ofr` — plus **`sale_operation`**
+(V5, idempotency addendum, 2026-08-06): the replay ledger for `POST /api/products`,
+keyed on a UNIQUE `sale_operation_id`. `prod.sale_operation_id` (also V5, nullable)
+tags every product with the operation that created it — the ownership key
+`POST /api/products/compensate` checks. Neither is a workbook table/column;
+project additions, same class of deviation as `PROD.transaction_id` staying unused.
 
 - **No local `gnl_st`/`gnl_tp` table, no local catalog seed, no cross-database
   FK** (ADR-002). `status_id`, `prod_spec.service_type_id` and
@@ -312,9 +319,9 @@ curl -sS -H "Accept: application/json" \
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/api/offers/{offerId}/characteristics` | Product Configuration schema (AC-SALE-01-10/17/20/21) |
-| POST | `/api/products` | Create one installation — main + children — as **PNDG**, in one local transaction |
+| POST | `/api/products` | Create one installation — main + children — as **PNDG**, in one local transaction. Replay-safe (idempotency addendum) |
 | POST | `/api/products/confirm` | PNDG → ACTV. Idempotent |
-| POST | `/api/products/cancel` | Compensation: soft-passivate **PNDG-only** products |
+| POST | `/api/products/compensate` | Sale-scoped compensation: soft-passivate **PNDG-only** products created by ONE `saleOperationId`. Idempotent (idempotency addendum, replaces the old `/cancel`) |
 
 ```jsonc
 // POST /api/products
@@ -322,6 +329,7 @@ curl -sS -H "Accept: application/json" \
   "customerNumber": 1001,          // NOT stored — only used to validate the address
   "serviceAddressId": 1,
   "campaignId": "CMP-ADSL-01",     // optional, public code
+  "saleOperationId": "b3b1...",    // order-service's Idempotency-Key, forwarded verbatim
   "items": [
     {"offerId": 1, "characteristics": [{"characteristicId": 1, "value": "16"}]},
     {"offerId": 2, "characteristics": [{"characteristicId": 3, "value": "AA:BB:CC:DD:EE:FF"}]},
@@ -329,6 +337,27 @@ curl -sS -H "Accept: application/json" \
   ]
 }
 ```
+
+### Idempotency addendum (ADR-015, 2026-08-06)
+
+`saleOperationId` is a **stable operation identifier**, not part of the basket: the
+caller (order-service) forwards its own client-supplied `Idempotency-Key` verbatim, so
+a re-entered submit (the order-level idempotency filter's own documented
+crash-recovery gap — see `docs/api/order-service.md`) cannot create a SECOND set of
+PNDG products.
+
+- A `POST /api/products` whose `saleOperationId` matches a PREVIOUSLY SUCCESSFUL
+  creation returns that FIRST response unchanged — no new rows, no re-validation.
+  Dedup'd by a **database UNIQUE constraint** on `sale_operation.sale_operation_id`
+  (Flyway V5), not merely an in-memory check: the constraint is what a genuinely
+  concurrent racing request fails against.
+- A `saleOperationId` that is still mid-flight for a DIFFERENT, concurrent request →
+  `409 MSG-SALE-OPERATION-IN-PROGRESS`.
+- A `saleOperationId` whose PRIOR attempt FAILED (nothing was persisted — the whole
+  creation transaction rolled back) is released and may be reused cleanly: a failed
+  attempt leaves no products to protect from duplication, unlike a successful one.
+- `prod.sale_operation_id` (Flyway V5) tags every created row with its owning
+  operation — the key `POST /api/products/compensate` checks before touching anything.
 
 - **Main/child is derived, not declared:** the INTERNET-service offer becomes the
   main product and the only one carrying `service_address_id`; RESOURCE and
@@ -347,9 +376,16 @@ curl -sS -H "Accept: application/json" \
 - **PNDG products are invisible to FR-PROD-01/02** (§5.5): the Status column has two
   values and the mapper renders anything non-ACTV as "Passive", so a leaked PNDG row
   would show a product the customer never bought. Detail answers 404.
-- `/cancel` accepts **PNDG only** → otherwise 409 `MSG-PROD-NOT-PENDING`. An endpoint
-  able to passivate a committed product would be the KR-7 cancellation that is out of
-  phase, arriving by the back door.
+- `/compensate` (body `{saleOperationId, productIds}`, replaces the old
+  `/cancel(productIds)`) only ever touches rows still PNDG **and owned by that
+  `saleOperationId`**: an already-resolved product (PASV or, after §5.6, ACTV) is a
+  no-op success — not the old 409 `MSG-PROD-NOT-PENDING`, which made a legitimate
+  retry indistinguishable from a real conflict — and a product owned by a DIFFERENT
+  operation is refused with `409 MSG-SALE-OPERATION-MISMATCH` rather than silently
+  skipped or touched. An unknown id is likewise a no-op: a caller cannot be made to
+  tell "already gone" apart from "never existed". This sale-scoped, idempotent shape
+  is what lets an endpoint able to passivate a product exist at all without becoming
+  the KR-7 cancellation that is out of phase, arriving by the back door.
 - A **full `LookupCatalogClient` boundary was built before the first write**
   (ADR-015 §4.1): no status is persisted without resolving it through the catalog
   owner, fail-closed (ADR-002 §7). Reads still use the local `LookupContract`
@@ -358,8 +394,14 @@ curl -sS -H "Accept: application/json" \
 ## Deliberate limitations / future work (never silently faked)
 
 - **No product cancellation** (KR-7, AC-PROD-01-04: the Action column offers only a
-  view icon). `/cancel` is a compensation command restricted to never-committed PNDG
-  rows — not the same thing.
+  view icon). `/compensate` is a sale-scoped compensation command restricted to
+  never-committed PNDG rows owned by the calling `saleOperationId` — not the same
+  thing, and never user-facing (KR-7 stays out of scope).
+- **No reclaim of a stuck IN_PROGRESS `sale_operation` row.** If the owning request
+  crashes between reserving an operation id and completing or releasing it, a retry
+  with that id is refused (409) rather than automatically reclaimed after a timeout —
+  bounded, logged residue, the same trade-off already accepted for a stuck PNDG row
+  below, not a speculative reclaim policy nothing requires.
 - **No stuck-PNDG sweeper.** If a compensation itself fails, rows stay PNDG:
   invisible to the customer, identifiable by one query (`status_id = 6`), recorded as
   an operational follow-up (ADR-015 §8.4) rather than built speculatively.

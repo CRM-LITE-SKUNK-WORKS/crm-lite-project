@@ -40,6 +40,43 @@ unified gateway UI (`http://localhost:8080/swagger-ui.html`, dropdown entry
 - **No order list.** No FR asks for one, and inventing a list contract means inventing
   sorting, filtering and pagination rules an analyst has not written.
 
+## Idempotency (ADR-016 idempotency addendum, 2026-08-06)
+
+`POST /api/orders` requires an `Idempotency-Key` header — a client-generated UUID,
+one per logical submit attempt (the Angular client mints it with `crypto.randomUUID()`
+in `OrderSubmitStore` and reuses it for a retry of the SAME attempt, never for a new
+one). Enforcement:
+
+- **Missing or not a UUID** → `400 MSG-IDEMPOTENCY-KEY-REQUIRED`.
+- **Same key + the same normalized request body** → the ORIGINAL response is replayed
+  verbatim (same status, same body, response header `Idempotency-Replayed: true`) —
+  the orchestration does not run again. This covers both an intentional duplicate call
+  and a client retry after it never saw the first response (a timeout, a dropped
+  connection): the server cannot and does not try to tell the two apart.
+- **Same key + a DIFFERENT normalized body** → `409 MSG-IDEMPOTENCY-KEY-CONFLICT`,
+  nothing processed.
+- **Same key, a concurrent request for it still running** → `409
+  MSG-IDEMPOTENCY-KEY-IN-PROGRESS`. Two concurrent requests for the same key can never
+  both create an order: the FIRST one to reach it wins a UNIQUE-constraint INSERT on
+  `idempotency_key.idempotency_key` — the database, not an in-memory check, is the
+  final concurrency guard.
+- A terminal outcome (success **or** a handled failure — 400/404/409/503) is recorded
+  and replayed alike; the same "fail closed, log, move on" philosophy the rest of this
+  ADR already applies (§5.5) is applied here to the idempotency ledger itself, rather
+  than inventing a separate retry policy for it.
+
+Enforced by a servlet filter (`IdempotencyKeyFilter`) ahead of the controller, so it
+observes the SAME response `GlobalExceptionHandler` (or the 201 path) actually
+produced — a replay is never a hand-rolled approximation of the original answer.
+
+The same key is also forwarded to product-service as the **stable operation
+identifier** (`ProductCreateRequest.saleOperationId`) that makes `POST /api/products`
+replay-safe, and to the sale-scoped `POST /api/products/compensate` — see
+`docs/api/product-service.md` and ADR-015's idempotency addendum. order-service does
+not interpret the key otherwise; it is opaque, forwarded verbatim.
+
+New table `idempotency_key` (Flyway V3) — see the Database section below.
+
 ## The sale orchestration (why three services are involved)
 
 The flow writes to **three databases** — `order_db`, `product_db`, `account_db` —
@@ -166,7 +203,12 @@ idempotent — a retry would create a second set of products and orphan the firs
 | 409 | `MSG-ACCT-NOT-ACTIVE` | the billing account is Passive (AC-SALE-02-01) |
 | 409 | `MSG-ORDER-DUP-NUMBER` | order-number uniqueness race (DB fallback — never 500) |
 | 409 | `MSG-ORDER-NUMBER-CAPACITY-EXCEEDED` | KR-12 sequence exhausted for segment+year |
+| 409 | `MSG-IDEMPOTENCY-KEY-CONFLICT` | same `Idempotency-Key`, a different request body (**project addition**) |
+| 409 | `MSG-IDEMPOTENCY-KEY-IN-PROGRESS` | same key, a concurrent request for it is still running (**project addition**) |
 | 503 | `MSG-SERVICE-UNAVAILABLE` | lookup, product, account **or customer** service unreachable — fail closed; the order is `CANCELLED` and nothing the customer can see was created |
+
+`MSG-IDEMPOTENCY-KEY-REQUIRED` (400) is produced when the header is missing or not a
+UUID — see the Idempotency section above.
 
 Error body: the established `{timestamp, status, error, messageKey, message, path,
 validationErrors}` shape.
@@ -225,9 +267,13 @@ The workbook itself is never edited; all of these are also in
    is never used. No FR/AC covers them (ADR-016 §6/§8.2) — flagged for analysts, not
    built.
 
-## Database (`order_db`, Flyway V1/V2)
+## Database (`order_db`, Flyway V1–V3)
 
-Four tables: `bsn_inter`, `cust_ord`, `cust_ord_item`, `order_number_seq`.
+Five tables: `bsn_inter`, `cust_ord`, `cust_ord_item`, `order_number_seq`,
+`idempotency_key` (V3, ADR-016 idempotency addendum — project bookkeeping, not a
+workbook table; holds the key, the normalized request hash, status, the order number
+once known, a response snapshot + HTTP status, created/updated timestamps and a
+retention `expires_at`).
 
 - **No local `gnl_st`/`gnl_tp` table, no local catalog seed, no cross-database FK**
   (ADR-002) — asserted by an integration test over `information_schema`. `status_id`
@@ -255,6 +301,7 @@ curl -sS -H "$C" \
 
 # SUBMIT a complete ADSL sale -> 201, order number 1261000010
 curl -sS -X POST -H "$C" -H "$X" -H "Content-Type: application/json" \
+  -H "Idempotency-Key: $(uuidgen)" \
   "http://localhost:8080/api/orders" \
   --data-binary @- -w "\nHTTP Status: %{http_code}\n" <<'JSON'
 {"accountNumber": "1261000010", "serviceAddressId": 1, "campaignId": "CMP-ADSL-01",

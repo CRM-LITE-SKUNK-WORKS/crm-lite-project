@@ -57,7 +57,7 @@ public class OrderServiceImpl implements OrderService {
     private final ProductServiceClient productClient;
 
     @Override
-    public OrderResponse submit(OrderCreateRequest request) {
+    public OrderResponse submit(OrderCreateRequest request, String idempotencyKey) {
         // ---- Step 0: preconditions (reads only; nothing written anywhere) --------
         AccountSummary account = accountClient.fetchAccount(request.getAccountNumber())
                 .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, MessageKeys.ACCT_NOT_FOUND,
@@ -79,7 +79,7 @@ public class OrderServiceImpl implements OrderService {
         // ---- Step 2: create the products (PNDG) ---------------------------------
         ProductCreationResult creation;
         try {
-            creation = productClient.createProducts(toCreationCommand(request, account));
+            creation = productClient.createProducts(toCreationCommand(request, account, idempotencyKey));
         } catch (RuntimeException e) {
             // Includes ProductValidationException: the basket was rejected, so the
             // order just written must not linger as a half-made sale. The original
@@ -92,7 +92,7 @@ public class OrderServiceImpl implements OrderService {
         try {
             persistence.attachProducts(orderId, creation);
         } catch (RuntimeException e) {
-            compensate(orderId, creation, "order/product linking failed");
+            compensate(orderId, creation, idempotencyKey, "order/product linking failed");
             throw e;
         }
 
@@ -104,7 +104,7 @@ public class OrderServiceImpl implements OrderService {
         try {
             productClient.confirmProducts(creation.productIds());
         } catch (RuntimeException e) {
-            compensate(orderId, creation, "product confirmation failed");
+            compensate(orderId, creation, idempotencyKey, "product confirmation failed");
             throw e;
         }
 
@@ -116,7 +116,7 @@ public class OrderServiceImpl implements OrderService {
         try {
             accountClient.linkProducts(request.getAccountNumber(), creation.productIds());
         } catch (RuntimeException e) {
-            compensate(orderId, creation, "account involvement write failed");
+            compensate(orderId, creation, idempotencyKey, "account involvement write failed");
             throw e;
         }
 
@@ -145,16 +145,17 @@ public class OrderServiceImpl implements OrderService {
      * operational follow-up (ADR-015 §8.4) rather than papered over with a
      * speculative reconciliation job.
      */
-    private void compensate(long orderId, ProductCreationResult creation, String reason) {
+    private void compensate(long orderId, ProductCreationResult creation, String idempotencyKey, String reason) {
         try {
-            productClient.cancelProducts(creation.productIds());
+            productClient.compensateProducts(idempotencyKey, creation.productIds());
         } catch (RuntimeException e) {
             log.error("Could not discard products {} after: {}", creation.productIds(), reason, e);
         }
         persistence.cancelOrder(orderId, reason);
     }
 
-    private ProductCreationCommand toCreationCommand(OrderCreateRequest request, AccountSummary account) {
+    private ProductCreationCommand toCreationCommand(OrderCreateRequest request, AccountSummary account,
+                                                      String idempotencyKey) {
         List<ProductCreationCommand.Item> items = new ArrayList<>();
         for (OrderItemRequest item : request.getItems()) {
             Map<Long, String> characteristics = new LinkedHashMap<>();
@@ -167,6 +168,6 @@ public class OrderServiceImpl implements OrderService {
         // what product-service checks the service address against (ADR-015 §5.9), so
         // letting a caller supply it would defeat the check it enables.
         return new ProductCreationCommand(account.customerNumber(), request.getServiceAddressId(),
-                request.getCampaignId(), items);
+                request.getCampaignId(), items, idempotencyKey);
     }
 }

@@ -5,7 +5,6 @@ import {
   IconButton,
 } from '../../../shared/ui';
 import {
-  EmptyState,
   Skeleton,
   StatusBadge,
   Table,
@@ -60,7 +59,6 @@ const NO_VALUE = '-';
     TranslatePipe,
     Button,
     IconButton,
-    EmptyState,
     Skeleton,
     StatusBadge,
     Table,

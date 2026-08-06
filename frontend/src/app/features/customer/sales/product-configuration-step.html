@@ -132,16 +132,11 @@
               </app-form-field>
             }
           </div>
-        } @else {
-          <!-- AC-SALE-01-21: an offer with no characteristics still gets a
-               block; it simply has nothing to fill in. -->
-          <p
-            class="p-5 text-body-sm text-ink-muted"
-            [attr.data-testid]="'sale-config-no-fields-' + block.offerId"
-          >
-            {{ 'UI-SALE-CONFIG-NO-FIELDS' | t }}
-          </p>
         }
+        <!-- AC-SALE-01-21: an offer with no characteristics still gets its own
+             card — but the card ends at its header. The mock's `hasFields`
+             branch has NO else arm: nothing is rendered under the heading, and
+             no sentence explains the absence (scope §4.33). -->
       </section>
     }
 

@@ -16,6 +16,9 @@ export type {
   OrderItemResponse,
   OrderResponse,
   BasketItem,
+  BasketGroup,
+  BasketCampaignGroup,
+  BasketOfferGroup,
 } from './model';
 export { REQUIRED_SERVICE_TYPES } from './model';
 export { OrderApiService } from './data/order-api.service';

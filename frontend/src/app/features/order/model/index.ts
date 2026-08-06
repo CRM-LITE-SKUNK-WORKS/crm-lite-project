@@ -6,5 +6,8 @@ export type {
   OrderItemResponse,
   OrderResponse,
   BasketItem,
+  BasketGroup,
+  BasketCampaignGroup,
+  BasketOfferGroup,
 } from './order.model';
 export { REQUIRED_SERVICE_TYPES } from './order.model';

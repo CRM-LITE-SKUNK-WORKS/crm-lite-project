@@ -246,12 +246,12 @@
           </thead>
           <tbody>
             @if (isOffers()) {
-              @for (row of offerRows(); track row.offerId) {
+              @for (row of offerRows(); track row.offerId; let odd = $odd) {
+                <!-- Paint precedence and zebra live in `rowClasses` (D3/D4): a
+                     row in the basket keeps the highlight for good and stops
+                     being clickable; otherwise selected wins over the stripe. -->
                 <tr
-                  class="border-b border-line"
-                  [class.cursor-pointer]="!inBasket(row.offerId)"
-                  [class.cursor-default]="inBasket(row.offerId)"
-                  [class.bg-selected]="isSelected(row.offerId)"
+                  [class]="rowClasses(inBasket(row.offerId), isSelected(row.offerId), odd)"
                   [attr.data-testid]="'sale-offer-row-' + row.offerId"
                   (click)="toggleOffer(row.offerId)"
                 >
@@ -260,7 +260,7 @@
                   </td>
                   <td class="px-4 py-3 text-body font-medium text-ink">{{ row.offerName }}</td>
                   <td class="whitespace-nowrap px-4 py-3 text-body-sm text-ink-soft">
-                    {{ row.serviceType }}
+                    {{ serviceTypeLabel(row.serviceType) }}
                   </td>
                   <td
                     class="eds-tabular-nums whitespace-nowrap px-4 py-3 text-right text-body text-ink"
@@ -268,30 +268,39 @@
                     {{ price(row.price) }}
                   </td>
                   <td class="px-4 py-3 text-center">
-                    @if (inBasket(row.offerId)) {
-                      <app-icon
-                        name="check-circle-2"
-                        [size]="16"
-                        class="text-brand-active"
-                        [ariaLabel]="'UI-SALE-ROW-ADDED' | t"
-                        [attr.data-testid]="'sale-offer-row-' + row.offerId + '-added'"
-                      />
-                    } @else if (isSelected(row.offerId)) {
-                      <app-icon name="check" [size]="16" class="text-brand-active" />
-                    }
+                    <!-- D2: the tick box is rendered UNCONDITIONALLY — only the
+                         icon inside it is conditional. An empty cell used to
+                         collapse the column, which shifted every other column
+                         left the moment the first row was ticked.
+                         The mock's 18px box and 18px icon are both off the EDS
+                         scale and round onto it (`size-5` / 16), exactly as the
+                         Icon size table already does for 22→20 and 14→16
+                         (FE-ADR-011 §f). -->
+                    <span class="inline-flex size-5 items-center justify-center">
+                      @if (inBasket(row.offerId)) {
+                        <app-icon
+                          name="check-circle-2"
+                          [size]="16"
+                          class="text-brand-active"
+                          [ariaLabel]="'UI-SALE-ROW-ADDED' | t"
+                          [attr.data-testid]="'sale-offer-row-' + row.offerId + '-added'"
+                        />
+                      } @else if (isSelected(row.offerId)) {
+                        <app-icon name="check" [size]="16" class="text-brand-active" />
+                      }
+                    </span>
                   </td>
                 </tr>
               }
             } @else {
-              @for (row of campaignRows(); track row.campaignId) {
+              @for (row of campaignRows(); track row.campaignId; let odd = $odd) {
                 <!-- Same three states as an offer row (AC-SALE-01-05): already
                      added → filled check + inert; ticked → check; otherwise
-                     selectable. -->
+                     selectable. Paint precedence + zebra: `rowClasses`. -->
                 <tr
-                  class="border-b border-line"
-                  [class.cursor-pointer]="!campaignInBasket(row)"
-                  [class.cursor-default]="campaignInBasket(row)"
-                  [class.bg-selected]="isCampaignSelected(row.campaignId)"
+                  [class]="
+                    rowClasses(campaignInBasket(row), isCampaignSelected(row.campaignId), odd)
+                  "
                   [attr.data-testid]="'sale-campaign-row-' + row.campaignId"
                   (click)="toggleCampaign(row.campaignId)"
                 >
@@ -303,8 +312,28 @@
                   <td class="whitespace-nowrap px-4 py-3 align-top text-body font-medium text-ink">
                     {{ row.campaignName }}
                   </td>
-                  <td class="px-4 py-3 align-top text-body-sm text-ink-soft">
-                    {{ includesLabel(row) }}
+                  <!-- D5: ONE LINE PER MEMBER OFFER — "{offerId} · {offerName}"
+                       then the resolved service-type label. All three fields come
+                       from GET /api/campaigns (offers[]); the mock's own ids and
+                       titles are fixtures and are never hardcoded. -->
+                  <td class="px-4 py-3 align-top">
+                    <div class="flex flex-col gap-1">
+                      @for (line of includeLines(row); track line.offerId) {
+                        <div class="flex items-baseline gap-2">
+                          <span
+                            class="eds-tabular-nums text-body-sm text-ink"
+                            [attr.data-testid]="
+                              'sale-campaign-row-' + row.campaignId + '-includes-' + line.offerId
+                            "
+                          >
+                            {{ line.label }}
+                          </span>
+                          <span class="whitespace-nowrap text-caption text-ink-muted">
+                            {{ line.typeLabel }}
+                          </span>
+                        </div>
+                      }
+                    </div>
                   </td>
                   <td
                     class="eds-tabular-nums whitespace-nowrap px-4 py-3 text-right align-top text-body text-ink"
@@ -312,17 +341,20 @@
                     {{ price(row.totalPrice) }}
                   </td>
                   <td class="px-4 py-3 text-center align-top">
-                    @if (campaignInBasket(row)) {
-                      <app-icon
-                        name="check-circle-2"
-                        [size]="16"
-                        class="text-brand-active"
-                        [ariaLabel]="'UI-SALE-ROW-ADDED' | t"
-                        [attr.data-testid]="'sale-campaign-row-' + row.campaignId + '-added'"
-                      />
-                    } @else if (isCampaignSelected(row.campaignId)) {
-                      <app-icon name="check" [size]="16" class="text-brand-active" />
-                    }
+                    <!-- D2: unconditional tick box (see the Catalog table). -->
+                    <span class="inline-flex size-5 items-center justify-center">
+                      @if (campaignInBasket(row)) {
+                        <app-icon
+                          name="check-circle-2"
+                          [size]="16"
+                          class="text-brand-active"
+                          [ariaLabel]="'UI-SALE-ROW-ADDED' | t"
+                          [attr.data-testid]="'sale-campaign-row-' + row.campaignId + '-added'"
+                        />
+                      } @else if (isCampaignSelected(row.campaignId)) {
+                        <app-icon name="check" [size]="16" class="text-brand-active" />
+                      }
+                    </span>
                   </td>
                 </tr>
               }
@@ -361,45 +393,84 @@
   >
     <div class="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
       <span class="text-body-lg font-semibold text-ink">{{ 'UI-SALE-BASKET-TITLE' | t }}</span>
-      <span class="eds-tabular-nums text-body-sm text-ink-muted">{{ basketCountLabel() }}</span>
+      <span
+        class="eds-tabular-nums text-body-sm text-ink-muted"
+        data-testid="sale-basket-count"
+      >
+        {{ basketCountLabel() }}
+      </span>
     </div>
 
     @if (basket.isEmpty()) {
-      <div class="flex flex-1 items-center justify-center px-6 py-10">
-        <app-empty-state
-          icon="shopping-cart"
-          [title]="'UI-SALE-BASKET-EMPTY' | t"
-          [body]="'UI-SALE-BASKET-EMPTY-HINT' | t"
-          testId="sale-basket-empty"
-        />
+      <!-- The mock draws its own empty state here rather than the shared
+           EmptyState pattern: a 48px sunken DISC holding the icon, then a
+           medium-weight primary line and a tertiary hint (scope §4.33). -->
+      <div
+        class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-12 text-center"
+        data-testid="sale-basket-empty"
+      >
+        <span class="grid size-12 place-items-center rounded-full bg-sunken text-ink-muted">
+          <app-icon name="shopping-cart" [size]="24" />
+        </span>
+        <span class="text-body font-medium text-ink">{{ 'UI-SALE-BASKET-EMPTY' | t }}</span>
+        <span class="text-body-sm text-ink-muted">{{ 'UI-SALE-BASKET-EMPTY-HINT' | t }}</span>
       </div>
     } @else {
-      <div class="min-h-0 flex-1 overflow-y-auto px-5 py-2">
-        @for (item of basket.items(); track item.offer.offerId) {
+      <div class="flex min-h-0 flex-1 flex-col overflow-y-auto px-5 py-2">
+        <!--
+          GROUPED, as the mock draws it (scope §4.33): a campaign is ONE row —
+          its name, then `{campaignId} · Campaign`, then its member offers in an
+          indented block with a 2px rule down the left — and its price is the
+          bundle total. A loose offer is a plain row (id over name). `members` is
+          empty for those, so the block below simply does not render.
+        -->
+        @for (row of basketRows(); track row.key) {
           <div
             class="flex items-start justify-between gap-3 border-b border-line py-3 last:border-b-0"
-            [attr.data-testid]="'sale-basket-item-' + item.offer.offerId"
+            [attr.data-testid]="row.testId"
           >
             <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-              <span class="eds-tabular-nums text-body font-semibold text-ink">{{
-                item.offer.offerId
-              }}</span>
-              <span class="text-body-sm text-ink-soft">{{ item.offer.offerName }}</span>
-              @if (item.campaignName) {
-                <span class="eds-tabular-nums text-caption text-ink-muted">
-                  {{ item.campaignName }} · {{ item.campaignId }}
-                </span>
+              <span class="eds-tabular-nums text-body font-semibold text-ink">{{ row.title }}</span>
+              <span class="text-body-sm text-ink-soft">{{ row.subtitle }}</span>
+
+              @if (row.members.length > 0) {
+                <div class="mt-2 flex flex-col gap-1.5 border-l-2 border-line pl-3">
+                  @for (member of row.members; track member.offerId) {
+                    <div class="flex items-baseline justify-between gap-2">
+                      <div class="flex min-w-0 flex-col gap-px">
+                        <span
+                          class="eds-tabular-nums text-body-sm text-ink"
+                          [attr.data-testid]="row.testId + '-member-' + member.offerId"
+                        >
+                          {{ member.label }}
+                        </span>
+                        <span class="text-caption text-ink-muted">{{ member.typeLabel }}</span>
+                      </div>
+                      <span
+                        class="eds-tabular-nums shrink-0 text-body-sm whitespace-nowrap text-ink-soft"
+                      >
+                        {{ member.priceLabel }}
+                      </span>
+                    </div>
+                  }
+                </div>
               }
             </div>
+
             <div class="flex shrink-0 items-center gap-2">
-              <span class="eds-tabular-nums text-body font-semibold text-ink">{{
-                price(item.offer.price)
-              }}</span>
+              <span class="eds-tabular-nums text-body font-semibold whitespace-nowrap text-ink">
+                {{ row.priceLabel }}
+              </span>
+              <!-- Mock: a 24px BARE control — no resting fill, sunken on hover
+                   — so a column of them reads as content, not as grey chips. -->
               <app-icon-button
                 icon="x"
+                variant="bare"
+                [size]="24"
                 [ariaLabel]="'UI-SALE-BASKET-REMOVE' | t"
-                [testId]="'sale-basket-remove-' + item.offer.offerId"
-                (action)="removeFromBasket(item.offer.offerId)"
+                [title]="'UI-SALE-BASKET-REMOVE' | t"
+                [testId]="row.testId + '-remove'"
+                (action)="removeRow(row)"
               />
             </div>
           </div>

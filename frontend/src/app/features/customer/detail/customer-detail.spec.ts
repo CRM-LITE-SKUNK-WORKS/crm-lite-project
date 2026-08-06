@@ -68,9 +68,12 @@ function apiError(status: number, messageKey: string) {
 
 describe('CustomerDetail', () => {
   let http: HttpTestingController;
+  /** Query params the ActivatedRoute stub reports; set BEFORE render(). */
+  let queryParams: Record<string, string> = {};
 
   beforeEach(() => {
     localStorage.clear();
+    queryParams = {};
     TestBed.configureTestingModule({
       imports: [CustomerDetail],
       providers: [
@@ -79,9 +82,22 @@ describe('CustomerDetail', () => {
         provideRouter([]),
         {
           provide: ActivatedRoute,
+          // Query params are read through GETTERS so a test can set
+          // `queryParams` before it renders — TestBed.overrideProvider is not
+          // available once the module has been instantiated, which the
+          // HttpTestingController injection below already does. Empty by
+          // default: the screen opens on the Info tab with nothing expanded.
           useValue: {
             paramMap: of(convertToParamMap({ customerNumber: '1001' })),
-            snapshot: { paramMap: convertToParamMap({ customerNumber: '1001' }) },
+            get queryParamMap() {
+              return of(convertToParamMap(queryParams));
+            },
+            get snapshot() {
+              return {
+                paramMap: convertToParamMap({ customerNumber: '1001' }),
+                queryParamMap: convertToParamMap(queryParams),
+              };
+            },
           },
         },
       ],
@@ -284,6 +300,73 @@ describe('CustomerDetail', () => {
     http.expectNone((r) => r.url === '/api/products');
   });
 
+  /**
+   * The landing contract the sale wizard uses after a successful submit
+   * (scope §4.33): `?tab=account&account=…` opens the account tab with THAT
+   * billing account already expanded, so the freshly created products are on
+   * screen without a click — and they are READ FROM THE BACKEND, never carried
+   * across from the wizard.
+   */
+  describe('?tab= / ?account= landing', () => {
+    function renderWithQuery(query: Record<string, string>): ComponentFixture<CustomerDetail> {
+      queryParams = query;
+      return render();
+    }
+
+    it('opens the account tab with the named account expanded and re-reads its products', () => {
+      const fixture = renderWithQuery({ tab: 'account', account: '1261000010' });
+      flushInitial(fixture);
+
+      // The account tab is active WITHOUT a click, so the list loads at once.
+      http.expectOne((r) => r.url === '/api/accounts').flush([BILLING_ACCOUNT]);
+      fixture.detectChanges();
+
+      // …and the row is already open, which is what triggers the product read.
+      // The products come from the SERVER — nothing was injected client-side.
+      const products = http.expectOne((r) => r.url === '/api/products');
+      expect(products.request.params.get('accountNumber')).toBe('1261000010');
+      products.flush([
+        {
+          productId: 7,
+          productName: 'ADSL 8MB',
+          campaignName: null,
+          campaignId: null,
+          productStatus: 'Active',
+        },
+      ]);
+      fixture.detectChanges();
+
+      expect(byTestId(fixture, 'customer-detail-account-row-1261000010-expansion')).not.toBeNull();
+      expect(byTestId(fixture, 'customer-detail-product-row-7')?.textContent).toContain('ADSL 8MB');
+    });
+
+    it('ignores an account the customer does not own, and an unknown tab', () => {
+      const fixture = renderWithQuery({ tab: 'nope', account: '9999999999' });
+      flushInitial(fixture);
+
+      // Unknown tab ⇒ the default Info tab, so no account read happens at all.
+      expect(byTestId(fixture, 'customer-detail-info-value-second-name')).not.toBeNull();
+      http.expectNone((r) => r.url === '/api/accounts');
+    });
+
+    it('renders a PARAMETERIZED flash as a toast (order submitted)', () => {
+      TestBed.inject(CustomerFlashService).set('UI-SALE-TOAST-ORDER-SUBMITTED', {
+        orderNumber: '2026000018',
+        count: 3,
+        accountNumber: '1261000010',
+      });
+      const fixture = render();
+      flushInitial(fixture);
+
+      const toast = byTestId(fixture, 'customer-detail-toast');
+      expect(toast?.textContent).toContain('2026000018');
+      expect(toast?.textContent).toContain('3 products');
+      expect(toast?.textContent).toContain('1261000010');
+      // No placeholder survives into the DOM (FE-ADR-012 §h.4).
+      expect(toast?.textContent).not.toContain('{');
+    });
+  });
+
   // ---- sale entry point (AC-SALE-01-01/02, AC-SALE-02-01) ------------------
 
   /** Expand an account row and answer the product read it triggers. */
@@ -321,10 +404,14 @@ describe('CustomerDetail', () => {
     expandRow(fixture, '1261000028');
 
     // Drawn but inert: the user sees WHY the sale is unavailable rather than
-    // hunting for a button that is not there.
+    // hunting for a button that is not there. The mock renders this as an
+    // unfocusable aria-disabled span, not a disabled <button> (scope §4.32) —
+    // so assert INERTNESS, not the tag: no real button, nothing to activate.
     const action = byTestId(fixture, 'customer-detail-account-row-1261000028-start-sale');
     expect(action).not.toBeNull();
-    expect((action as HTMLButtonElement).disabled).toBe(true);
+    expect(action?.getAttribute('aria-disabled')).toBe('true');
+    expect(action?.tagName).toBe('SPAN');
+    expect(action?.hasAttribute('tabindex')).toBe(false);
   });
 
   it('AC-SALE-01-02: no billing account ⇒ no action, and the user is told to create one', () => {
@@ -580,7 +667,9 @@ describe('CustomerDetail', () => {
     request.flush(null, { status: 204, statusText: '' });
     fixture.detectChanges();
     expect(navigate).toHaveBeenCalledWith(['/customers']);
-    expect(TestBed.inject(CustomerFlashService).consume()).toBe('UI-DETAIL-TOAST-CUSTOMER-DELETED');
+    expect(TestBed.inject(CustomerFlashService).consume()).toEqual({
+      key: 'UI-DETAIL-TOAST-CUSTOMER-DELETED',
+    });
   });
 
   it('delete blocked by the backend (409 MSG-CUST-HAS-PRODUCTS) shows the mock error state', () => {

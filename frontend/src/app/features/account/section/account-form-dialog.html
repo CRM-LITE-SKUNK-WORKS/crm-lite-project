@@ -1,8 +1,14 @@
 <!-- Create / Edit billing account (FR-ACCT-02/03). Edit shows the KR-11 number
      and the account type as READ-ONLY TEXT — no control, no request field. -->
+<!-- `overflowVisible` is the mock's own shape for this dialog: `max-width:480px`
+     (size="md") with `overflow:visible` on BOTH the panel and the body, so an
+     open Select panel hangs OUTSIDE the dialog instead of taking part in its
+     layout. That is what keeps the window from resizing when a dropdown opens
+     (scope §4.32). The address / demographic dialogs already work this way. -->
 <app-modal
   [open]="open()"
   size="md"
+  [overflowVisible]="true"
   [titleText]="(isEdit() ? 'UI-ACCOUNT-EDIT-TITLE' : 'LBL-CREATE-NEW-ACCOUNT') | t"
   [closeLabel]="'UI-COMMON-CLOSE' | t"
   testId="customer-detail-account-dialog"
@@ -77,16 +83,17 @@
       [errorText]="errorTextFor('addressId')"
       testId="customer-detail-account-dialog-address"
     >
-      <!-- BUG-2: in-flow panel — opening it GROWS the dialog instead of hanging
-           the address list over (and past) the dialog's edge. Every address is
-           reachable; the client never caps how many are listed. -->
+      <!-- Overlaying panel (the default, and the mock's): it is positioned over
+           the content below it, so opening the address list never changes the
+           dialog's own height. The dialog's `overflowVisible` is what stops it
+           being clipped; the panel keeps its own `max-h-65` + scroll, so a long
+           address list stays fully reachable. -->
       <app-select
         formControlName="addressId"
         [options]="selectOptions()"
         controlId="customer-detail-account-address"
         [placeholder]="'UI-ACCOUNT-ADDRESS-PLACEHOLDER' | t"
         [error]="!!errorTextFor('addressId')"
-        [flowPanel]="true"
         testId="customer-detail-account-dialog-address-select"
       />
     </app-form-field>

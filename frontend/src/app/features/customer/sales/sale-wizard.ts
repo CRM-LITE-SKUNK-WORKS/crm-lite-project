@@ -7,6 +7,8 @@ import { ConfirmDialog, Stepper, type StepItem } from '../../../shared/patterns'
 import { Button } from '../../../shared/ui';
 import { OrderSubmitStore, SaleBasketStore } from '../../order';
 import { CustomerDetailStore } from '../state/customer-detail.store';
+import { CustomerFlashService } from '../state/customer-flash.service';
+import { formatPrice } from './money';
 import { OfferSelectionStep } from './offer-selection-step';
 import { ProductConfigurationStep } from './product-configuration-step';
 import { SubmitOrderStep } from './submit-order-step';
@@ -58,6 +60,7 @@ export class SaleWizard {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly i18n = inject(I18nService);
+  private readonly flash = inject(CustomerFlashService);
   protected readonly basket = inject(SaleBasketStore);
   protected readonly submitStore = inject(OrderSubmitStore);
 
@@ -113,7 +116,21 @@ export class SaleWizard {
       : '',
   );
 
-  protected readonly confirmMessage = computed(() => this.i18n.translate('MSG-SALE-ORDER-CONFIRM'));
+  /**
+   * The confirm dialog's body (AC-SALE-01-15). The mock states the two facts
+   * that make the confirmation meaningful — WHICH billing account and HOW MUCH
+   * — instead of a bare "are you sure" (scope §4.33). Both come from the sale's
+   * own state: the account from the wizard's context, the amount from the
+   * basket. The total shown here is the client's preview; the authoritative
+   * figure is the one the 201 snapshots.
+   */
+  protected readonly confirmMessage = computed(() => {
+    const totalAmount = formatPrice(this.basket.totalAmount());
+    const accountNumber = this.accountNumber();
+    return accountNumber
+      ? this.i18n.translate('UI-SALE-CONFIRM-BODY', { accountNumber, totalAmount })
+      : this.i18n.translate('UI-SALE-CONFIRM-BODY-NO-ACCOUNT', { totalAmount });
+  });
 
   /** AC-SALE-01-07: Next is disabled while the basket is empty — the only
    *  DISABLED gate in the flow. The AC-SALE-01-08 composition rules and the
@@ -136,6 +153,32 @@ export class SaleWizard {
       if (customerNumber > 0 && accountNumber !== '') {
         this.basket.setContext(customerNumber, accountNumber);
       }
+    });
+
+    // AC-SALE-01-15 success: LEAVE. The mock navigates back to Customer Info the
+    // moment the order exists, rather than parking the user on a dead screen
+    // behind a "Back to customer" button (scope §4.33, superseding §2B.8's
+    // in-place success state). The order number is not lost by leaving — it
+    // travels in the flash message and is announced by the toast.
+    //
+    // The products the order created are NOT carried across and NOT injected
+    // client-side (the mock writes them into localStorage; we deliberately do
+    // not — FE-ADR-013 §e). They exist in the backend, so Customer Info simply
+    // re-reads them: GET /api/products?accountNumber= runs when the row expands.
+    effect(() => {
+      const order = this.submitStore.order();
+      if (!order) return;
+      const count = order.items.length;
+      // Choosing between two KEYS is not translating — the sender still never
+      // resolves text, and singular/plural stays a catalogue concern
+      // (FE-ADR-012 §h.3: no plural engine).
+      this.flash.set(
+        count === 1 ? 'UI-SALE-TOAST-ORDER-SUBMITTED-ONE' : 'UI-SALE-TOAST-ORDER-SUBMITTED',
+        { orderNumber: order.orderNumber, count, accountNumber: order.accountNumber },
+      );
+      void this.router.navigate(['/customers', this.customerNumber()], {
+        queryParams: { tab: 'account', account: order.accountNumber },
+      });
     });
   }
 
@@ -166,10 +209,6 @@ export class SaleWizard {
   /** AC-SALE-01-16 `LBL-CANCEL`: leaving ends the sale. The store dies with this
    *  component, so nothing survives to be processed later. */
   protected cancel(): void {
-    void this.router.navigate(['/customers', this.customerNumber()]);
-  }
-
-  protected backToCustomer(): void {
     void this.router.navigate(['/customers', this.customerNumber()]);
   }
 

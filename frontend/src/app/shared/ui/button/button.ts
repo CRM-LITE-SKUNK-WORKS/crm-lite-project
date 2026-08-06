@@ -9,17 +9,23 @@ export type ButtonSize = 'md' | 'sm';
  *  bundle). `enabled:` scopes hover/active away from the disabled state, which
  *  the mock achieves with `:not(:disabled)` + `!important`. */
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: 'bg-brand text-on-brand enabled:hover:bg-brand-hover enabled:active:bg-brand-active',
+  primary:
+    'border-transparent bg-brand text-on-brand enabled:hover:bg-brand-hover ' +
+    'enabled:active:bg-brand-active',
   secondary:
     'border-line-strong bg-surface text-secondary-action enabled:hover:border-line-hover ' +
     'enabled:hover:bg-page enabled:active:border-brand enabled:active:bg-selected',
-  danger: 'bg-danger text-white enabled:hover:bg-danger-hover enabled:active:bg-danger-hover',
+  danger:
+    'border-transparent bg-danger text-white enabled:hover:bg-danger-hover ' +
+    'enabled:active:bg-danger-hover',
   // Added 2026-08-03 (scope §4.30): `.eds-btn[data-variant="ghost"]` of the
   // mock's Button.jsx, verbatim — sunken fill, secondary-action text, and
   // hover/active stepping through border-default → border-hover. The design
   // note had recorded ghost as "used by no screen"; the bundle in fact uses it
   // 14 times, the "Add new address" trigger among them.
-  ghost: 'bg-sunken text-secondary-action enabled:hover:bg-line enabled:active:bg-line-hover',
+  ghost:
+    'border-transparent bg-sunken text-secondary-action enabled:hover:bg-line ' +
+    'enabled:active:bg-line-hover',
 };
 
 /** §3.4 size table: height / padding-x / font-size (lg exists in the DS but no
@@ -115,9 +121,21 @@ export class Button {
 
   protected readonly classes = computed(() =>
     [
-      // Base (§3.4): inline-flex, gap space-2, weight medium, radius-md,
-      // transparent 1px border, nowrap, 100ms standard color transition.
-      'inline-flex items-center justify-center gap-2 rounded-md border border-transparent',
+      // Base (§3.4): inline-flex, gap space-2, weight medium, radius-md, 1px
+      // border, nowrap, 100ms standard color transition.
+      //
+      // ⚠ The base sets the border WIDTH only — never its colour. `secondary`
+      // is the one variant with a visible border, and a base `border-transparent`
+      // silently WON over it: both are plain single-class `border-color`
+      // utilities, so the winner is whichever Tailwind emits later, and it emits
+      // `border-transparent` after `border-line-strong`. Every secondary button
+      // in the app was therefore borderless (scope §4.34). Each variant now
+      // declares its own colour, so there is no same-specificity collision left.
+      // The disabled rule is unaffected: `disabled:border-transparent` compiles
+      // to a class+pseudo-class selector, which outranks a bare class — which is
+      // also what the mock's own DS does (`.eds-btn:disabled` forces a
+      // transparent border with `!important`).
+      'inline-flex items-center justify-center gap-2 rounded-md border',
       'font-medium whitespace-nowrap transition-colors duration-100 ease-standard',
       // Buttons use the offset focus ring, not the global outline (§2.6).
       'focus-visible:outline-none focus-visible:shadow-focus-ring-offset',

@@ -3,6 +3,7 @@ import { TranslatePipe } from '../../../core/i18n';
 import { Icon } from '../../../shared/ui';
 import { OrderSubmitStore, SaleBasketStore } from '../../order';
 import { CustomerDetailStore } from '../state/customer-detail.store';
+import { formatPrice } from './money';
 
 /**
  * Step 3 — Submit order (AC-SALE-01-12/15/18/19).
@@ -19,10 +20,12 @@ import { CustomerDetailStore } from '../state/customer-detail.store';
  * has no way to know one in advance, so inventing one would be fabricating data
  * (FE-ADR-013 §b). It fills in from `OrderResponse.orderNumber` on success.
  *
- * SUCCESS (scope §2B.8): the mock has no in-place success state — it navigates
- * away immediately, which loses the order number and fails AC-SALE-01-15. This
- * screen therefore stays put and switches to a success banner carrying
- * `UI-SALE-SUCCESS-STATUS`; leaving is the user's explicit next action.
+ * SUCCESS (scope §4.33, superseding §2B.8): this screen renders NO success
+ * state. The wizard navigates to Customer Info the moment the 201 lands, as the
+ * mock does. §2B.8 had kept an in-place banner because leaving seemed to lose
+ * the KR-12 order number — it does not: the number travels in the flash message
+ * and the destination's toast announces it. The only outcome rendered here is a
+ * FAILURE, which keeps the user on the summary with their basket intact.
  */
 @Component({
   selector: 'app-submit-order-step',
@@ -96,6 +99,6 @@ export class SubmitOrderStep {
   protected readonly total = computed(() => this.order()?.totalAmount ?? this.basket.totalAmount());
 
   protected price(value: number): string {
-    return `${value.toFixed(2)} TL`;
+    return formatPrice(value);
   }
 }

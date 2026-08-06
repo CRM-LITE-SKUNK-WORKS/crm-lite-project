@@ -20,7 +20,9 @@
   <!-- Page header -->
   <div class="flex shrink-0 flex-col gap-5">
     <div class="flex flex-col gap-1">
-      <h1 class="text-h2 font-semibold text-ink">{{ titleKey() | t }}</h1>
+      <!-- `tracking-heading` (-0.2px) is the mock's screen-h1 tracking; the
+           other two screen headings already carry it (A2). -->
+      <h1 class="text-h2 font-semibold tracking-heading text-ink">{{ titleKey() | t }}</h1>
       @if (accountContext()) {
         <span
           class="eds-tabular-nums text-body-sm text-ink-muted"
@@ -31,7 +33,15 @@
       }
     </div>
 
-    <app-stepper [steps]="steps()" [activeIndex]="activeIndex()" testId="sale-stepper" />
+    <!-- The sale wizard uses the mock's OWN second step strip, which differs
+         from Create Customer's on seven counts (bare 1/2/3, 24px outlined
+         circles, hairline connector…) — see StepperVariant / scope §4.33. -->
+    <app-stepper
+      [steps]="steps()"
+      [activeIndex]="activeIndex()"
+      variant="sale"
+      testId="sale-stepper"
+    />
   </div>
 
   <!--
@@ -54,27 +64,19 @@
   <!--
     Page footer. Mock: step 1 is right-aligned (Cancel + Next); steps 2 and 3
     are space-between with Previous on the left, and step 3 replaces Next with
-    Submit. Once the order exists the whole footer is replaced by the single
-    "Back to customer" action, so Submit cannot be reached twice from the UI —
-    the screen half of the duplicate-submit guard (AC-SALE-01-15).
+    Submit.
+
+    There is no longer a SUCCESS footer: a successful submit navigates straight
+    to Customer Info (scope §4.33), so this screen never outlives the order it
+    created and Submit cannot be reached a second time from the UI — the screen
+    half of the duplicate-submit guard (AC-SALE-01-15). `OrderSubmitStore.locked`
+    is the other half and still refuses a second POST regardless.
   -->
-  @if (submitStore.succeeded()) {
-    <div class="flex shrink-0 justify-end">
-      <app-button
-        variant="primary"
-        iconTrailing="arrow-right"
-        testId="sale-back-to-customer-button"
-        (action)="backToCustomer()"
-      >
-        {{ 'UI-SALE-BACK-TO-CUSTOMER' | t }}
-      </app-button>
-    </div>
-  } @else {
-    <div
-      class="flex shrink-0 gap-3"
-      [class.justify-end]="isOffer()"
-      [class.justify-between]="!isOffer()"
-    >
+  <div
+    class="flex shrink-0 gap-3"
+    [class.justify-end]="isOffer()"
+    [class.justify-between]="!isOffer()"
+  >
       @if (!isOffer()) {
         <app-button
           variant="secondary"
@@ -118,19 +120,20 @@
           </app-button>
         }
       </div>
-    </div>
-  }
+  </div>
 </div>
 
 <!-- AC-SALE-01-15: Submit opens this first and sends nothing until "Yes".
-     `tone="info"` is the mock's own paint for this dialog (info circle,
-     primary Yes) as opposed to the destructive confirmations. -->
+     `tone="info"` is the mock's own paint for this dialog (a FLAT info glyph and
+     a primary Yes carrying a check) as opposed to the destructive confirmations,
+     which keep the tinted danger disc. The body states which account and how
+     much rather than asking a bare "are you sure" (scope §4.33). -->
 <app-confirm-dialog
   [open]="confirmOpen()"
   tone="info"
   icon="info"
   [title]="'UI-SALE-CONFIRM-TITLE' | t"
-  [message]="'MSG-SALE-ORDER-CONFIRM' | t"
+  [message]="confirmMessage()"
   [confirmLabel]="'LBL-YES' | t"
   [cancelLabel]="'LBL-NO' | t"
   [closeLabel]="'UI-COMMON-CLOSE' | t"

@@ -1,6 +1,6 @@
 import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
+import { Router, provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { provideCoreHttp } from '../../../core/http';
 import {
@@ -10,6 +10,7 @@ import {
 } from '../../../core/catalog';
 import { type OrderResponse } from '../../order';
 import { type AddressResponse } from '../model';
+import { CustomerFlashService } from '../state/customer-flash.service';
 import { SaleWizard } from './sale-wizard';
 
 /**
@@ -369,6 +370,88 @@ describe('SaleWizard', () => {
     expect(el('sale-config-card-101')).not.toBeNull();
   });
 
+  /**
+   * Offer-selection visual contract (scope §4.32 — the 2026-08-05 mock
+   * alignment round). These are the mock's own rules, all of them observable:
+   * tab names, the footer counter's two modes, zebra striping and its
+   * precedence, the always-present tick box, and the per-member "Includes" cell.
+   */
+  describe('Offer selection matches the mock', () => {
+    it('names the tabs "Catalog" and "Campaign" (D1)', async () => {
+      await enter();
+      expect(text('sale-tab-offers')).toBe('Catalog');
+      expect(text('sale-tab-campaigns')).toBe('Campaign');
+    });
+
+    it('counts ROWS until something is ticked, then the selection (D6)', async () => {
+      await enter();
+      // Nothing ticked: the size of the list in front of the user — never
+      // "0 selected", which was the defect.
+      expect(text('sale-selected-count')).toBe('4 offers');
+
+      click('sale-offer-row-101');
+      expect(text('sale-selected-count')).toBe('1 selected');
+
+      click('sale-tab-campaigns'); // switching tabs clears the selection
+      expect(text('sale-selected-count')).toBe('1 campaigns');
+    });
+
+    it('reserves the tick cell on every row, ticked or not (D2)', async () => {
+      await enter();
+      const box = (id: string): HTMLElement | null =>
+        el(id)?.querySelector('td:last-child > span') ?? null;
+
+      // Present and equally sized before any selection — this is what stops the
+      // columns shifting left when the first row is ticked.
+      expect(box('sale-offer-row-101')?.className).toContain('size-5');
+      expect(box('sale-offer-row-102')?.className).toContain('size-5');
+
+      click('sale-offer-row-101');
+      expect(box('sale-offer-row-102')?.className).toContain('size-5');
+    });
+
+    it('zebra-stripes odd rows, and highlight beats the stripe (D3/D4)', async () => {
+      await enter();
+      // 0-based: rows 101 and 103 are even (transparent), 102 and 104 odd.
+      expect(el('sale-offer-row-101')?.className).toContain('bg-transparent');
+      expect(el('sale-offer-row-102')?.className).toContain('bg-page');
+
+      // Selecting an odd row replaces its stripe with the highlight …
+      click('sale-offer-row-102');
+      expect(el('sale-offer-row-102')?.className).toContain('bg-selected');
+      expect(el('sale-offer-row-102')?.className).not.toContain('bg-page');
+
+      // … and adding it to the basket KEEPS the highlight while making the row
+      // inert, instead of dropping it back to the stripe.
+      click('sale-add-to-basket-button');
+      expect(el('sale-offer-row-102')?.className).toContain('bg-selected');
+      expect(el('sale-offer-row-102')?.className).toContain('cursor-default');
+    });
+
+    it('lists each campaign member on its own line, with a readable type (D5)', async () => {
+      await enter();
+      click('sale-tab-campaigns');
+
+      // One line per member offer — id · NAME, never the raw serviceType enum.
+      expect(text('sale-campaign-row-CMP-ADSL-01-includes-101')).toBe('101 · ADSL 8MB');
+      expect(text('sale-campaign-row-CMP-ADSL-01-includes-102')).toBe('102 · Modem');
+      expect(text('sale-campaign-row-CMP-ADSL-01-includes-103')).toBe('103 · Setup');
+
+      const cell = el('sale-campaign-row-CMP-ADSL-01')?.querySelectorAll('td')[2];
+      expect(cell?.textContent).toContain('Internet package');
+      expect(cell?.textContent).toContain('Modem');
+      expect(cell?.textContent).toContain('Activation package');
+      expect(cell?.textContent).not.toContain('INTERNET');
+      expect(cell?.textContent).not.toContain('ACTIVATION');
+    });
+
+    it('shows the readable service type in the Catalog Category column too', async () => {
+      await enter();
+      const category = el('sale-offer-row-101')?.querySelectorAll('td')[2];
+      expect(category?.textContent?.trim()).toBe('Internet package');
+    });
+  });
+
   // The offer tab and the campaign tab must behave IDENTICALLY once a row is in
   // the basket: filled check, row no longer selectable, Add inert.
   describe('AC-SALE-01-05: an added row cannot be re-added — offers and campaigns alike', () => {
@@ -389,17 +472,26 @@ describe('SaleWizard', () => {
       click('sale-campaign-row-CMP-ADSL-01');
       click('sale-add-to-basket-button');
 
-      // All three member offers landed (AC-SALE-01-04) …
-      expect(el('sale-basket-item-101')).not.toBeNull();
-      expect(el('sale-basket-item-102')).not.toBeNull();
-      expect(el('sale-basket-item-103')).not.toBeNull();
+      // All three member offers landed (AC-SALE-01-04) — as ONE grouped row
+      // carrying all three, which is how the mock's basket shows a campaign
+      // (scope §4.33), not as three separate rows.
+      expect(el('sale-basket-item-CMP-ADSL-01')).not.toBeNull();
+      expect(el('sale-basket-item-CMP-ADSL-01-member-101')).not.toBeNull();
+      expect(el('sale-basket-item-CMP-ADSL-01-member-102')).not.toBeNull();
+      expect(el('sale-basket-item-CMP-ADSL-01-member-103')).not.toBeNull();
 
       // … so the campaign row now reads as ADDED, exactly like an offer row.
       const row = el('sale-campaign-row-CMP-ADSL-01');
       expect(el('sale-campaign-row-CMP-ADSL-01-added')).not.toBeNull();
 
-      click('sale-campaign-row-CMP-ADSL-01'); // must not re-select
-      expect(row?.classList.contains('bg-selected')).toBe(false);
+      // The mock keeps a basket row highlighted PERMANENTLY and makes it inert
+      // (scope §4.32): the row hands over from "selected" to "in basket", it
+      // does not go back to plain. Clicking it again changes nothing.
+      expect(row?.className).toContain('bg-selected');
+      expect(row?.className).toContain('cursor-default');
+
+      click('sale-campaign-row-CMP-ADSL-01'); // must not re-arm Add
+      expect(row?.className).toContain('bg-selected');
       expect(disabled('sale-add-to-basket-button')).toBe(true);
     });
 
@@ -434,12 +526,81 @@ describe('SaleWizard', () => {
     expect(el('sale-basket-item-103')).toBeNull();
   });
 
+  /**
+   * The basket panel's shape (scope §4.33). The mock groups a campaign into ONE
+   * entry that carries its member offers; the wire and the composition rules
+   * keep working on the flat offer list underneath.
+   */
+  describe('the basket panel groups a campaign into one entry', () => {
+    function addCampaign(): void {
+      click('sale-tab-campaigns');
+      click('sale-campaign-row-CMP-ADSL-01');
+      click('sale-add-to-basket-button');
+    }
+
+    it('shows the campaign name, its code and every member offer with its price', async () => {
+      await enter();
+      addCampaign();
+
+      const row = el('sale-basket-item-CMP-ADSL-01') as HTMLElement;
+      expect(row.textContent).toContain('ADSL Hosgeldin'); // campaign NAME first
+      expect(row.textContent).toContain('CMP-ADSL-01 · Campaign');
+      // Members: `{offerId} · {offerName}` + a readable service type, never the
+      // raw enum, and each with its own price.
+      expect(text('sale-basket-item-CMP-ADSL-01-member-101')).toBe('101 · ADSL 8MB');
+      expect(row.textContent).toContain('Internet package');
+      expect(row.textContent).not.toContain('INTERNET');
+      expect(row.textContent).toContain('100.00 TL'); // member price
+      expect(row.textContent).toContain('175.00 TL'); // bundle total on the row
+    });
+
+    it('counts ENTRIES, so a three-offer campaign reads "1 item"', async () => {
+      await enter();
+      addCampaign();
+      expect(text('sale-basket-count')).toBe('1 item');
+
+      // A loose offer alongside it makes two ENTRIES, not four offers.
+      click('sale-tab-offers');
+      addOffers(SECOND_INTERNET);
+      expect(text('sale-basket-count')).toBe('2 items');
+    });
+
+    it('removes the whole bundle from the one control the group offers', async () => {
+      await enter();
+      addCampaign();
+      // One remove control for the group — the mock draws none per member.
+      expect(el('sale-basket-item-CMP-ADSL-01-member-101-remove')).toBeNull();
+
+      click('sale-basket-item-CMP-ADSL-01-remove');
+
+      // All-or-nothing on the way out, mirroring AC-SALE-01-04's add.
+      expect(el('sale-basket-item-CMP-ADSL-01')).toBeNull();
+      expect(el('sale-basket-empty')).not.toBeNull();
+      // And the rows are selectable again — nothing is left in the basket.
+      click('sale-tab-campaigns');
+      expect(el('sale-campaign-row-CMP-ADSL-01-added')).toBeNull();
+    });
+
+    it('keeps a loose offer as a plain entry: id over name, no nested block', async () => {
+      await enter();
+      addOffers(INTERNET);
+
+      const row = el('sale-basket-item-101') as HTMLElement;
+      expect(row.textContent).toContain('101');
+      expect(row.textContent).toContain('ADSL 8MB');
+      expect(row.querySelector('[data-testid*="-member-"]')).toBeNull();
+      expect(text('sale-basket-count')).toBe('1 item');
+    });
+  });
+
   it('AC-SALE-01-06: removing an offer drops it from the basket and the total', async () => {
     await enter();
     addOffers(INTERNET, RESOURCE);
     expect(text('sale-basket-total')).toContain('150.00');
 
-    click('sale-basket-remove-101');
+    // The remove control is per ROW now (scope §4.33): a loose offer's row is
+    // keyed by its offer id, so this is still "remove offer 101".
+    click('sale-basket-item-101-remove');
     expect(el('sale-basket-item-101')).toBeNull();
     expect(text('sale-basket-total')).toContain('50.00');
   });
@@ -489,9 +650,12 @@ describe('SaleWizard', () => {
     expect(el('sale-config-card-102')).not.toBeNull();
     expect(el('sale-config-card-103')).not.toBeNull();
     expect(el('sale-char-101-11')).not.toBeNull();
-    // AC-SALE-01-21: offer 103 declares no characteristics, so its block is
-    // present but carries the "nothing to configure" note instead of fields.
-    expect(el('sale-config-no-fields-103')).not.toBeNull();
+    // AC-SALE-01-21: offer 103 declares no characteristics. Its card is still
+    // there — and, as in the mock, it ENDS at its header: no field grid and no
+    // sentence explaining the absence (scope §4.33).
+    const emptyCard = el('sale-config-card-103') as HTMLElement;
+    expect(emptyCard.querySelectorAll('input, select, textarea').length).toBe(0);
+    expect(emptyCard.textContent).toContain('103'); // the header still names it
   });
 
   // ---- Characteristic input + validation (AC-SALE-01-12/17/18/19) ----------
@@ -643,8 +807,15 @@ describe('SaleWizard', () => {
     goToSummary();
 
     click('sale-submit-button');
-    expect(el('sale-submit-confirm-dialog')).not.toBeNull();
+    const dialog = el('sale-submit-confirm-dialog') as HTMLElement;
+    expect(dialog).not.toBeNull();
     http.expectNone((r) => r.url === '/api/orders');
+
+    // The body states WHICH account and HOW MUCH rather than a bare "are you
+    // sure" (scope §4.33) — both read from the sale's own state, and the total
+    // formatted the same way the basket formats it.
+    expect(dialog.textContent).toContain(ACCOUNT);
+    expect(dialog.textContent).toContain('175.00 TL');
 
     // Declining closes it, still sends nothing, and leaves the user here.
     click('sale-submit-confirm-dialog-cancel-button');
@@ -652,7 +823,7 @@ describe('SaleWizard', () => {
     expect(el('sale-summary-card')).not.toBeNull();
   });
 
-  it('AC-SALE-01-15: confirming submits once and switches to the success state', async () => {
+  it('AC-SALE-01-15: confirming submits once and leaves for Customer Info', async () => {
     await enter();
     addOffers(INTERNET, RESOURCE, ACTIVATION);
     goToConfig([101, 102, 103]);
@@ -678,14 +849,22 @@ describe('SaleWizard', () => {
         { offerId: 103, characteristics: [] },
       ],
     });
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     request.flush(CREATED, { status: 201, statusText: 'Created' });
     harness.detectChanges();
 
-    expect(text('sale-summary-order-number')).toBe('2026000018');
-    expect(text('sale-submit-success-status')).toContain('processing');
-    // The Submit button is gone entirely — the only remaining action leaves.
-    expect(el('sale-submit-button')).toBeNull();
-    expect(el('sale-back-to-customer-button')).not.toBeNull();
+    // AC-SALE-01-15 success LEAVES (scope §4.33): straight to Customer Info,
+    // on the account tab, with the account of the order already expanded.
+    expect(navigate).toHaveBeenCalledWith(['/customers', CUSTOMER], {
+      queryParams: { tab: 'account', account: ACCOUNT },
+    });
+
+    // The order number is not lost by leaving — it rides along in the flash,
+    // together with the product count and the account, all read from the 201.
+    expect(TestBed.inject(CustomerFlashService).consume()).toEqual({
+      key: 'UI-SALE-TOAST-ORDER-SUBMITTED',
+      params: { orderNumber: '2026000018', count: 3, accountNumber: ACCOUNT },
+    });
   });
 
   it('duplicate-submit guard: a second POST can never leave the client', async () => {
@@ -697,11 +876,17 @@ describe('SaleWizard', () => {
     click('sale-submit-confirm-dialog-confirm-button');
 
     const first = http.expectOne((r) => r.url === '/api/orders');
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     first.flush(CREATED, { status: 201, statusText: 'Created' });
     harness.detectChanges();
 
-    // Nothing left to press, and even a programmatic retry is refused.
-    expect(el('sale-submit-button')).toBeNull();
+    // The screen navigates away on success, so in practice the button is
+    // unreachable. The guard that actually matters is independent of that:
+    // Submit stays disabled and cannot even REOPEN the confirm dialog, so no
+    // second POST can be started from the UI (ADR-016 §5.3b).
+    expect(disabled('sale-submit-button')).toBe(true);
+    click('sale-submit-button');
+    expect(el('sale-submit-confirm-dialog-confirm-button')).toBeNull();
     http.expectNone((r) => r.url === '/api/orders');
   });
 

@@ -7,13 +7,20 @@
     class="z-sticky-header flex h-16 shrink-0 items-center justify-between bg-inverse px-6 shadow-e1"
     data-testid="app-header"
   >
+    <!-- The mock's own logo, extracted verbatim from its inline base64 SVG into
+         `assets/etiya-logo.svg` (165×40 viewBox, 28px tall in the header).
+         "Etiya" is a BRAND NAME and deliberately does NOT enter the catalogue.
+         The image is therefore DECORATIVE (`alt=""`): the link already carries
+         its accessible name through `UI-NAV-GO-TO-SEARCH`, which overrides any
+         alt text anyway — the mock's literal alt="Etiya" would only add a
+         second, untranslated announcement (scope §4.32). -->
     <a
       routerLink="/customers"
-      class="text-body-lg font-semibold text-on-inverse"
+      class="block"
       [attr.aria-label]="'UI-NAV-GO-TO-SEARCH' | t"
       data-testid="app-logo-link"
     >
-      {{ 'UI-COMMON-APP-NAME' | t }}
+      <img src="assets/etiya-logo.svg" alt="" aria-hidden="true" class="block h-7 w-auto" />
     </a>
 
     <!-- Right block: 32px tall, 20px gaps (§4.1) -->

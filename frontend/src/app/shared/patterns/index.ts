@@ -26,4 +26,4 @@ export { Modal, ModalFooter, type ModalSize } from './modal/modal';
 export { Tabs, type TabItem } from './tabs/tabs';
 export { ConfirmDialog, type ConfirmTone } from './confirm-dialog/confirm-dialog';
 export { StatusBadge, type StatusBadgeVariant } from './status-badge/status-badge';
-export { Stepper, type StepItem } from './stepper/stepper';
+export { Stepper, type StepItem, type StepperVariant } from './stepper/stepper';

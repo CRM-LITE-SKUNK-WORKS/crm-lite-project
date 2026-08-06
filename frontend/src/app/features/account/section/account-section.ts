@@ -116,6 +116,18 @@ export class AccountSection {
   readonly emptyHint = input<string | undefined>(undefined);
 
   /**
+   * OPTIONAL account number to open on ARRIVAL — the caller's answer to "the
+   * user came here to look at THIS account". Customer Info passes the
+   * `?account=` query param, which the sale wizard sets after a successful
+   * submit so the new products are on screen without a click (scope §4.33).
+   *
+   * Applied ONCE per value, not continuously: after that the expanded set is
+   * the USER's, so collapsing the row must not be undone by a re-render. An
+   * account number that is not in the list is simply never opened.
+   */
+  readonly initiallyExpanded = input<string | null | undefined>(undefined);
+
+  /**
    * BUG-1 pass-through for the dialog's inline "New address" panel. The account
    * feature does not own FR-ADDR-02 (a customer-service endpoint) and does not
    * import the customer feature, so the draft travels OUT via
@@ -176,9 +188,24 @@ export class AccountSection {
     return this.i18n.translate(error?.messageKey ?? 'MSG-INTERNAL-ERROR');
   });
 
+  /** Values of {@link initiallyExpanded} already honoured — so a row the user
+   *  closed afterwards stays closed. */
+  private readonly autoExpanded = new Set<string>();
+
   constructor() {
     effect(() => {
       this.store.load(this.customerNumber());
+    });
+
+    // Open the requested row ONCE, and only when it is really in the list —
+    // opening an account number the customer does not own would show an
+    // expansion the user could never have reached themselves.
+    effect(() => {
+      const wanted = this.initiallyExpanded();
+      if (!wanted || this.autoExpanded.has(wanted)) return;
+      if (!this.store.accounts().some((a) => a.accountNumber === wanted)) return;
+      this.autoExpanded.add(wanted);
+      this.expanded.update((set) => new Set(set).add(wanted));
     });
   }
 

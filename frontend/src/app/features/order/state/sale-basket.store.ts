@@ -1,6 +1,11 @@
 import { Injectable, computed, signal } from '@angular/core';
 import type { CampaignResponse, OfferResponse, ServiceType } from '../../../core/catalog';
-import { REQUIRED_SERVICE_TYPES, type BasketItem, type SubmitOrderRequest } from '../model';
+import {
+  REQUIRED_SERVICE_TYPES,
+  type BasketGroup,
+  type BasketItem,
+  type SubmitOrderRequest,
+} from '../model';
 
 /** What the basket is missing / has too many of, expressed as the message key
  *  the SERVER would answer with. Rendering the server's own key here means the
@@ -52,7 +57,60 @@ export class SaleBasketStore {
   readonly items = this._items.asReadonly();
 
   readonly isEmpty = computed(() => this._items().length === 0);
+  /** OFFER count — what the order will contain, and what AC-SALE-01-08 counts. */
   readonly count = computed(() => this._items().length);
+
+  /**
+   * The basket as the panel DRAWS it (scope §4.33): one entry per campaign,
+   * holding its member offers, plus one entry per loose offer. Derived — the
+   * flat `items` list stays the single source of truth for the wire and for the
+   * composition rules.
+   *
+   * Grouping is by `campaignId` with FIRST-APPEARANCE ordering, not by
+   * adjacency: `addCampaign` appends its members together today, but a
+   * grouping that only works while they stay contiguous would silently split a
+   * campaign in two if that ever changed.
+   */
+  readonly groups = computed<readonly BasketGroup[]>(() => {
+    const groups: BasketGroup[] = [];
+    const campaignIndex = new Map<string, number>();
+
+    for (const item of this._items()) {
+      if (item.campaignId === null) {
+        groups.push({
+          kind: 'offer',
+          key: `offer:${item.offer.offerId}`,
+          item,
+          price: item.offer.price,
+        });
+        continue;
+      }
+      const at = campaignIndex.get(item.campaignId);
+      if (at === undefined) {
+        campaignIndex.set(item.campaignId, groups.length);
+        groups.push({
+          kind: 'campaign',
+          key: `campaign:${item.campaignId}`,
+          campaignId: item.campaignId,
+          campaignName: item.campaignName ?? item.campaignId,
+          items: [item],
+          price: item.offer.price,
+        });
+        continue;
+      }
+      const existing = groups[at] as Extract<BasketGroup, { kind: 'campaign' }>;
+      groups[at] = {
+        ...existing,
+        items: [...existing.items, item],
+        price: existing.price + item.offer.price,
+      };
+    }
+    return groups;
+  });
+
+  /** ENTRY count — the mock's basket header counts a campaign as ONE item, not
+   *  as its three member offers ("1 item" for an added campaign). */
+  readonly entryCount = computed(() => this.groups().length);
 
   /** Sum of the basket's offer prices. This is a UX PREVIEW only: the
    *  authoritative total is `totalAmount` on the 201 response, which the server
@@ -157,6 +215,22 @@ export class SaleBasketStore {
       next.delete(offerId);
       return next;
     });
+  }
+
+  /**
+   * Remove a whole campaign entry — the mirror of {@link addCampaign}, which
+   * adds all-or-nothing (AC-SALE-01-04).
+   *
+   * The basket panel groups a campaign into ONE row with ONE remove control
+   * (the mock draws no per-member remove inside the nested block), so removing
+   * that row must take the whole bundle with it. Symmetric with the add, and
+   * with AC-SALE-01-06: every offer that leaves also drops its characteristic
+   * values.
+   */
+  removeCampaign(campaignId: string): void {
+    const doomed = this._items().filter((i) => i.campaignId === campaignId);
+    if (doomed.length === 0) return;
+    for (const item of doomed) this.remove(item.offer.offerId);
   }
 
   /** AC-SALE-01-06 `LBL-CLEAR`: empties the basket and everything derived

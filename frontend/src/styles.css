@@ -244,6 +244,18 @@
     color-scheme: light only; /* light-only by deliberate scope decision */
   }
 
+  /* Angular renders a routed component as a SIBLING of its `<router-outlet>`,
+     which itself stays in the DOM as a zero-size element. Inside the shell's
+     `<main class="flex flex-col gap-5">` that leftover element is still a FLEX
+     ITEM, so it consumes one 20px `gap` before the page's own first child —
+     every screen's <h1> rendered 20px below where the mock puts it (24px from
+     the top of `<main>`, mock-ui-analysis §4 / §6.2). The outlet paints nothing
+     of its own, so removing it from layout is lossless and fixes every routed
+     screen at once rather than screen by screen. */
+  router-outlet {
+    display: none;
+  }
+
   body {
     background: var(--color-page);
     color: var(--color-ink);

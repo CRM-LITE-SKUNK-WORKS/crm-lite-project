@@ -124,6 +124,7 @@
               [addressErrorText]="accountAddressErrorText()"
               [createdAddressId]="accountCreatedAddressId()"
               [rowExpansion]="productExpansion"
+              [initiallyExpanded]="expandAccountNumber()"
               [emptyHint]="'UI-SALE-NO-ACCOUNT-HINT' | t"
               (newAddressRequested)="onAccountNewAddress($event)"
             />
@@ -150,15 +151,36 @@
                    (the section's own `py-4` is the gap). Without it the bar
                    fell outside the panel and sat flush against the row edge. -->
               <div class="flex flex-wrap items-center gap-3 bg-sunken px-5 pb-4">
-                <app-button
-                  variant="secondary"
-                  iconLeading="shopping-cart"
-                  [disabled]="!active"
-                  [testId]="'customer-detail-account-row-' + accountNumber + '-start-sale'"
-                  (action)="startSale(accountNumber)"
-                >
-                  {{ 'LBL-START-NEW-SALE' | t }}
-                </app-button>
+                @if (active) {
+                  <app-button
+                    variant="secondary"
+                    iconLeading="shopping-cart"
+                    [testId]="'customer-detail-account-row-' + accountNumber + '-start-sale'"
+                    (action)="startSale(accountNumber)"
+                  >
+                    {{ 'LBL-START-NEW-SALE' | t }}
+                  </app-button>
+                } @else {
+                  <!-- AC-SALE-02-01, mock-verbatim: on a Passive account the mock
+                       does not draw a disabled BUTTON but an inert, unfocusable
+                       span — page-coloured, default-bordered, `cursor:not-allowed`
+                       (its palette differs from our Button's disabled state, which
+                       is sunken-filled). `role="button"` + `aria-disabled` keep it
+                       announced as a disabled control, which a bare span would
+                       not be; it is deliberately NOT focusable, exactly like the
+                       disabled button it replaces. -->
+                  <span
+                    role="button"
+                    aria-disabled="true"
+                    class="inline-flex h-10 cursor-not-allowed items-center gap-2 rounded-md border border-line bg-page px-4 text-body whitespace-nowrap text-ink-faint select-none"
+                    [attr.data-testid]="
+                      'customer-detail-account-row-' + accountNumber + '-start-sale'
+                    "
+                  >
+                    <app-icon name="shopping-cart" [size]="20" />
+                    <span class="leading-none">{{ 'LBL-START-NEW-SALE' | t }}</span>
+                  </span>
+                }
               </div>
             </ng-template>
           </div>
@@ -323,9 +345,9 @@
       (cancelled)="cancelDeleteAddress()"
     />
 
-    @if (toastKey(); as key) {
+    @if (toastText(); as text) {
       <app-toast
-        [message]="key | t"
+        [message]="text"
         [dismissLabel]="'UI-COMMON-DISMISS' | t"
         testId="customer-detail-toast"
         (dismissed)="dismissToast()"

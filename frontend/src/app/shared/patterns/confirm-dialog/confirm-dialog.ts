@@ -1,6 +1,6 @@
-import { Component, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 import { Button, Icon, type IconName } from '../../ui';
-import { Modal, ModalFooter } from '../modal/modal';
+import { Modal } from '../modal/modal';
 
 /** Which of the mock's two confirmation paints to use. */
 export type ConfirmTone = 'danger' | 'info';
@@ -37,7 +37,7 @@ export type ConfirmTone = 'danger' | 'info';
  */
 @Component({
   selector: 'app-confirm-dialog',
-  imports: [Button, Icon, Modal, ModalFooter],
+  imports: [Button, Icon, Modal],
   template: `
     <app-modal
       [open]="open()"
@@ -47,60 +47,74 @@ export type ConfirmTone = 'danger' | 'info';
       [testId]="testId()"
       (closed)="cancelled.emit()"
     >
-      <div class="flex flex-col gap-4">
-        <span
-          class="flex size-10 items-center justify-center rounded-full"
-          [class.bg-danger-surface]="tone() === 'danger'"
-          [class.bg-info-surface]="tone() === 'info'"
-        >
-          <app-icon
-            [name]="icon()"
-            [size]="20"
-            [class.text-danger]="tone() === 'danger'"
-            [class.text-info]="tone() === 'info'"
-          />
-        </span>
-        <span class="text-body-lg font-semibold text-ink">{{ title() }}</span>
-        @if (errorText(); as error) {
-          <!-- State 2: backend rejected the action — its translated messageKey. -->
-          <div
-            class="flex items-start gap-2 rounded-md border border-danger-border bg-danger-surface p-3"
-            role="alert"
-            [attr.data-testid]="testId() + '-error'"
-          >
-            <app-icon name="alert-circle" [size]="20" class="shrink-0 text-danger" />
-            <span class="text-body text-danger-fg">{{ error }}</span>
+      <!--
+        ONE padded column, no footer bar — the mock's confirmations are not the
+        header/body/footer dialog its FORM modals are (scope §4.33). That is why
+        the actions are rendered here instead of being projected into Modal's
+        appModalFooter slot, which would draw a divider above them.
+      -->
+      <div class="flex flex-col" [class.gap-4]="tone() === 'danger'" [class.gap-5]="tone() === 'info'">
+        <!-- Icon BESIDE the text, not above it — true of both tones. -->
+        <div class="flex items-start gap-3">
+          @if (tone() === 'danger') {
+            <!-- Destructive: a 40px tinted disc, as the mock's delete dialogs draw. -->
+            <span
+              class="grid size-10 shrink-0 place-items-center rounded-full bg-danger-surface text-danger"
+            >
+              <app-icon [name]="icon()" [size]="20" />
+            </span>
+          } @else {
+            <!-- Informational: a FLAT glyph — the mock draws no disc here. -->
+            <app-icon [name]="icon()" [size]="20" class="mt-0.5 shrink-0 text-info" />
+          }
+          <div class="flex min-w-0 flex-col gap-1">
+            <span class="text-body-lg font-semibold text-ink">{{ title() }}</span>
+            @if (errorText(); as error) {
+              <!-- State 2: backend rejected the action — its translated messageKey. -->
+              <div
+                class="mt-1 flex items-start gap-2 rounded-md border border-danger-border bg-danger-surface p-3"
+                role="alert"
+                [attr.data-testid]="testId() + '-error'"
+              >
+                <app-icon name="alert-circle" [size]="20" class="shrink-0 text-danger" />
+                <span class="text-body text-danger-fg">{{ error }}</span>
+              </div>
+            } @else {
+              <span class="text-body text-ink-soft">{{ message() }}</span>
+            }
           </div>
-        } @else {
-          <span class="text-body text-ink-soft">{{ message() }}</span>
-        }
-      </div>
-      <div appModalFooter class="flex gap-3">
-        @if (errorText()) {
-          <app-button
-            variant="secondary"
-            [testId]="testId() + '-close-button'"
-            (action)="cancelled.emit()"
-          >
-            {{ closeLabel() }}
-          </app-button>
-        } @else {
-          <app-button
-            variant="secondary"
-            [testId]="testId() + '-cancel-button'"
-            (action)="cancelled.emit()"
-          >
-            {{ cancelLabel() }}
-          </app-button>
-          <app-button
-            [variant]="tone() === 'danger' ? 'danger' : 'primary'"
-            [loading]="busy()"
-            [testId]="testId() + '-confirm-button'"
-            (action)="confirmed.emit()"
-          >
-            {{ confirmLabel() }}
-          </app-button>
-        }
+        </div>
+
+        <div class="flex justify-end gap-3">
+          @if (errorText()) {
+            <app-button
+              variant="secondary"
+              [testId]="testId() + '-close-button'"
+              (action)="cancelled.emit()"
+            >
+              {{ closeLabel() }}
+            </app-button>
+          } @else {
+            <app-button
+              variant="secondary"
+              [testId]="testId() + '-cancel-button'"
+              (action)="cancelled.emit()"
+            >
+              {{ cancelLabel() }}
+            </app-button>
+            <!-- The info tone's Yes carries a check; the destructive one does
+                 not (mock: Submit Order.dc.html vs the delete dialogs). -->
+            <app-button
+              [variant]="confirmVariant()"
+              [iconLeading]="confirmIcon()"
+              [loading]="busy()"
+              [testId]="testId() + '-confirm-button'"
+              (action)="confirmed.emit()"
+            >
+              {{ confirmLabel() }}
+            </app-button>
+          }
+        </div>
       </div>
     </app-modal>
   `,
@@ -127,4 +141,15 @@ export class ConfirmDialog {
 
   readonly confirmed = output<void>();
   readonly cancelled = output<void>();
+
+  /** Destructive confirms answer in danger red; informational ones in the
+   *  primary action colour (mock: `Button variant="danger"` vs `"primary"`). */
+  protected readonly confirmVariant = computed(() =>
+    this.tone() === 'danger' ? ('danger' as const) : ('primary' as const),
+  );
+
+  /** Only the informational tone puts a glyph on `Yes` (mock's submit confirm). */
+  protected readonly confirmIcon = computed<IconName | undefined>(() =>
+    this.tone() === 'info' ? 'check' : undefined,
+  );
 }

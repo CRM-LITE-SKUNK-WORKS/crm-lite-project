@@ -19,7 +19,6 @@ const OPTIONS: readonly SelectOption[] = [
       [emptyText]="emptyText()"
       [error]="error()"
       [size]="size()"
-      [flowPanel]="flowPanel()"
       testId="spec-select"
     />
   `,
@@ -31,7 +30,6 @@ class Host {
   readonly emptyText = input<string | undefined>('Sonuç yok');
   readonly error = input<boolean>(false);
   readonly size = input<'md' | 'sm'>('md');
-  readonly flowPanel = input<boolean>(false);
 }
 
 describe('Select', () => {
@@ -81,29 +79,23 @@ describe('Select', () => {
     expect(byTestId(fixture, 'spec-select-option-Female')).not.toBeNull();
   });
 
-  // BUG-2 follow-up: inside a compact dialog the panel must take part in layout
-  // so the dialog GROWS around the whole list, instead of overhanging its edge.
-  it('overlays by default and takes part in layout with flowPanel — never capping options', () => {
+  /**
+   * The panel is ALWAYS an overlay (scope §4.32): opening it must not change
+   * the size of whatever contains it — a dialog that grew as its dropdown
+   * opened was the 2026-08-05 defect. Ancestors opt out of clipping instead
+   * (Modal's `overflowVisible`). No option is ever dropped.
+   */
+  it('always overlays, whatever the option count', () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ value: i, label: `Address ${i}` }));
 
-    const overlay = render({ options: many });
-    trigger(overlay).click();
-    overlay.detectChanges();
-    const overlayPanel = byTestId(overlay, 'spec-select-panel') as HTMLElement;
-    expect(overlayPanel.className).toContain('absolute');
-    expect(overlayPanel.className).toContain('top-full');
+    const fixture = render({ options: many });
+    trigger(fixture).click();
+    fixture.detectChanges();
 
-    const inFlow = render({ options: many, flowPanel: true });
-    trigger(inFlow).click();
-    inFlow.detectChanges();
-    const flowPanelEl = byTestId(inFlow, 'spec-select-panel') as HTMLElement;
-    expect(flowPanelEl.className).not.toContain('absolute');
-    expect(flowPanelEl.className).not.toContain('top-full');
-
-    // Neither mode drops options: all 12 render in both (scope §4.30).
-    for (const panel of [overlayPanel, flowPanelEl]) {
-      expect(panel.querySelectorAll('[role="option"]').length).toBe(12);
-    }
+    const panel = byTestId(fixture, 'spec-select-panel') as HTMLElement;
+    expect(panel.className).toContain('absolute');
+    expect(panel.className).toContain('top-full');
+    expect(panel.querySelectorAll('[role="option"]').length).toBe(12);
   });
 
   it('click on an option commits the VALUE to the form and closes', () => {

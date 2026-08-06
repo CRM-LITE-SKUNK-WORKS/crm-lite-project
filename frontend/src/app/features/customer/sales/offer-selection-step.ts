@@ -2,8 +2,10 @@ import { Component, ElementRef, computed, inject, signal } from '@angular/core';
 import { NonNullableFormBuilder, ReactiveFormsModule } from '@angular/forms';
 import {
   CatalogApiService,
+  type CampaignOffer,
   type CampaignResponse,
   type OfferResponse,
+  type ServiceType,
 } from '../../../core/catalog';
 import { isApiError } from '../../../core/http';
 import { I18nService, TranslatePipe } from '../../../core/i18n';
@@ -17,9 +19,59 @@ import {
   TextInput,
   type SelectOption,
 } from '../../../shared/ui';
-import { SaleBasketStore } from '../../order';
+import { SaleBasketStore, type BasketItem } from '../../order';
+import { formatPrice } from './money';
 
 type Tab = 'offers' | 'campaigns';
+
+/**
+ * `serviceType` → catalogue key. The wire value is a contract enum
+ * (`INTERNET` / `RESOURCE` / `ACTIVATION`) and is never printed as-is; every
+ * place that shows a service type — the Category filter, the Category column
+ * and the campaign "Includes" column — resolves it through here (scope §4.32).
+ */
+const SERVICE_TYPE_KEYS: Record<ServiceType, string> = {
+  INTERNET: 'UI-SALE-SERVICE-TYPE-INTERNET',
+  RESOURCE: 'UI-SALE-SERVICE-TYPE-RESOURCE',
+  ACTIVATION: 'UI-SALE-SERVICE-TYPE-ACTIVATION',
+};
+
+/** One line of the campaign "Includes" cell — the mock renders every member
+ *  offer on its OWN row, `{offerId} · {offerName}` next to its type label. */
+export interface CampaignIncludeLine {
+  readonly offerId: number;
+  readonly label: string;
+  readonly typeLabel: string;
+}
+
+/** One member offer nested under a campaign row of the basket panel. Same two
+ *  lines as {@link CampaignIncludeLine}, plus the price the mock right-aligns. */
+export interface BasketMemberView {
+  readonly offerId: number;
+  readonly label: string;
+  readonly typeLabel: string;
+  readonly priceLabel: string;
+}
+
+/**
+ * One ROW of the basket panel — fully resolved for rendering (scope §4.33).
+ *
+ * Exactly one of `campaignId` / `offerId` is set: that is what the row's remove
+ * control acts on. A campaign row carries `members`; an offer row's `members`
+ * is empty, so the template needs no second branch for the nested block.
+ */
+export interface BasketRowView {
+  readonly key: string;
+  readonly campaignId: string | null;
+  readonly offerId: number | null;
+  readonly testId: string;
+  /** Campaign row: the campaign name. Offer row: the offer id. */
+  readonly title: string;
+  /** Campaign row: `{campaignId} · Campaign`. Offer row: the offer name. */
+  readonly subtitle: string;
+  readonly priceLabel: string;
+  readonly members: readonly BasketMemberView[];
+}
 
 /**
  * Step 1 — Offer selection (AC-SALE-01-03..08).
@@ -160,10 +212,20 @@ export class OfferSelectionStep {
   }
 
   // --- Filter options -------------------------------------------------------
+  /** The option VALUE stays the raw contract enum (it is what the filter
+   *  compares against); only the label is resolved (scope §4.32). */
   protected readonly categoryOptions = computed<readonly SelectOption[]>(() => [
     { value: '', label: this.i18n.translate('UI-SALE-FILTER-CATEGORY-ALL') },
-    ...[...new Set(this.offers().map((o) => o.serviceType))].map((t) => ({ value: t, label: t })),
+    ...[...new Set(this.offers().map((o) => o.serviceType))].map((type) => ({
+      value: type,
+      label: this.serviceTypeLabel(type),
+    })),
   ]);
+
+  /** Readable name of a contract `serviceType`. Never the enum itself. */
+  protected serviceTypeLabel(type: ServiceType): string {
+    return this.i18n.translate(SERVICE_TYPE_KEYS[type]);
+  }
 
   protected readonly campaignOptions = computed<readonly SelectOption[]>(() => [
     { value: '', label: this.i18n.translate('UI-SALE-FILTER-CAMPAIGN-ALL') },
@@ -252,9 +314,24 @@ export class OfferSelectionStep {
     this.isOffers() ? this.selectedOfferIds().size : this.selectedCampaignId() ? 1 : 0,
   );
 
-  protected readonly selectedCountLabel = computed(() =>
-    this.i18n.translate('UI-SALE-SELECTED-COUNT', { count: this.selectedCount() }),
-  );
+  /**
+   * Card footer counter, mock-verbatim (`selCountLabel`): with a selection it
+   * reads "{n} selected"; with NONE it falls back to the size of the list the
+   * user is looking at — "{n} offers" on Catalog, "{n} campaigns" on Campaign.
+   * Showing "0 selected" on an untouched screen was the defect (D6).
+   *
+   * No plural engine, per FE-ADR-012 §h.3 — the mock does the same plain
+   * interpolation and Turkish does not inflect after a number.
+   */
+  protected readonly selectedCountLabel = computed(() => {
+    const selected = this.selectedCount();
+    if (selected > 0) {
+      return this.i18n.translate('UI-SALE-SELECTED-COUNT', { count: selected });
+    }
+    return this.isOffers()
+      ? this.i18n.translate('UI-SALE-ROW-COUNT-OFFERS', { count: this.offerRows().length })
+      : this.i18n.translate('UI-SALE-ROW-COUNT-CAMPAIGNS', { count: this.campaignRows().length });
+  });
 
   /** Nothing ticked, or the ticked campaign is already in the basket. The
    *  second arm is a belt-and-braces guard: `toggleCampaign` already refuses
@@ -306,23 +383,114 @@ export class OfferSelectionStep {
     this.selectedCampaignId.set(null);
   }
 
-  protected removeFromBasket(offerId: number): void {
-    this.basket.remove(offerId);
+  /**
+   * The basket panel's rows, mock-verbatim (scope §4.33). A campaign is ONE row
+   * carrying its member offers in the indented block; a loose offer is a plain
+   * row. Structure comes from `SaleBasketStore.groups` (a projection of the flat
+   * item list); the strings are resolved here, because catalogue access belongs
+   * to the screen, not to the store.
+   *
+   * The mock's optional third line (`it.meta`) has no counterpart in
+   * `OfferResponse` — it is a mock fixture field — so it is simply never
+   * rendered rather than invented.
+   */
+  protected readonly basketRows = computed<readonly BasketRowView[]>(() =>
+    this.basket.groups().map((group) =>
+      group.kind === 'campaign'
+        ? {
+            key: group.key,
+            campaignId: group.campaignId,
+            offerId: null,
+            testId: `sale-basket-item-${group.campaignId}`,
+            title: group.campaignName,
+            subtitle: this.i18n.translate('UI-SALE-BASKET-CAMPAIGN-SUBTITLE', {
+              campaignId: group.campaignId,
+            }),
+            priceLabel: this.price(group.price),
+            members: group.items.map((item: BasketItem) => ({
+              offerId: item.offer.offerId,
+              label: `${item.offer.offerId} · ${item.offer.offerName}`,
+              typeLabel: this.serviceTypeLabel(item.offer.serviceType),
+              priceLabel: this.price(item.offer.price),
+            })),
+          }
+        : {
+            key: group.key,
+            campaignId: null,
+            offerId: group.item.offer.offerId,
+            testId: `sale-basket-item-${group.item.offer.offerId}`,
+            title: String(group.item.offer.offerId),
+            subtitle: group.item.offer.offerName,
+            priceLabel: this.price(group.price),
+            members: [],
+          },
+    ),
+  );
+
+  /** One remove control per ROW: an offer row drops its offer, a campaign row
+   *  drops the whole bundle — the mirror of the all-or-nothing add, and the
+   *  only removal the mock's grouped panel offers (scope §4.33). */
+  protected removeRow(row: BasketRowView): void {
+    if (row.campaignId !== null) {
+      this.basket.removeCampaign(row.campaignId);
+    } else if (row.offerId !== null) {
+      this.basket.remove(row.offerId);
+    }
   }
 
   protected clearBasket(): void {
     this.basket.clear();
   }
 
-  protected readonly basketCountLabel = computed(() =>
-    this.i18n.translate('UI-SALE-BASKET-COUNT', { count: this.basket.count() }),
-  );
+  /** The mock counts ENTRIES, so an added campaign reads "1 item", not "3".
+   *  Singular and plural are two keys, not a plural engine (FE-ADR-012 §h.3). */
+  protected readonly basketCountLabel = computed(() => {
+    const count = this.basket.entryCount();
+    return count === 1
+      ? this.i18n.translate('UI-SALE-BASKET-COUNT-ONE')
+      : this.i18n.translate('UI-SALE-BASKET-COUNT', { count });
+  });
 
   protected price(value: number): string {
-    return `${value.toFixed(2)} TL`;
+    return formatPrice(value);
   }
 
-  protected includesLabel(campaign: CampaignResponse): string {
-    return campaign.offers.map((o) => `${o.offerId} · ${o.serviceType}`).join(', ');
+  /**
+   * The campaign "Includes" cell — ONE LINE PER MEMBER OFFER, as the mock draws
+   * it: `{offerId} · {offerName}` in primary text, then the offer's service-type
+   * label in smaller tertiary text (D5).
+   *
+   * Two things were wrong before: every member was joined into a single comma
+   * separated line, and the second half printed the raw `serviceType` enum where
+   * the mock prints the offer's NAME. Both fields come straight from
+   * `GET /api/campaigns` (`offers[].offerId` / `.offerName` / `.serviceType`) —
+   * the mock's own ids and titles are fixtures and are not reproduced.
+   */
+  protected includeLines(campaign: CampaignResponse): readonly CampaignIncludeLine[] {
+    return campaign.offers.map((offer: CampaignOffer) => ({
+      offerId: offer.offerId,
+      label: `${offer.offerId} · ${offer.offerName}`,
+      typeLabel: this.serviceTypeLabel(offer.serviceType),
+    }));
+  }
+
+  /**
+   * Row paint, in the mock's own precedence order (D3/D4):
+   *   in basket → selected → zebra.
+   * A row in the basket stays highlighted PERMANENTLY and stops being
+   * clickable; `isSelected` already excludes it (`!inBasket && …`), so adding
+   * to the basket hands the row over from the "selected" state to the
+   * "in basket" one rather than clearing it.
+   *
+   * The mock spells the two highlights with the SAME token name
+   * (`--eds-color-bg-selected`) but two different inline fallbacks; our theme
+   * defines that token once, so both states use it (scope §4.32).
+   */
+  protected rowClasses(inBasket: boolean, selected: boolean, odd: boolean): string {
+    const base = 'border-b border-line transition-colors duration-100 last:border-b-0';
+    if (inBasket) return `${base} cursor-default bg-selected`;
+    if (selected) return `${base} cursor-pointer bg-selected`;
+    // Zebra: the mock shades ODD indices (0-based) with bg-page.
+    return `${base} cursor-pointer ${odd ? 'bg-page' : 'bg-transparent'}`;
   }
 }

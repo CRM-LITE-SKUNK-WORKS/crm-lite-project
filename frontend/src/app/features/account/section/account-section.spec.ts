@@ -320,8 +320,10 @@ describe('AccountSection', () => {
     type(fixture, `${PANEL}-description-input`, ' Home ');
   }
 
-  // BUG-2: the mock's modal body is a single stacked column, and opening the
-  // address list must grow the dialog rather than be clipped by it.
+  // The mock's modal body is a single stacked column, and opening the address
+  // list must neither be clipped by the dialog nor RESIZE it: the mock's own
+  // dialog is `overflow:visible` with an overlaying panel (scope §4.32, which
+  // supersedes the in-flow panel of §4.30 EK).
   it('stacks the dialog fields and shows EVERY address without clipping the list', () => {
     const manyAddresses = Array.from({ length: 9 }, (_, i) => ({
       addressId: i + 1,
@@ -337,13 +339,20 @@ describe('AccountSection', () => {
     expect(form.className).toContain('flex-col');
     expect(form.className).not.toContain('grid-cols-2');
 
+    // The dialog declares the mock's shape: overflow visible, no height cap —
+    // so the panel is free to hang outside it instead of being clipped.
+    const dialog = byTestId(fixture, 'customer-detail-account-dialog') as HTMLElement;
+    expect(dialog.className).not.toContain('max-h-full');
+    expect(dialog.querySelector(':scope > .overflow-visible')).not.toBeNull();
+    expect(dialog.querySelector(':scope > .overflow-y-auto')).toBeNull();
+
     click(fixture, 'customer-detail-account-dialog-address-select');
     const panel = byTestId(
       fixture,
       'customer-detail-account-dialog-address-select-panel',
     ) as HTMLElement;
-    // In flow ⇒ the dialog grows around it; nothing overhangs or is cut off.
-    expect(panel.className).not.toContain('absolute');
+    // OVERLAYING ⇒ the open list cannot change the size of the dialog.
+    expect(panel.className).toContain('absolute');
     // All nine addresses are there — the client caps nothing.
     expect(panel.querySelectorAll('[role="option"]').length).toBe(9);
   });

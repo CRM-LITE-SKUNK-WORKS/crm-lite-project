@@ -11,7 +11,7 @@ import {
   Toast,
   type TabItem,
 } from '../../../shared/patterns';
-import { Button, IconButton } from '../../../shared/ui';
+import { Button, Icon, IconButton } from '../../../shared/ui';
 // The sanctioned cross-feature imports (FE-ADR-003 §Consequences): the account
 // tab consumes the components the account and product features EXPOSE. The
 // direction is one-way in both cases — and account ⇄ product never touch: this
@@ -25,7 +25,7 @@ import { ProductSection } from '../../product/section/product-section';
 import { AddressCards } from '../address/address-cards';
 import { AddressFormDialog } from '../address/address-form-dialog';
 import { CustomerDetailStore } from '../state/customer-detail.store';
-import { CustomerFlashService } from '../state/customer-flash.service';
+import { CustomerFlashService, type FlashMessage } from '../state/customer-flash.service';
 import { type AddressResponse, type CustomerDetailResponse } from '../model';
 import { ContactFormDialog } from './contact-form-dialog';
 import { DemographicFormDialog } from './demographic-form-dialog';
@@ -76,6 +76,7 @@ const EM_DASH = '—';
   imports: [
     TranslatePipe,
     Button,
+    Icon,
     IconButton,
     Tabs,
     Toast,
@@ -108,7 +109,30 @@ export class CustomerDetail {
     return !/^\d+$/.test(raw);
   });
 
-  protected readonly activeTab = signal<TabId>('info');
+  /**
+   * Entry point for another screen that needs Customer Info to OPEN somewhere
+   * specific: `?tab=account&account={accountNumber}` lands on the account tab
+   * with that billing account already expanded. The sale wizard uses it after a
+   * successful submit, so the user sees the products the order just created
+   * (scope §4.33).
+   *
+   * Deliberately URL state rather than a second flash channel: it describes
+   * WHERE the user is, so it must survive a reload and be shareable, and an
+   * unknown/absent value simply degrades to the default tab.
+   */
+  private readonly queryMap = toSignal(this.route.queryParamMap, {
+    initialValue: this.route.snapshot.queryParamMap,
+  });
+  private readonly requestedTab = computed<TabId | null>(() => {
+    const raw = this.queryMap().get('tab');
+    return raw === 'info' || raw === 'account' || raw === 'address' || raw === 'contact'
+      ? raw
+      : null;
+  });
+  /** Billing account to expand on arrival — read once, then owned by the user. */
+  protected readonly expandAccountNumber = computed(() => this.queryMap().get('account'));
+
+  protected readonly activeTab = signal<TabId>(this.requestedTab() ?? 'info');
   protected readonly tabs = computed<readonly TabItem[]>(() => [
     { id: 'info', label: this.i18n.translate('UI-DETAIL-TAB-INFO') },
     { id: 'account', label: this.i18n.translate('UI-DETAIL-TAB-ACCOUNT') },
@@ -134,10 +158,16 @@ export class CustomerDetail {
   /** Failure of the set-primary PATCH — surfaced as an address-tab banner. */
   protected readonly addressActionError = signal<string | null>(null);
 
-  /** Success toast (catalogue key) after an in-place save — seeded from the
-   *  one-shot flash so the Create wizard's success lands here as a toast
+  /** Success toast after an in-place save — seeded from the one-shot flash so
+   *  the Create wizard's and the sale wizard's successes land here as a toast
    *  (mock §6.3: eds_flash is shown on Customer Info). */
-  protected readonly toastKey = signal<string | null>(this.flash.consume());
+  private readonly toastMessage = signal<FlashMessage | null>(this.flash.consume());
+
+  /** Resolved toast text; the key is translated HERE, never by the sender. */
+  protected readonly toastText = computed(() => {
+    const message = this.toastMessage();
+    return message ? this.i18n.translate(message.key, message.params) : null;
+  });
 
   // --- read-view models -----------------------------------------------------
   protected readonly initials = computed(() => {
@@ -269,13 +299,13 @@ export class CustomerDetail {
   // --- demographic ----------------------------------------------------------
   protected onInfoSaved(): void {
     this.infoDialogOpen.set(false);
-    this.toastKey.set('UI-DETAIL-TOAST-INFO-SAVED');
+    this.toastMessage.set({ key: 'UI-DETAIL-TOAST-INFO-SAVED' });
   }
 
   // --- contact --------------------------------------------------------------
   protected onContactSaved(): void {
     this.contactDialogOpen.set(false);
-    this.toastKey.set('UI-DETAIL-TOAST-CONTACT-SAVED');
+    this.toastMessage.set({ key: 'UI-DETAIL-TOAST-CONTACT-SAVED' });
   }
 
   // --- addresses ------------------------------------------------------------
@@ -385,7 +415,7 @@ export class CustomerDetail {
   }
 
   protected dismissToast(): void {
-    this.toastKey.set(null);
+    this.toastMessage.set(null);
   }
 
   // --- helpers --------------------------------------------------------------

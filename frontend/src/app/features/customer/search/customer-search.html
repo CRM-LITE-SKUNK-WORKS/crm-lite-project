@@ -306,9 +306,9 @@
 
   <!-- One-shot flash from another customer screen (mock §6.3 eds_flash → §4.3
        toast; e.g. "Customer deleted successfully." after FR-CUST-05). -->
-  @if (flashKey(); as key) {
+  @if (flashText(); as text) {
     <app-toast
-      [message]="key | t"
+      [message]="text"
       [dismissLabel]="'UI-COMMON-DISMISS' | t"
       testId="customer-search-toast"
       (dismissed)="dismissFlash()"

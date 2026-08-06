@@ -95,9 +95,20 @@ metni **kendi yazmaz**.
 
 | | |
 |---|---|
-| **Girdi** | `icon` (zorunlu), `ariaLabelKey` (**zorunlu**), `variant = 'ghost' \| 'danger-ghost'`, `size = 32`, `disabled`, `loading`, `testId` |
+| **Girdi** | `icon` (zorunlu), `ariaLabelKey` (**zorunlu**), `variant = 'ghost' \| 'danger-ghost' \| 'bare'`, `size = 32 \| 24`, `title`, `disabled`, `loading`, `testId` |
 
 `subtle` ve `size=40` yazılmaz (ekranlarda kullanılmıyor).
+
+**05.08.2026 eklemeleri (scope §4.33) — üçü de EKLEMELİ, varsayılanlar aynı:**
+- **`bare` varyantı:** durağan dolgu **yok** (`ghost` sunken dolguludur), yalnız
+  hover'da sunken + birincil metin. Mock satış sepetinin satır-içi kaldır
+  düğmesini böyle çiziyor: bir liste dolusu düğme "gri çip kolonu" değil içerik
+  gibi okunsun diye.
+- **`size = 24`:** DS kutusu 32'dir; 24 mock'un aynı satır-içi kontrolünün
+  ölçüsü. Glif kutuyu izler (32→20px, 24→16px).
+- **`title` (opsiyonel):** yalnız fareyle üzerine gelince çıkan native ipucu.
+  Erişilebilir ad **hâlâ `ariaLabel`'dan** gelir; `title` onun yerine geçmez ve
+  aksini söylememelidir — aynı metni geçin.
 
 **Erişilebilirlik — en kritik bileşen:** görünür metni olmadığı için
 `ariaLabelKey` **derleme düzeyinde zorunlu** (opsiyonel değil). Mock'un mevcut
@@ -259,14 +270,34 @@ spec'iyle; 98/98 test). Uygulamada nottan sapmalar — hepsi kayıtlı:
 - **`Select` → `dropUp` girdisi:** panel tetikleyicinin ÜSTÜNE açılır — mock
   §6.2'nin per-page seçicisi kart içinde kalmak için bunu yapıyor
   (`.eds-pagesize-up`).
-- **`Select` → `flowPanel` girdisi (04.08.2026, BUG-2):** panel mutlak konumlu
-  bir katman yerine **akış içinde** render edilir; kapsayıcı (ve dolayısıyla onu
-  barındıran dialog) **büyür**. Dar bir modalda fark şudur: liste dialogun
-  kenarından taşıp footer'ın üstüne binmek yerine dialog uzar ve liste tümüyle
-  görünür. `max-h-65` tavanı korunur → büyüme sınırlıdır, uzun listede panel
-  kendi içinde kayar. `dropUp` bu modda anlamsızdır ve yok sayılır. Varsayılan
-  **kapalı**: tam sayfada panel sayfanın düzenini itmemeli (mock `Select.jsx`
-  davranışı). Tüketici: Create/Edit billing account modalı (kayıt: scope §4.30 EK).
+- ~~**`Select` → `flowPanel` girdisi (04.08.2026, BUG-2)**~~ — **05.08.2026'da
+  KALDIRILDI (scope §4.32).** Panel akış içinde render edilip dialogu
+  **büyütüyordu**; bir sonraki turda o davranışın kendisi kusur olarak bildirildi
+  ve mock'un markup'ı bildirimi doğruladı: mock'un kompakt dialogları
+  `overflow:visible` + **mutlak konumlu panel** kullanıyor, yani liste dialogun
+  dışına taşar ve **dialogun boyutuna dokunmaz**. Girdinin son tüketicisi de
+  kalktığı için tümüyle silindi. **Bugünkü kural:** `Select` paneli **her zaman**
+  overlay'dir; kırpma riski taşıyan ata `Modal`'ın `overflowVisible`'ı ile çıkış
+  yapar (`dropUp` yalnız yönü değiştirir, konumlandırma türünü değil).
+
+**shared/patterns — 05.08.2026 turu (scope §4.33):**
+
+- **`ConfirmDialog` düzeni mock'a çekildi.** Mock'un **iki** onay dialogu da
+  **yatay**dır (ikon metnin solunda) ve buton çubuğunun üstünde **ayırıcı çizgi
+  yoktur**. Bizimki ikonu/başlığı/mesajı dikey yığıyor ve butonları `Modal`'ın
+  `appModalFooter` yuvasına veriyordu — o yuva `border-t` çizer. Artık butonlar
+  gövdenin içinde render ediliyor; **`Modal` deseni hiç değişmedi**, dolayısıyla
+  form dialoglarının mock'ta gerçekten var olan footer çizgisi yerinde kaldı.
+  `tone` artık yalnız gerçekten tona bağlı iki şeyi taşıyor: **rozet**
+  (danger = 40px açık kırmızı daire / info = **düz ikon, daire yok**) ve **onay
+  butonu** (danger = `danger` ikonsuz / info = `primary` + `check`).
+- **`Stepper` → `variant` girdisi (`'wizard'` varsayılan | `'sale'`).** Mock'ta
+  **iki ayrı** step şeridi var ve yedi noktada ayrışıyorlar (numara `01` vs `1`;
+  daire 28px dolgulu vs 24px çerçeveli; tamamlanmış dolu turuncu vs açık zemin +
+  turuncu çerçeve/metin; gelecek sunken vs beyaz+çerçeve; bağlayıcı 2px ve
+  tamamlanınca turuncu vs 1px ve **hiç renk değiştirmez**; tamamlanmış etiket
+  birincil vs üçüncül; daire yazısı 13 vs 12px). Girdi yalnız **boya** seçer —
+  semantik, `aria-current`, pasiflik ve bağlayıcı **geometrisi** ortaktır.
 
 `Icon` → `Button` → `IconButton` → `FormField` → `TextInput` → `Select` → *(sonra)* `DatePicker`
 

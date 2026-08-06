@@ -6,7 +6,107 @@
 > sıfırdan bağlam kuran bir AI agent bu dosyayı okuyarak "nerede kaldık, neden
 > böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-05 (**🔓 CUSTOMER SEARCH: ACCOUNT NUMBER + ORDER
+> **Son güncelleme:** 2026-08-06 (**🐞 `secondary` BUTON KENARLIĞI + SEKME
+> KİMLİĞİ.** Bildirim tek bir butondu ("Offer selection'da `Add to basket`'te
+> border yok"), kök neden **`shared/ui/Button`**'da çıktı ve **tüm uygulamayı**
+> etkiliyordu: taban `border-transparent`, `secondary` varyantı
+> `border-line-strong` yazıyordu — **ikisi de düz tek-sınıflı `border-color`
+> yardımcısı**, yani aynı özgüllükte, kazanan üretilen CSS'te sonra yazılan.
+> Ölçüldü: `.border-line-strong` **14459**, `.border-transparent` **14517** →
+> transparan kazanıyordu, **hiçbir secondary buton kenarlık göstermiyordu**.
+> Düzeltme desende: taban artık yalnız kenarlık **kalınlığını** veriyor, rengini
+> her varyant kendi bildiriyor. **Disabled davranışı değişmedi** —
+> `disabled:border-transparent` sınıf+sözde-sınıf olduğu için daha özgül ve düz
+> sınıfı yener; mock'un DS'i de aynısını yapıyor
+> (`.eds-btn:disabled{…border-color:transparent!important}`), yani **pasif
+> butonun kenarlıksız olması mock kuralı**, düzelen şey **etkin** butonun
+> kenarlığı. ⚠ Ders: aynı CSS özelliğini hedefleyen iki düz Tailwind yardımcısını
+> aynı elemana yazmak sınıf sırasından bağımsız **belirsiz** sonuç verir.
+> **Sekme kimliği:** Keycloak login `infra/.../crm-lite/login/resources/img/
+> favicon.svg`'yi sunarken `:4200`'de sekme Angular'ın varsayılan `favicon.ico`
+> + `Frontend` başlığına düşüyordu. Aynı SVG `frontend/public/favicon.svg`'ye
+> **birebir** kopyalandı, `index.html` ona bağlandı, başlık **`CRM Lite`** oldu,
+> Angular'ın `favicon.ico`'su **silindi** (bırakılsa çıplak `/favicon.ico`
+> isteği onu sunmaya devam ederdi). `<title>` i18n'e girmiyor: statik markup,
+> runtime i18n oraya ulaşmıyor (FE-ADR-012 §a) ve metin iki dilde de aynı.
+> **428/428 test** (+1 regresyon), lint + konvansiyon (116) + prod build yeşil;
+> kayıt: scope **§4.34**.
+> Önceki: 2026-08-06 (**🎨 SATIŞ AKIŞI 2. GÖRSEL UYUM TURU — 5 iş,
+> 3'ü paylaşılan katmanda; 1 madde KARAR BEKLİYOR.** ⚠ Göreve konu olan
+> `offer-selection.html` / `product-configuration.html` / `submit-order.html`
+> **repoda yok ve hiç olmadı** (§4.30'un tekrarı) — markup yine bundle'ın
+> `__resourceBlobs`'undan okundu. **İŞ 1 — sepet GRUPLU:** kampanya artık tek
+> giriş (adı + `{campaignId} · Campaign` + girintili üye teklifler + paket
+> toplamı), tekil teklif düz satır. **Veri modeli değişmedi** — `SaleBasketStore`
+> düz `BasketItem[]` tutmayı sürdürüyor (kablo düz `items[]` alır, AC-SALE-01-08
+> tüm sepeti sayar); görünüm için `groups` projeksiyonu eklendi. ⚠ **Davranış
+> değişikliği:** mock'ta üye başına kaldır düğmesi yok → X **paketin tamamını**
+> kaldırıyor (`addCampaign`'in simetriği). Sayaç **entry** sayıyor ("1 item").
+> Kaldır düğmesi için `IconButton`'a **`bare` varyantı + `size=24` + `title`**
+> geldi (eklemeli; 6 tüketicinin hiçbiri değişmedi). **İŞ 2 — stepper:** mock'ta
+> **iki ayrı** şerit var (7 farkla), `Stepper`'a **`variant`** girdisi eklendi,
+> Create Customer etkilenmedi. 🟡 **ÇİZGİ EŞİTLİĞİ KARARI KULLANICIDA:** ölçüm —
+> **bizde çizgiler EŞİT** (§4.32'nin `grow` düzeltmesi), **mock'ta EŞİT DEĞİL**
+> ve bu yapısal (öğeler `flex:1 1 0`, çizgi etiketten artanı doldurur). Karar
+> gelene kadar **mevcut eşit geometri korunuyor**; numara biçimi (`1/2/3`)
+> onaylıydı, uygulandı. **İŞ 3:** "This product needs no configuration." ve
+> anahtarı silindi — mock'un `hasFields` dalının **else kolu yok**; kart
+> başlığında bitiyor (AC-SALE-01-21 hâlâ karşılanıyor). **İŞ 4 — onay modalı
+> DESENDE düzeltildi:** mock'un **iki** onay dialogu da **yatay** ve buton
+> çubuğunun üstünde **çizgi yok**; `ConfirmDialog` artık butonlarını gövdede
+> çiziyor (**`Modal` hiç değişmedi** → form dialoglarının gerçek footer çizgisi
+> yerinde). `tone` yalnız rozet (danger daire / info **düz ikon**) ve onay
+> butonunu (danger / primary+check) taşıyor. Gövde parametreli: hangi hesap + ne
+> kadar; **`MSG-SALE-ORDER-CONFIRM` artık render edilmiyor** (sorusunu başlık
+> soruyor), anahtar katalogda kaldı. Para biçimlendirmesi `sales/money.ts`'e
+> **tek** kaynağa çıkarıldı. **İŞ 5 — §2B.8 GERİ ALINDI:** 201'de sihirbaz
+> `/customers/{n}?tab=account&account=…`'a **otomatik** gidiyor; yerinde başarı
+> bandı + "Back to customer" + 3 anahtar silindi. Gerekçe çürüdü: sipariş
+> numarası **flash ile** taşınıyor. Mekanizma ikiye bölündü — *konum* query
+> param, *mesaj* mevcut `CustomerFlashService` (**parametre taşıyacak** şekilde
+> genişletildi, anahtar hâlâ çözülmemiş gidiyor); `AccountSection`'a
+> **`initiallyExpanded`** (değer başına bir kez, yalnız listedeyse). 🔴 Mock'un
+> `eds_pending_sale` localStorage enjeksiyonu **taşınmadı** — ürünler backend'de
+> gerçek, Customer Info `GET /api/products?accountNumber=` ile **sunucudan**
+> okuyor. Hesap listesi sayfalanmadığı için "o sayfaya atla" konusuz (§4.24/5).
+> **427/427 test** (+10), lint + konvansiyon (116) + prod build yeşil; kayıt:
+> scope **§4.33** + `shared-ui-design-notes` (IconButton/ConfirmDialog/Stepper).
+> Önceki: 2026-08-05 (**🎨 MOCK GÖRSEL UYUM TURU — 11 uyuşmazlık,
+> 4'ü paylaşılan katmanda; davranış değişmedi.** Tüm mock değerleri bundle'ın
+> `__resourceBlobs`'u çözülerek **gerçek markup'tan** okundu. **A1/A2'nin kök
+> nedeni h1 margin'i değildi:** Angular yönlendirilen bileşeni
+> `<router-outlet>`'in **kardeşi** olarak basıyor, outlet DOM'da kalıyor ve
+> kabuğun `flex flex-col gap-5` `<main>`'inde **bir flex item olarak bir gap
+> tüketiyordu** — her sayfanın başlığı 20px aşağıdaydı. Tek kural
+> (`router-outlet{display:none}`) tüm ekranları düzeltti. **A3:** mock'un logosu
+> (`src/assets/etiya-logo.svg`) header'a girdi; `angular.json`'a ikinci asset
+> kökü eklendi. **A4 DÜZELTİLMEDİ — mock da içeriğe bağlı:** bundle genelinde
+> `table-layout` sıfır eşleşme, sabit kolon genişliği yok; TR başlıklar kısa
+> olduğu için kolonların yeniden ölçülmesi tarayıcının doğru davranışı (kayıt
+> §4.32). **B1 `shared/patterns/Stepper`:** `flex-1`'in sıfır basis'i **adımları**
+> eşitliyordu, bağlayıcı da "eşit adım − bu etiket" kadar kalıyordu; `grow`
+> (basis auto) ile her adım **eşit pay** alıyor ve payı adımın tek büyüyen
+> çocuğu olan bağlayıcı yutuyor → iki çizgi eşit. Her iki sihirbazda doğrulandı.
+> **C1 — §4.30 EK'in `flowPanel` kararı GERİ ALINDI:** panelin dialogu
+> **büyütmesi** bu turda kusur olarak bildirildi ve mock'un markup'ı bildirimi
+> doğruladı (`overflow:visible` + **mutlak** panel → liste dışarı taşar, dialog
+> boyutu değişmez). Hesap dialogu `overflowVisible`'a geçti ve
+> **`Select.flowPanel` girdisi tümüyle silindi** (tüketicisi kalmadı, tek işlevi
+> yanlış sayılan davranıştı). **C2:** ürünsüz hesap artık mock'un kesikli
+> kutusu — ama metin **analistin `MSG-PROD-NONE`'u** (MSG-* kontrat metnidir,
+> FE-ADR-012 §c/§f); Pasif hesapta "Start new sale" mock'un `aria-disabled`
+> span'i (+`role="button"`, a11y iyileştirmesi). **D1–D6 Offer Selection:**
+> sekmeler **Catalog/Campaign**, tik hücresi koşulsuz kutu (kolon kayması
+> bitti), sepetteki satır **kalıcı vurgulu + inert**, zebra (tek indeks
+> `bg-page`), "Includes" **üye başına bir satır** (`{offerId} · {offerName}` +
+> çevrilmiş servis tipi — ham enum artık **Category kolonunda ve filtrede de**
+> basılmıyor), sayacın iki modu ("{n} selected" ↔ "{n} offers/campaigns").
+> Mock'un fixture id/adları kodlanmadı; alanlar `GET /api/campaigns`'ten.
+> **`bg-selected`: temada TEK token** — mock aynı token adına iki farklı inline
+> fallback yazıyor, ikisi de bizim tek token'ımıza eşlendi, yeni hex
+> uydurulmadı. **417/417 test** (+7), lint + konvansiyon + prod build yeşil;
+> kayıt: scope **§4.32** + `shared-ui-design-notes` (flowPanel kaldırıldı).
+> Önceki: 2026-08-05 (**🔓 CUSTOMER SEARCH: ACCOUNT NUMBER + ORDER
 > NUMBER AKTİF — üç turdur bloke olan §1.7/§1.8 KAPANDI.** Bu turda **backend'e
 > de dokunuldu** (görevin açık kapsamı): bloke edenin ta kendisi olan
 > `CustomerBusinessRules.checkNoUnsupportedCrossServiceSearchCriterion` **silindi**

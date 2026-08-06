@@ -14,7 +14,7 @@ import {
   Toast,
   type TableColumn,
 } from '../../../shared/patterns';
-import { CustomerFlashService } from '../state/customer-flash.service';
+import { CustomerFlashService, type FlashMessage } from '../state/customer-flash.service';
 import { CustomerListStore } from '../state/customer-list.store';
 import {
   PAGE_SIZE_OPTIONS,
@@ -98,10 +98,16 @@ export class CustomerSearch {
 
   /** One-shot flash from another customer screen (e.g. delete success) —
    *  consumed exactly once on entry, shown as a Toast (mock §4.4 pattern). */
-  protected readonly flashKey = signal<string | null>(inject(CustomerFlashService).consume());
+  private readonly flash = signal<FlashMessage | null>(inject(CustomerFlashService).consume());
+
+  /** Resolved flash text (the key is translated HERE, not by the sender). */
+  protected readonly flashText = computed(() => {
+    const message = this.flash();
+    return message ? this.i18n.translate(message.key, message.params) : null;
+  });
 
   protected dismissFlash(): void {
-    this.flashKey.set(null);
+    this.flash.set(null);
   }
 
   /** Activated with the Create wizard (scope §4.20/3). */

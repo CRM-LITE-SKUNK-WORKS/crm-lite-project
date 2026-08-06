@@ -82,7 +82,6 @@ import { type NewBillingAddress } from './billing-address-option';
               [options]="cityOptions()"
               [controlId]="testIdBase() + '-city'"
               [placeholder]="'UI-ADDRESS-CITY-PLACEHOLDER' | t"
-              [flowPanel]="true"
               [testId]="testIdBase() + '-city-select'"
             />
           </app-form-field>
@@ -98,7 +97,6 @@ import { type NewBillingAddress } from './billing-address-option';
               [options]="districtOptions()"
               [controlId]="testIdBase() + '-district'"
               [placeholder]="'UI-ADDRESS-DISTRICT-PLACEHOLDER' | t"
-              [flowPanel]="true"
               [testId]="testIdBase() + '-district-select'"
             />
           </app-form-field>

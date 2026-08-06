@@ -5,23 +5,11 @@
   is the WIZARD's, exactly as the mock draws it.
 -->
 <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
-  <!-- AC-SALE-01-15 success: the mock navigates away instead of showing this,
-       which loses the order number; scope §2B.8 records the in-place state. -->
-  @if (order(); as created) {
-    <div
-      class="flex items-start gap-3 rounded-md border border-success-border bg-success-surface p-4"
-      role="status"
-      data-testid="sale-submit-success"
-    >
-      <app-icon name="check-circle-2" [size]="20" class="shrink-0 text-success" />
-      <div class="flex flex-col gap-0.5">
-        <span class="text-body font-semibold text-ink">{{ 'UI-SALE-SUCCESS-TITLE' | t }}</span>
-        <span class="text-body-sm text-ink-soft" data-testid="sale-submit-success-status">
-          {{ 'UI-SALE-SUCCESS-STATUS' | t }}
-        </span>
-      </div>
-    </div>
-  }
+  <!-- No in-place success state: a successful submit navigates to Customer
+       Info, where the toast announces the order number and the products are
+       re-read from the backend (scope §4.33, superseding §2B.8). The only
+       outcome this screen still renders is a FAILURE, which keeps the user
+       here with their basket intact. -->
 
   <!-- AC-SALE-01-18/19: the backend's messageKey, never its `message`. -->
   @if (errorKey(); as key) {

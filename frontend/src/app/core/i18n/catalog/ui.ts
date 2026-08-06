@@ -353,8 +353,11 @@ export const UI = {
 
   // Step 1 — Offer selection
   'UI-SALE-OFFER-TITLE': { en: 'Offer selection', tr: 'Teklif seçimi' },
-  'UI-SALE-TAB-OFFERS': { en: 'Product offers', tr: 'Ürün teklifleri' },
-  'UI-SALE-TAB-CAMPAIGNS': { en: 'Campaigns', tr: 'Kampanyalar' },
+  // The mock names these two tabs "Catalog" and "Campaign" — singular for the
+  // second (Offer selection.dc.html, `tabItems`). Corrected 2026-08-05 from the
+  // earlier "Product offers" / "Campaigns" (scope §4.32).
+  'UI-SALE-TAB-OFFERS': { en: 'Catalog', tr: 'Katalog' },
+  'UI-SALE-TAB-CAMPAIGNS': { en: 'Campaign', tr: 'Kampanya' },
   'UI-SALE-FILTER-CATEGORY': { en: 'Category', tr: 'Kategori' },
   'UI-SALE-FILTER-CATEGORY-ALL': { en: 'All categories', tr: 'Tüm kategoriler' },
   'UI-SALE-FILTER-OFFER-ID': { en: 'Offer ID', tr: 'Teklif ID' },
@@ -375,9 +378,33 @@ export const UI = {
     tr: 'Aramanızla eşleşen teklif yok.',
   },
   'UI-SALE-CATALOG-LOADING': { en: 'Loading offers…', tr: 'Teklifler yükleniyor…' },
+  // Readable names for the DERIVED `serviceType` enum of GET /api/offers and
+  // GET /api/campaigns. The raw wire value (INTERNET / RESOURCE / ACTIVATION)
+  // is never printed; the EN wording seeds from the mock's own type labels
+  // (FE-ADR-012 §f), the enum keys come from the contract (scope §4.32).
+  'UI-SALE-SERVICE-TYPE-INTERNET': { en: 'Internet package', tr: 'İnternet paketi' },
+  'UI-SALE-SERVICE-TYPE-RESOURCE': { en: 'Modem', tr: 'Modem' },
+  'UI-SALE-SERVICE-TYPE-ACTIVATION': { en: 'Activation package', tr: 'Aktivasyon paketi' },
+  // Catalog card footer (mock: `selCountLabel`). With nothing ticked it counts
+  // the ROWS of the active tab; the moment something is ticked it counts the
+  // SELECTION instead. Plain interpolation, no plural engine (FE-ADR-012 §h.3).
   'UI-SALE-SELECTED-COUNT': { en: '{count} selected', tr: '{count} seçili' },
+  'UI-SALE-ROW-COUNT-OFFERS': { en: '{count} offers', tr: '{count} teklif' },
+  'UI-SALE-ROW-COUNT-CAMPAIGNS': { en: '{count} campaigns', tr: '{count} kampanya' },
   'UI-SALE-BASKET-TITLE': { en: 'Basket', tr: 'Sepet' },
+  // The basket header counts ENTRIES: an added campaign is ONE item, not three
+  // (the mock's `basket.length`). Singular and plural are two SEPARATE KEYS
+  // selected at the call site — that is not a plural engine, which FE-ADR-012
+  // §h.3 rules out; it is the same "one key, one sentence" shape as every other
+  // entry here (scope §4.33).
+  'UI-SALE-BASKET-COUNT-ONE': { en: '1 item', tr: '1 kalem' },
   'UI-SALE-BASKET-COUNT': { en: '{count} items', tr: '{count} kalem' },
+  // Second line of a CAMPAIGN row in the basket. Parameterized so TR can put
+  // the word where it belongs rather than always after the id (§h.2).
+  'UI-SALE-BASKET-CAMPAIGN-SUBTITLE': {
+    en: '{campaignId} · Campaign',
+    tr: '{campaignId} · Kampanya',
+  },
   'UI-SALE-BASKET-EMPTY': { en: 'Basket is empty', tr: 'Sepet boş' },
   'UI-SALE-BASKET-EMPTY-HINT': {
     en: 'Search offers and add them to the basket.',
@@ -395,11 +422,10 @@ export const UI = {
   'UI-SALE-CONFIG-TITLE': { en: 'Product configuration', tr: 'Ürün yapılandırma' },
   'UI-SALE-CONFIG-OFFER-NAME': { en: 'Prod Offer Name', tr: 'Ürün Teklifi Adı' },
   'UI-SALE-CONFIG-OFFER-ID': { en: 'Prod Offer ID', tr: 'Ürün Teklifi ID' },
-  // AC-SALE-01-21: an offer with no characteristics still gets its own block.
-  'UI-SALE-CONFIG-NO-FIELDS': {
-    en: 'This product needs no configuration.',
-    tr: 'Bu ürün yapılandırma gerektirmiyor.',
-  },
+  // UI-SALE-CONFIG-NO-FIELDS was REMOVED on 2026-08-05: the mock renders NOTHING
+  // under the header of an offer with no characteristics (its `hasFields` branch
+  // has no else arm), so the sentence was ours, not the design's. AC-SALE-01-21
+  // is still satisfied — the offer keeps its own card (scope §4.33).
   'UI-SALE-CONFIG-LOADING': {
     en: 'Loading product configuration…',
     tr: 'Ürün yapılandırması yükleniyor…',
@@ -433,14 +459,37 @@ export const UI = {
   'UI-SALE-ORDER-ITEMS': { en: 'Order items', tr: 'Sipariş kalemleri' },
   'UI-SALE-SERVICE-ADDRESS': { en: 'Service address', tr: 'Servis adresi' },
   'UI-SALE-CONFIRM-TITLE': { en: 'Submit this order?', tr: 'Bu sipariş gönderilsin mi?' },
-  // AC-SALE-01-15's post-confirm state. MIDLWARE is a catalog short code, so
-  // the user-facing wording is a catalog entry, not the raw status.
-  'UI-SALE-SUCCESS-TITLE': { en: 'Order received', tr: 'Sipariş alındı' },
-  'UI-SALE-SUCCESS-STATUS': {
-    en: 'Order received, processing…',
-    tr: 'Sipariş Alındı, İşleniyor…',
+  // The confirm BODY states what is about to happen, with the two facts the
+  // mock puts there: which billing account, and for how much (FE-ADR-012 §h).
+  // The account is always known in practice — the wizard cannot start without
+  // one — but the mock guards the clause, so the no-account wording exists too.
+  // Values come from the sale's own state (context + basket), never the mock's
+  // fixture figures. Replaces the generic `MSG-SALE-ORDER-CONFIRM`, whose
+  // question the TITLE now asks in the mock's own words (scope §4.33).
+  'UI-SALE-CONFIRM-BODY': {
+    en: 'The order will be created for billing account {accountNumber}. Total amount is {totalAmount}.',
+    tr: 'Sipariş, {accountNumber} numaralı fatura hesabı için oluşturulacak. Toplam tutar: {totalAmount}.',
   },
-  'UI-SALE-BACK-TO-CUSTOMER': { en: 'Back to customer', tr: 'Müşteriye dön' },
+  'UI-SALE-CONFIRM-BODY-NO-ACCOUNT': {
+    en: 'The order will be created. Total amount is {totalAmount}.',
+    tr: 'Sipariş oluşturulacak. Toplam tutar: {totalAmount}.',
+  },
+  // AC-SALE-01-15's success, announced on Customer Info AFTER the automatic
+  // navigation (scope §4.33). Singular and plural are two keys chosen by the
+  // sender — not a plural engine (FE-ADR-012 §h.3). `orderNumber` is the KR-12
+  // number minted by order-service; `accountNumber` and `count` come from the
+  // same 201 body, never from client bookkeeping.
+  'UI-SALE-TOAST-ORDER-SUBMITTED-ONE': {
+    en: 'Order {orderNumber} submitted successfully. 1 product added to account {accountNumber}.',
+    tr: '{orderNumber} numaralı sipariş başarıyla gönderildi. {accountNumber} numaralı hesaba 1 ürün eklendi.',
+  },
+  'UI-SALE-TOAST-ORDER-SUBMITTED': {
+    en: 'Order {orderNumber} submitted successfully. {count} products added to account {accountNumber}.',
+    tr: '{orderNumber} numaralı sipariş başarıyla gönderildi. {accountNumber} numaralı hesaba {count} ürün eklendi.',
+  },
+  // UI-SALE-SUCCESS-TITLE / -STATUS / UI-SALE-BACK-TO-CUSTOMER were REMOVED on
+  // 2026-08-05: the wizard no longer has an in-place success state to label or
+  // a manual way back — it navigates on 201 (scope §4.33).
 
   // Customer Info account-row entry point (AC-SALE-01-02: no billing account
   // ⇒ the action is not offered and the user is told to create one first).

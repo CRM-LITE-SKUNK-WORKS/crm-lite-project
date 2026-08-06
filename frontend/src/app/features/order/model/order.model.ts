@@ -89,6 +89,38 @@ export interface BasketItem {
   readonly campaignName: string | null;
 }
 
+/**
+ * How the basket is DISPLAYED (scope §4.33). The wire and the rule engine keep
+ * working on the flat {@link BasketItem} list — `POST /api/orders` takes a flat
+ * `items[]` and AC-SALE-01-08 counts service types across the whole basket — but
+ * the mock's basket panel shows a campaign as ONE entry with its member offers
+ * nested underneath, and a loose offer as a plain entry.
+ *
+ * So this is a projection, not a second source of truth: `groups` is derived
+ * from `items`, never stored alongside it.
+ */
+export interface BasketCampaignGroup {
+  readonly kind: 'campaign';
+  /** Stable list key: `campaign:{campaignId}`. */
+  readonly key: string;
+  readonly campaignId: string;
+  readonly campaignName: string;
+  /** The member offers, in the order they entered the basket. */
+  readonly items: readonly BasketItem[];
+  /** Sum of the member prices — the figure the mock puts on the entry row. */
+  readonly price: number;
+}
+
+export interface BasketOfferGroup {
+  readonly kind: 'offer';
+  /** Stable list key: `offer:{offerId}`. */
+  readonly key: string;
+  readonly item: BasketItem;
+  readonly price: number;
+}
+
+export type BasketGroup = BasketCampaignGroup | BasketOfferGroup;
+
 /** The three service types a valid basket must contain exactly one of
  *  (AC-SALE-01-08). Order matters: the backend checks INTERNET → RESOURCE →
  *  ACTIVATION and reports the first failure, so previewing in the same order

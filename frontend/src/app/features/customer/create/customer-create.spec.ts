@@ -285,7 +285,9 @@ describe('CustomerCreate', () => {
     );
     fixture.detectChanges();
     expect(navigate).toHaveBeenCalledWith(['/customers', 1004]);
-    expect(TestBed.inject(CustomerFlashService).consume()).toBe('UI-CREATE-TOAST-SUCCESS');
+    expect(TestBed.inject(CustomerFlashService).consume()).toEqual({
+      key: 'UI-CREATE-TOAST-SUCCESS',
+    });
   });
 
   it('guards against double submission: a second click while pending sends nothing', () => {

@@ -34,13 +34,23 @@
     </div>
   } @else if (store.isEmpty()) {
     <!-- AC-PROD-01-02: a product-less account is a 200 [] — MSG-PROD-NONE is a
-         FRONTEND-ONLY key, produced here because the backend never sends it. -->
-    <app-empty-state
-      icon="inbox"
-      [title]="'UI-PRODUCT-EMPTY-TITLE' | t"
-      [body]="'MSG-PROD-NONE' | t"
-      testId="customer-detail-product-empty-state"
-    />
+         FRONTEND-ONLY key, produced here because the backend never sends it.
+
+         The mock does NOT use its icon+title+body empty state here: inside an
+         expanded account row it draws a single DASHED box with one line of
+         secondary text (Customer Info v2.dc.html, `acc.noProducts`). The shared
+         EmptyState pattern is deliberately not bent into this shape — it is a
+         different, page-level pattern with three slots (scope §4.32).
+
+         The SENTENCE is the analyst's MSG-PROD-NONE, not the mock's wording:
+         MSG-* copy is contract text (FE-ADR-012 §c/§f), and this is the same
+         mock-vs-catalogue conflict already recorded for MSG-CUST-NOT-FOUND. -->
+    <div
+      class="rounded-md border border-dashed border-line-hover bg-surface p-5 text-center text-body text-ink-soft"
+      data-testid="customer-detail-product-empty-state"
+    >
+      {{ 'MSG-PROD-NONE' | t }}
+    </div>
   } @else {
     <!-- Server order, unfiltered: Passive products STAY listed (AC-PROD-01-03). -->
     <div class="overflow-x-auto rounded-md border border-line bg-surface">

@@ -2,10 +2,18 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Frontend</title>
+    <!-- Product name, not a translatable label: it is identical in EN and TR
+         (UI-COMMON-APP-NAME), and <title> is static document markup that the
+         runtime i18n layer never reaches (FE-ADR-012 §a). -->
+    <title>CRM Lite</title>
     <base href="/" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <!-- The SAME mark the Keycloak login theme serves
+         (infra/keycloak/themes/crm-lite/login/resources/img/favicon.svg), so the
+         browser tab does not change identity across the login redirect. Angular's
+         default favicon.ico is deliberately gone rather than left as a fallback:
+         a bare /favicon.ico request would otherwise still serve it. -->
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   </head>
   <body>
     <app-root></app-root>

@@ -66,6 +66,35 @@ describe('Button', () => {
     expect(button(render({ variant: 'danger' })).className).toContain('bg-danger');
   });
 
+  /**
+   * `secondary` is the ONE variant with a visible border, and it must actually
+   * get one (scope §4.34). The base used to carry `border-transparent`
+   * alongside the variant's `border-line-strong`: two plain single-class
+   * `border-color` utilities of equal specificity, so the winner was whichever
+   * Tailwind emitted later — and that was `border-transparent`. Every secondary
+   * button rendered borderless. The colour is per-variant now, so the two can
+   * never appear on the same element again.
+   */
+  it('gives secondary a real border and never pairs it with border-transparent', () => {
+    // Exact TOKENS, not substrings: `disabled:border-transparent` is a
+    // different, higher-specificity rule and is expected on every variant.
+    const tokens = (variant: ButtonVariant): string[] =>
+      button(render({ variant })).className.split(/\s+/);
+
+    expect(tokens('secondary')).toContain('border-line-strong');
+    expect(tokens('secondary')).not.toContain('border-transparent');
+
+    // The borderless variants still declare their own transparent colour.
+    for (const variant of ['primary', 'danger', 'ghost'] as const) {
+      expect(tokens(variant)).toContain('border-transparent');
+      expect(tokens(variant)).not.toContain('border-line-strong');
+    }
+
+    // Every variant keeps the disabled override — the mock's DS forces a
+    // transparent border on a disabled button (`.eds-btn:disabled`).
+    expect(tokens('secondary')).toContain('disabled:border-transparent');
+  });
+
   it('maps sizes to the §3.4 table (md 40px / md padding 16, sm 32px / 12)', () => {
     const md = button(render()).className;
     expect(md).toContain('h-10');

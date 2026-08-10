@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.products-created.v1.schema.json",
+  "title": "crm.product.products-created, payload v1",
+  "description": "The requested products now exist in product_db as PNDG, with ids and amounts assigned. Produced by product-service inside the SAME transaction that writes prod/prod_char_val (ADR-015 §5, ADR-017 §8.1). Destination: crm.product.evt.products-created.v1. PNDG and not ACTV deliberately: this says the products were created, not that the sale completed — confirmation (ADR-015 §5.6) and the account involvement that is the actual commit point (ADR-013 §8) are separate steps, and one 'sale done' event covering all three would be a lie for the window between them.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["mainProductId", "totalAmount", "items"],
+  "properties": {
+    "saleOperationId": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "description": "The operation this creation belongs to — the same value as the order's Idempotency-Key and the envelope's sagaId, which is what makes the whole sale traceable under ONE id."
+    },
+    "mainProductId": {
+      "type": "integer",
+      "description": "The INTERNET product; the others hang off it as children. Derived from the service type, never declared by the caller (ADR-015 §5.3)."
+    },
+    "totalAmount": {
+      "type": "number",
+      "description": "AC-SALE-01-12 Total Amount, derived as the sum of the item price snapshots so one arithmetic definition exists in one place."
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "offerId", "main"],
+        "properties": {
+          "productId": { "type": "integer" },
+          "offerId": { "type": "integer" },
+          "amount": {
+            "type": ["number", "null"],
+            "description": "The offer's price AT CREATION TIME. Published precisely so a consumer can freeze it: reading the catalog price back later would silently rewrite the history of a past order whenever a price changes (ADR-016 §2.4)."
+          },
+          "main": {
+            "type": "boolean",
+            "description": "True for exactly one item — the INTERNET product that carries the service address."
+          }
+        }
+      }
+    }
+  }
+}

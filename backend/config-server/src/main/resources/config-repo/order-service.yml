@@ -17,6 +17,28 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  # Spring Cloud Stream (ADR-017 §7). Inert while crm.messaging.broker.enabled is false:
+  # no @Bean function exists to bind, so the Kafka binder is never instantiated and the
+  # service still starts with no broker present. Listed here so the cutover is a flag
+  # flip rather than a configuration-authoring exercise, and because this is the ONLY
+  # place in order-service where a broker-specific setting may appear at all.
+  cloud:
+    stream:
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}
+          # The relay marks a row published the moment the send returns, so anything
+          # weaker than all-replica acknowledgement would mark a message durable that the
+          # cluster could still lose — reintroducing exactly the loss the Outbox prevents.
+          required-acks: all
+      bindings:
+        # StreamBridge sends to whatever destination the outbox row names; this default
+        # producer binding is what supplies the partitioning policy for all of them.
+        # headers['partitionKey'] is set by StreamBridgeOutboxPublisher from the
+        # envelope's sagaId (else aggregateId) — per-sale ordering, ADR-017 §7.6.
+        default:
+          producer:
+            partition-key-expression: headers['partitionKey']
 
 # Outbound integration boundaries (ADR-016 §5). Base URLs use Eureka service names
 # resolved by the load-balanced RestClient; override with concrete http://host:port
@@ -44,6 +66,34 @@ crm:
     base-url: http://product-service    # product creation / confirm / cancel (ADR-015 §5)
   lookup:
     base-url: http://lookup-service     # shared GNL_ST + GNL_TP owner (ADR-002); writes only
+  # Reliable messaging (ADR-017). ALL THREE SWITCHES ARE OFF: this branch introduces the
+  # foundation, not the cutover. POST /api/orders behaves exactly as it did before — the
+  # synchronous ADR-016 §5 orchestration is still the only live SALE route.
+  #
+  #   outbox.enabled        write outbox_message rows inside the business transaction
+  #   outbox.relay.enabled  run the in-process repository relay. Mutually exclusive with
+  #                         the Debezium Outbox Event Router (ADR-017 §9.3) — both reading
+  #                         the same rows publishes every message twice.
+  #   broker.enabled        create the Spring Cloud Stream bindings at all. While false no
+  #                         binder is instantiated and the service starts with no broker.
+  #
+  # Cutover order (docs/runbooks/eventing.md): outbox.enabled -> broker.enabled + exactly
+  # one relay -> consumers. Every step is observable on its own before the next one.
+  messaging:
+    broker:
+      enabled: false
+    outbox:
+      enabled: false
+      relay:
+        enabled: false
+        poll-interval: 2s
+        batch-size: 100
+      # Retention deletes ONLY rows that were already published (ADR-017 §10), so leaving
+      # it on while nothing publishes is a no-op rather than a data-loss risk.
+      retention:
+        enabled: true
+        keep-published-for: 7d
+        run-interval: 1h
 
 eureka:
   client:
@@ -61,6 +111,13 @@ management:
     web:
       exposure:
         include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+  health:
+    # Spring Cloud Stream's binder health contributor would make /actuator/health depend
+    # on a broker that is deliberately absent before cutover — reporting the service DOWN
+    # for a component nothing is using yet, which is how a health check stops meaning
+    # anything. The outbox backlog/age gauges are the real signal (ADR-017 §12).
+    binders:
+      enabled: false
 
 # Resilience4j (docs/runbooks/resilience.md): lookup-service reads ONLY.
 # Requirement 9: NO circuit breaker/bulkhead/retry instance exists for

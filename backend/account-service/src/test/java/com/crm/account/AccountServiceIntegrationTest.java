@@ -225,7 +225,11 @@ class AccountServiceIntegrationTest {
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY 1",
                 String.class);
         assertThat(tables).containsExactlyInAnyOrder(
-                "acct_tp", "cust_acct", "cust_acct_prod_invl", "acct_number_seq", "flyway_schema_history");
+                "acct_tp", "cust_acct", "cust_acct_prod_invl", "acct_number_seq", "flyway_schema_history",
+                // ADR-017 (V5). Service-LOCAL by rule: account_db's own outbox and inbox,
+                // never shared and never read by another service — the same ownership
+                // property the rest of this test asserts about the workbook tables.
+                "outbox_message", "inbox_message");
     }
 
     @Test

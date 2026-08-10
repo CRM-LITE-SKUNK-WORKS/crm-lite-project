@@ -1,5 +1,6 @@
 package com.crm.product.product.service.impl;
 
+import com.crm.messaging.outbox.OutboxRecorder;
 import com.crm.product.account.AccountServiceClient;
 import com.crm.product.catalog.entity.Campaign;
 import com.crm.product.catalog.entity.ProductOffer;
@@ -15,6 +16,7 @@ import com.crm.product.common.exception.MessageKeys;
 import com.crm.product.customer.CustomerServiceClient;
 import com.crm.product.lookup.LookupCatalogService;
 import com.crm.product.lookup.LookupContract;
+import com.crm.product.messaging.ProductEventContracts;
 import com.crm.product.product.dto.request.ProductCharacteristicValueRequest;
 import com.crm.product.product.dto.request.ProductCompensationRequest;
 import com.crm.product.product.dto.request.ProductCreateItemRequest;
@@ -69,6 +71,7 @@ public class ProductServiceImpl implements ProductService {
     private final CurrentActorProvider actorProvider;
     private final SaleOperationCoordinator saleOperationCoordinator;
     private final ObjectMapper objectMapper;
+    private final OutboxRecorder outboxRecorder;
 
     /**
      * FR-PROD-01 composition (ADR-013 §5 read side): the product ↔ account link is
@@ -250,12 +253,39 @@ public class ProductServiceImpl implements ProductService {
                 .filter(amount -> amount != null)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        return new ProductCreateResponse(
+        ProductCreateResponse response = new ProductCreateResponse(
                 campaign == null ? null : campaign.getCampaignCode(),
                 campaign == null ? null : campaign.getName(),
                 mainProduct.getId(),
                 totalAmount,
                 created);
+
+        // Same transaction as every product row above (ADR-017 §8.1): OutboxRecorder is
+        // Propagation.MANDATORY, so this cannot be written outside the transaction whose
+        // facts it describes. If any validation below-the-line had failed, the products
+        // and the message would both be gone.
+        //
+        // Recording is off in shipped configuration (crm.messaging.outbox.enabled) and
+        // nothing consumes this yet; POST /api/products still answers the SALE
+        // orchestration synchronously exactly as ADR-015 §5 describes.
+        outboxRecorder.record(
+                ProductEventContracts.PRODUCTS_CREATED_DESTINATION,
+                ProductEventContracts.MESSAGE_TYPE,
+                ProductEventContracts.AGGREGATE_TYPE,
+                String.valueOf(mainProduct.getId()),
+                request.getSaleOperationId(),
+                toProductsCreatedPayload(request, response));
+        return response;
+    }
+
+    private ProductEventContracts.ProductsCreatedPayload toProductsCreatedPayload(
+            ProductCreateRequest request, ProductCreateResponse response) {
+        List<ProductEventContracts.ProductsCreatedPayload.Item> items = response.products().stream()
+                .map(product -> new ProductEventContracts.ProductsCreatedPayload.Item(
+                        product.productId(), product.offerId(), product.amount(), product.main()))
+                .toList();
+        return new ProductEventContracts.ProductsCreatedPayload(
+                request.getSaleOperationId(), response.mainProductId(), response.totalAmount(), items);
     }
 
     /**

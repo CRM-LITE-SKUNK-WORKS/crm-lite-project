@@ -1,0 +1,2 @@
+com.crm.messaging.adapter.stream.StreamAdapterAutoConfiguration
+com.crm.messaging.CrmMessagingAutoConfiguration

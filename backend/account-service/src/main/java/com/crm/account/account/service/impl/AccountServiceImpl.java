@@ -1,6 +1,7 @@
 package com.crm.account.account.service.impl;
 
 import com.crm.account.account.AccountContract;
+import com.crm.account.messaging.AccountEventContracts;
 import com.crm.account.account.dto.request.AccountCreateRequest;
 import com.crm.account.account.dto.request.AccountUpdateRequest;
 import com.crm.account.account.dto.request.ProductInvolvementRequest;
@@ -24,6 +25,7 @@ import com.crm.account.customer.CustomerServiceClient;
 import com.crm.account.customer.CustomerSummary;
 import com.crm.account.lookup.LookupCatalogService;
 import com.crm.account.lookup.LookupContract;
+import com.crm.messaging.outbox.OutboxRecorder;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -45,6 +47,7 @@ public class AccountServiceImpl implements AccountService {
     private final LookupCatalogService lookupCatalog;
     private final CustomerServiceClient customerClient;
     private final CurrentActorProvider actorProvider;
+    private final OutboxRecorder outboxRecorder;
 
     /**
      * FR-ACCT-01: 224 Billing Accounts only (the K-8 223 never appears), Active and
@@ -114,6 +117,7 @@ public class AccountServiceImpl implements AccountService {
 
         // Distinct: a caller repeating an id within one body must not create two rows.
         List<Long> requestedIds = request.getProductIds().stream().distinct().toList();
+        List<Long> newlyLinked = new java.util.ArrayList<>();
         Set<Long> alreadyLinked = involvementRepository
                 .findByCustomerAccountIdAndProductIdInAndDeletedDateIsNull(account.getId(), requestedIds)
                 .stream()
@@ -138,15 +142,36 @@ public class AccountServiceImpl implements AccountService {
             involvement.setStatusId(activeStatusId);
             involvement.markCreated(actor);
             involvementRepository.save(involvement);
+            newlyLinked.add(productId);
         }
 
         // Return the resulting state (same shape/ordering as the §7 read side) rather
         // than an insert count, so a retry answers identically — observable idempotency.
-        return new ProductInvolvementResponse(account.getAccountNumber(),
-                involvementRepository.findByCustomerAccountIdAndDeletedDateIsNullOrderByProductIdAsc(account.getId())
-                        .stream()
-                        .map(ProductInvolvement::getProductId)
-                        .toList());
+        List<Long> allProductIds = involvementRepository
+                .findByCustomerAccountIdAndDeletedDateIsNullOrderByProductIdAsc(account.getId())
+                .stream()
+                .map(ProductInvolvement::getProductId)
+                .toList();
+
+        // The SALE's terminal fact, recorded in the SAME transaction as the involvement
+        // rows it describes (ADR-017 §8.1; OutboxRecorder is Propagation.MANDATORY, so it
+        // cannot be anywhere else). ADR-017 approves choreography for non-critical
+        // reactions to exactly this event — by the time it exists the sale is already
+        // real and visible (ADR-016 §5), so a reaction that fails must not be able to
+        // fail the sale, which is what makes it choreography rather than a saga step.
+        //
+        // Recorded only when crm.messaging.outbox.enabled is true; false in shipped
+        // configuration, so the synchronous involvement command is unchanged.
+        outboxRecorder.record(
+                AccountEventContracts.PRODUCTS_LINKED_DESTINATION,
+                AccountEventContracts.MESSAGE_TYPE,
+                AccountEventContracts.AGGREGATE_TYPE,
+                account.getAccountNumber(),
+                null,
+                new AccountEventContracts.ProductsLinkedPayload(
+                        account.getAccountNumber(), List.copyOf(newlyLinked), allProductIds));
+
+        return new ProductInvolvementResponse(account.getAccountNumber(), allProductIds);
     }
 
     /**

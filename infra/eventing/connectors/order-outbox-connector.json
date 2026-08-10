@@ -1,0 +1,39 @@
+{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "topic.prefix": "crm-order",
+  "plugin.name": "pgoutput",
+
+  "database.hostname": "postgres",
+  "database.port": "5432",
+  "database.user": "crmlite",
+  "database.password": "crmlite",
+  "database.dbname": "order_db",
+
+  "slot.name": "crm_order_outbox_slot",
+  "publication.name": "crm_order_outbox_pub",
+  "publication.autocreate.mode": "filtered",
+
+  "table.include.list": "public.outbox_message",
+  "tombstones.on.delete": "false",
+  "snapshot.mode": "no_data",
+
+  "transforms": "outbox",
+  "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",
+
+  "transforms.outbox.table.field.event.id": "message_id",
+  "transforms.outbox.table.field.event.key": "partition_key",
+  "transforms.outbox.table.field.event.type": "message_type",
+  "transforms.outbox.table.field.event.timestamp": "occurred_at",
+  "transforms.outbox.table.field.event.payload": "envelope",
+
+  "transforms.outbox.route.by.field": "destination",
+  "transforms.outbox.route.topic.replacement": "${routedByValue}",
+
+  "transforms.outbox.table.expand.json.payload": "false",
+  "transforms.outbox.table.fields.additional.placement": "message_type:header:crm-message-type,schema_version:header:crm-schema-version,aggregate_type:header:crm-aggregate-type,aggregate_id:header:crm-aggregate-id,saga_id:header:crm-saga-id,correlation_id:header:crm-correlation-id,causation_id:header:crm-causation-id",
+
+  "key.converter": "org.apache.kafka.connect.storage.StringConverter",
+  "value.converter": "org.apache.kafka.connect.storage.StringConverter",
+
+  "heartbeat.interval.ms": "10000"
+}

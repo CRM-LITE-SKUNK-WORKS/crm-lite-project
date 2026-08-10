@@ -53,6 +53,15 @@
             <artifactId>crm-observability-starter</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Reliable-messaging foundation (ADR-017): the versioned envelope, the
+             transactional Outbox/Inbox and the SINGLE Spring Cloud Stream adapter
+             package. Nothing publishes before the SALE cutover — crm.messaging.outbox.enabled,
+             .relay.enabled and crm.messaging.broker.enabled all ship false. -->
+        <dependency>
+            <groupId>com.crm</groupId>
+            <artifactId>crm-messaging-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <dependency>
             <groupId>io.github.resilience4j</groupId>
             <artifactId>resilience4j-spring-boot3</artifactId>

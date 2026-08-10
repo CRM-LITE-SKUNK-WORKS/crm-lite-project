@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/envelope.v1.schema.json",
+  "title": "CRM Lite message envelope, v1",
+  "description": "The single wire format for every CRM Lite command and event (ADR-017 §5). Deliberately broker-agnostic: no field here is Kafka-specific, and the same envelope would travel unchanged over another transport. Implemented by com.crm.messaging.contract.EventEnvelope.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "messageId",
+    "messageType",
+    "schemaVersion",
+    "aggregateType",
+    "aggregateId",
+    "occurredAt",
+    "payload"
+  ],
+  "properties": {
+    "messageId": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Globally unique id of this message; doubles as the eventId. A redelivery carries the SAME value — it is what the receiving Inbox's UNIQUE (message_id, consumer_group) constraint keys on."
+    },
+    "messageType": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^crm\\.[a-z-]+\\.[a-z-]+$",
+      "description": "The contract name, e.g. crm.order.order-submitted. Never a Java class name: a class name is a refactoring hazard on the wire."
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Version of the payload contract. A consumer accepts a range and rejects anything outside it rather than guessing (ADR-017 §5.3)."
+    },
+    "aggregateType": {
+      "type": "string",
+      "maxLength": 64,
+      "enum": ["order", "product", "account"],
+      "description": "The owning aggregate. Also the Debezium Outbox Event Router's routing field."
+    },
+    "aggregateId": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "The aggregate's business identity — e.g. the KR-12 order number or the KR-11 account number. Never a database surrogate key."
+    },
+    "sagaId": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "description": "The sale-scoped orchestration id. For the SALE saga this IS the client's Idempotency-Key (ADR-016 §10), so the saga and the idempotency key are one value rather than two ids meaning the same thing."
+    },
+    "correlationId": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "description": "The end-to-end request id (X-Correlation-Id), already an MDC field in every service — so the log line about the HTTP request and the log line about the message it produced are the same search."
+    },
+    "causationId": {
+      "type": ["string", "null"],
+      "maxLength": 64,
+      "description": "The messageId of the message that CAUSED this one. Null for a message originating from a synchronous request."
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC instant at which the business fact happened — NOT when it was published. The two differ by exactly the time the outbox row waited."
+    },
+    "payload": {
+      "type": "string",
+      "description": "The versioned contract body as JSON TEXT, not a nested object. Text because the consumer decodes it into a DTO the consumer owns (ADR-017 §6); a nested object would invite a shared payload type, which is the coupling this design refuses."
+    }
+  }
+}

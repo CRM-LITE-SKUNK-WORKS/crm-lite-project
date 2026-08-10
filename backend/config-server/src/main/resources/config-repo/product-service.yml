@@ -17,6 +17,42 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  # Spring Cloud Stream (ADR-017 §7). Inert while crm.messaging.broker.enabled is false:
+  # OrderEventStreamAdapter is @ConditionalOnProperty on that flag, so no function bean
+  # exists, no binding is created, the Kafka binder is never instantiated, and the
+  # service still starts with no broker present. This is the ONLY place in
+  # product-service where a broker-specific setting may appear.
+  cloud:
+    stream:
+      kafka:
+        binder:
+          brokers: ${KAFKA_BROKERS:localhost:9092}
+          required-acks: all
+        # Binder-specific consumer settings. .dlq per Destinations#deadLetter — a message
+        # this build cannot parse or version is terminal, and parking it is what keeps it
+        # from blocking everything behind it on the partition.
+        bindings:
+          orderSubmitted-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.order.evt.order-submitted.v1.dlq
+      bindings:
+        default:
+          producer:
+            # Set by StreamBridgeOutboxPublisher from the envelope's sagaId (else
+            # aggregateId) — per-sale ordering, ADR-017 §7.6.
+            partition-key-expression: headers['partitionKey']
+        # The functional binding name is <function-bean-name>-in-0; the bean is
+        # OrderEventStreamAdapter#orderSubmitted.
+        orderSubmitted-in-0:
+          destination: crm.order.evt.order-submitted.v1
+          group: product-service.crm.order.evt.order-submitted.v1
+          consumer:
+            # Binder-level retry is DISABLED (maxAttempts 1) on purpose: the retry policy
+            # lives in the transport's redelivery plus the Inbox's duplicate guard, and a
+            # second, in-memory retry loop here would just re-run a handler whose
+            # transaction already rolled back while holding up the partition.
+            max-attempts: 1
 
 # Outbound integration boundaries. Base URLs use Eureka service names resolved by the
 # load-balanced RestClient; override with concrete http://host:port when running
@@ -46,6 +82,23 @@ crm:
     base-url: http://customer-service   # FR-PROD-02 service-address resolution (ADR-010)
   lookup:
     base-url: http://lookup-service     # shared GNL_ST owner (ADR-002); writes only
+  # Reliable messaging (ADR-017) — all three switches OFF; this branch adds the
+  # foundation, not the cutover. POST /api/products still answers the SALE orchestration
+  # synchronously (ADR-015 §5). See order-service.yml for what each flag does and
+  # docs/runbooks/eventing.md for the cutover order.
+  messaging:
+    broker:
+      enabled: false
+    outbox:
+      enabled: false
+      relay:
+        enabled: false
+        poll-interval: 2s
+        batch-size: 100
+      retention:
+        enabled: true
+        keep-published-for: 7d
+        run-interval: 1h
 
 eureka:
   client:
@@ -63,6 +116,11 @@ management:
     web:
       exposure:
         include: health,info,prometheus,circuitbreakers,circuitbreakerevents
+  health:
+    # See order-service.yml: a binder health contributor would report DOWN for a broker
+    # that is deliberately absent before cutover.
+    binders:
+      enabled: false
 
 # Resilience4j (docs/runbooks/resilience.md): lookup/account/customer READS only —
 # never POST /api/products, /confirm or /compensate (the FR-SALE write slice

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.products-linked.v1.schema.json",
+  "title": "crm.account.products-linked, payload v1",
+  "description": "cust_acct_prod_invl now links these products to this billing account. Produced by account-service inside the SAME transaction that writes the involvement rows (ADR-013 §8, ADR-017 §8.1). Destination: crm.account.evt.products-linked.v1. This is the SALE's TERMINAL fact: by the time it exists the sale is already real and visible (ADR-016 §5, step 5), which is why ADR-017 §2 approves choreography for reactions to it — a reaction that must not be able to fail the sale is exactly one that should not be a saga step.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["accountNumber", "linkedProductIds", "allProductIds"],
+  "properties": {
+    "accountNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The KR-11 number — also the envelope's aggregateId. Always a 224 Billing Account; the K-8 223 Customer Account never appears in any API response or event (ADR-013 §4.5)."
+    },
+    "linkedProductIds": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "Ids linked by THIS command. Empty when every requested id was already linked — the command is idempotent per (account, product), so a legitimate retry by a compensating orchestrator produces an empty delta rather than duplicate rows (ADR-013 §8)."
+    },
+    "allProductIds": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "The account's FULL involvement set after the command — the same list the synchronous response returns. Published alongside the delta so a consumer that wants state rather than a change needs no back-call into account-service."
+    }
+  }
+}

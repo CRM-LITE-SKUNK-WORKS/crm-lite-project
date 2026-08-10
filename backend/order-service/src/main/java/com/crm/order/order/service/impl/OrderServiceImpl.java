@@ -73,7 +73,10 @@ public class OrderServiceImpl implements OrderService {
         // If this fails the caller gets an error and NO external call was ever made,
         // so there is nothing to unwind. The whole design rests on this property,
         // which is why the order is written first (ADR-016 §5.2).
-        CustomerOrder order = persistence.persistOrder(request, account);
+        // The Idempotency-Key doubles as the sagaId of the Outbox record written inside
+        // this same transaction (ADR-017 §8.1) — one sale, one id, whichever route it
+        // eventually takes.
+        CustomerOrder order = persistence.persistOrder(request, account, idempotencyKey);
         long orderId = order.getId();
 
         // ---- Step 2: create the products (PNDG) ---------------------------------

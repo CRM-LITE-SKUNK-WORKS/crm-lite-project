@@ -48,6 +48,7 @@
         <module>backend/discovery-server</module>
         <module>backend/crm-security-starter</module>
         <module>backend/crm-observability-starter</module>
+        <module>backend/crm-messaging-starter</module>
         <module>backend/api-gateway</module>
         <module>backend/customer-service</module>
         <module>backend/lookup-service</module>

@@ -1,10 +1,12 @@
 package com.crm.order.order.service.impl;
 
+import com.crm.messaging.outbox.OutboxRecorder;
 import com.crm.observability.starter.MdcKeys;
 import com.crm.order.account.AccountSummary;
 import com.crm.order.common.CurrentActorProvider;
 import com.crm.order.lookup.LookupCatalogService;
 import com.crm.order.lookup.LookupContract;
+import com.crm.order.messaging.OrderEventContracts;
 import com.crm.order.order.OrderContract;
 import com.crm.order.order.dto.request.OrderCreateRequest;
 import com.crm.order.order.dto.request.OrderItemRequest;
@@ -18,7 +20,9 @@ import com.crm.order.order.repository.BusinessInteractionRepository;
 import com.crm.order.order.repository.CustomerOrderRepository;
 import com.crm.order.product.ProductCreationResult;
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
@@ -56,6 +60,7 @@ public class OrderPersistence {
     private final OrderMapper mapper;
     private final LookupCatalogService lookupCatalog;
     private final CurrentActorProvider actorProvider;
+    private final OutboxRecorder outboxRecorder;
 
     /**
      * Step 1 (ADR-016 §5.1): BSN_INTER + CUST_ORD + CUST_ORD_ITEM in ONE transaction,
@@ -65,9 +70,21 @@ public class OrderPersistence {
      * <p>Items are written with NULL product_id/amount: the products do not exist
      * yet. That intermediate state is never observable — it lives only inside this
      * request, and a request that dies here leaves the order CANCELLED.
+     *
+     * <p><b>The Outbox record at the end is part of this same transaction</b> (ADR-017
+     * §8.1). It is not an afterthought placed here for convenience: {@code OutboxRecorder}
+     * is {@code Propagation.MANDATORY}, so it can only ever run inside a caller's
+     * transaction, and this is the transaction the message is a fact about. Either the
+     * order and its message both exist or neither does.
+     *
+     * <p>Recording is off in shipped configuration ({@code crm.messaging.outbox.enabled},
+     * default false — ADR-017 §11), so today this call writes nothing and
+     * {@code POST /api/orders} is unchanged. Nothing consumes the message either: the
+     * synchronous orchestration in ADR-016 §5 is still the live SALE route.
      */
     @Transactional
-    public CustomerOrder persistOrder(OrderCreateRequest request, AccountSummary account) {
+    public CustomerOrder persistOrder(OrderCreateRequest request, AccountSummary account,
+                                      String idempotencyKey) {
         // All three catalog values are resolved BEFORE anything is written: a catalog
         // outage must fail the sale closed, not leave a half-built order (ADR-002 §7).
         long newSaleTypeId = lookupCatalog.resolveTypeId("bsnInterType",
@@ -103,7 +120,37 @@ public class OrderPersistence {
             orderItem.markCreated(actor);
             order.addItem(orderItem);
         }
-        return orderRepository.save(order);
+        CustomerOrder saved = orderRepository.save(order);
+
+        // Same transaction, no broker involved (ADR-017 §8.1). The sagaId is the client's
+        // Idempotency-Key rather than a new id: the sale already HAS an identity the
+        // client chose and can retry with (ADR-016 §10), and minting a second one would
+        // mean two ids for one sale that nobody can correlate afterwards.
+        outboxRecorder.record(
+                OrderEventContracts.ORDER_SUBMITTED_DESTINATION,
+                OrderEventContracts.MESSAGE_TYPE,
+                OrderEventContracts.AGGREGATE_TYPE,
+                saved.getOrderNumber(),
+                idempotencyKey,
+                toSubmittedPayload(saved, request, account));
+        return saved;
+    }
+
+    private OrderEventContracts.OrderSubmittedPayload toSubmittedPayload(
+            CustomerOrder order, OrderCreateRequest request, AccountSummary account) {
+        List<OrderEventContracts.OrderSubmittedPayload.Item> items = new ArrayList<>();
+        for (OrderItemRequest item : request.getItems()) {
+            Map<Long, String> characteristics = new LinkedHashMap<>();
+            item.getCharacteristics().forEach(c -> characteristics.put(c.getCharacteristicId(), c.getValue()));
+            items.add(new OrderEventContracts.OrderSubmittedPayload.Item(item.getOfferId(), characteristics));
+        }
+        return new OrderEventContracts.OrderSubmittedPayload(
+                order.getOrderNumber(),
+                request.getAccountNumber(),
+                account.customerNumber(),
+                request.getServiceAddressId(),
+                request.getCampaignId(),
+                items);
     }
 
     /**

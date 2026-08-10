@@ -249,7 +249,11 @@ class ProductServiceIntegrationTest {
                 "prod_spec", "prod_ofr", "cmpg", "cmpg_prod_ofr", "prod",
                 "prod_spec_char", "prod_spec_char_use", "prod_char_val",
                 "prod_catal", "prod_catal_prod_ofr", "flyway_schema_history",
-                "sale_operation");   // ADR-015 idempotency addendum, 2026-08-06 (V5)
+                "sale_operation",    // ADR-015 idempotency addendum, 2026-08-06 (V5)
+                // ADR-017 (V6). Service-LOCAL by rule: these are product_db's own outbox
+                // and inbox, never a shared table and never read by another service —
+                // which is exactly the ownership property the rest of this test asserts.
+                "outbox_message", "inbox_message");
     }
 
     @Test

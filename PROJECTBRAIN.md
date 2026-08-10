@@ -4,7 +4,68 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-06 (**Observability + Resilience eki UYGULANDI —
+> **Son güncelleme:** 2026-08-07 (**Eventing TEMELİ UYGULANDI — güvenilir mesajlaşma
+> altyapısı, SALE akışı HENÜZ KESİLMEDİ (ADR-017, Accepted):**
+> **ÖNCE ŞUNU OKU: `POST /api/orders` DEĞİŞMEDİ.** ADR-016 §5'in senkron
+> orkestrasyonu hâlâ TEK canlı SALE yolu; üç anahtarın ÜÇÜ DE `false` geliyor
+> (`crm.messaging.outbox.enabled`, `.relay.enabled`, `crm.messaging.broker.enabled`)
+> ve Kafka/Connect/Debezium opt-in bir Compose profilinde. **Uçtan uca asenkron bir
+> satış ÇALIŞTIRILMADI ve iddia EDİLMİYOR.**
+> **(1) Yeni paylaşılan modül `backend/crm-messaging-starter`** (crm-security-starter
+> ve crm-observability-starter'a PARALEL, ayrı): versiyonlu `EventEnvelope`,
+> `Destinations` isimlendirme kuralları, `MessageTypes` katalogu, transactional
+> Outbox/Inbox mekaniği, relay, retention ve metrikler. **İçinde HİÇBİR servisin iş
+> payload tipi YOK** — yani ona bağımlı olmak başka bir servisin modeline bağımlı olmak
+> değil (ADR-017 §6). Sözleşmelerin otoritesi `docs/contracts/events/` altındaki JSON
+> Schema'lar; **build bağımlılığı değiller**, bilerek.
+> **(2) Broker sınırı = paket sınırı, ve TESTLE zorlanıyor:** domain/application kodu
+> `org.apache.kafka.*` import EDEMEZ; `KafkaTemplate`/`@KafkaListener`/`KStream`/
+> `KTable`/Kafka Streams topolojisi/Streams Binder HİÇBİR YERDE kullanılmıyor; Spring
+> Cloud Stream **fonksiyonel** bağlamaları yalnız `*.messaging.adapter` paketlerinde.
+> `NoBrokerTypesInDomainOrApplicationTest` (3 servis) **derlenmiş .class dosyalarını**
+> tarıyor — import grep'i satır içi tam-nitelikli referansı ve generic imzadan gelen tipi
+> kaçırır, ikisi de sorunsuz derlenir ve ikisi de broker classpath'te yokken sınıf
+> yüklemesini patlatır. product-service'teki sürüm ayrıca **muafiyetin gerçekten
+> taşıyıcı olduğunu** doğruluyor (adapter'ı silmek testi boşa geçirtemesin diye).
+> **(3) Servis-YEREL Outbox/Inbox** (yeni Flyway: order V4, product V6, account V5).
+> `OutboxRecorder` `Propagation.MANDATORY` — transaction dışında çağırmak bir
+> code-review bulgusu değil, `IllegalTransactionStateException`. Böylece "state yazıldı
+> ama mesaj kayboldu" ve "mesaj yayınlandı ama state geri alındı" **imkânsız**, dağıtık
+> transaction olmadan ve broker kapalıyken. Inbox tarafında claim + iş değişikliği TEK
+> transaction; nihai koruma `UNIQUE (message_id, consumer_group)` — `exists` ön-kontrolü
+> yalnızca optimizasyon (iki eşzamanlı teslimat ikisi de geçebilir). Handler patlarsa
+> claim ONUNLA BİRLİKTE geri alınır, yani sonraki teslimat gerçek bir ilk teslimattır.
+> **(4) Relay ÇİFT, ama aynı anda TEK:** birincil Debezium Outbox Event Router
+> (`infra/eventing/connectors/`, servis başına bir connector — WAL okur, uygulama thread'i
+> yok); alternatif in-process `OutboxRelay` (Connect'siz ortamlar ve **test edilebilirlik**
+> için — Connect gerektiren bir relay "broker 30 saniye kapandı ve geri geldi"yi
+> kanıtlayamaz). **İkisi birden çalışırsa her mesaj İKİ KEZ yayınlanır** (ADR-017 §9.3).
+> At-least-once bilerek: satır publisher döndükten SONRA published işaretleniyor, çünkü
+> sessizce düşen mesaj geri alınamaz, kopya ise Inbox sayesinde bedava.
+> **(5) Retention** yalnız `published_at IS NOT NULL` satırları siler — yayınlanmamış satır
+> HİÇBİR YAŞTA silinmez; "eski olmak" zaten hâlâ gitmesi gereken mesajın SEMPTOMU, salt
+> zamana bakan bir temizlik tam da alarm vermesi gereken backlog'u silerdi.
+> **(6) Metrikler** mevcut Prometheus hattında: `crm_outbox_backlog_messages`,
+> **`crm_outbox_oldest_unpublished_age_seconds` (alarm BUNA kurulur** — tek zehirli mesaja
+> takılmış relay'de backlog küçük ve düz kalır, yaş sınırsız tırmanır), publish/failure,
+> retention, `crm_inbox_duplicates_total` (**sıfırdan büyük olması NORMAL**),
+> consumer failures, `crm_inbox_dead_letter_total`. `InboxGuard` handler süresince MDC'ye
+> `sagaId`/`eventId` yazıyor — observability ekinde REZERVE edilen iki alan artık dolu.
+> **(7) `sagaId` = istemcinin `Idempotency-Key`'i** (ADR-016 §10): satışın zaten
+> istemcinin seçtiği bir kimliği var, ikinci bir id üretmek aynı satışa kimsenin
+> ilişkilendiremeyeceği iki kimlik vermek olurdu. Partition key = `sagaId`, yoksa
+> `aggregateId` (= order numarası) — sıra garantisi yalnız SATIŞ İÇİNDE gerekiyor.
+> **(8) Compose'a opt-in `eventing` profile:** Kafka (KRaft, tek broker) + Kafka Connect
+> (Debezium) + one-shot `kafka-connect-init`. `postgres` artık `wal_level=logical` ile
+> koşuyor — çalışırken değiştirilemeyen bir ayar, ve bir geliştiricinin profili denemek
+> için volume'unu silmesi gerekmemeli; Debezium koşmazken maliyeti biraz daha büyük WAL.
+> Test kanıtı: crm-messaging-starter 20/20, order-service 43/43 (12 yeni: atomiklik,
+> broker kesintisi, çift yayın yok, backlog/yaş gauge'ları, retention, mimari guard),
+> product-service 47/47 (10 yeni: kopya, consumer restart, handler hatası, desteklenmeyen
+> şema versiyonu, çözülemeyen bayt, grup bağımsızlığı, mimari guard), account-service
+> 53/53 (2 yeni). `docker compose config` üç profilde de geçerli.
+> Detay: `docs/runbooks/eventing.md`, `docs/contracts/events/`, ADR-017.)
+> Önceki durum: 2026-08-06 (**Observability + Resilience eki UYGULANDI —
 > üretim odaklı gözlemlenebilirlik ve senkron sınırların korunması:**
 > **(1) Actuator + Micrometer Prometheus** her 9 deployable'a eklendi
 > (`GET /actuator/prometheus`), **internal-only** — 8 servis zaten host portu
@@ -967,6 +1028,68 @@ crm-lite-project-dev/
   Detay: dosyanın başındaki "Son güncelleme" girdisi ve `docs/api/order-service.md`
   §Idempotency.
 
+### 4.11 crm-messaging-starter — eventing temeli ✅ (YENİ — 2026-08-07, ADR-017)
+
+**Bu bölümün tek cümlelik özeti: altyapı hazır, SALE akışı kesilmedi.**
+`POST /api/orders` bit-bit aynı davranıyor; ADR-016 §5'in senkron orkestrasyonu tek canlı
+yol. Aşağıdaki her şey `false` ile geliyor.
+
+**Neden var.** ADR-016 §5 dayanıklılık boşluğunu dürüstçe kayda geçirmişti: adım 5
+(account involvement, ADR-013 §8) patlarsa satış "best-effort" telafiyle geri alınıyor, ve
+telafi de patlarsa ADR-015 §8.4 kalıntıyı operasyonel takip olarak kaydediyor. Bu bir
+tasarım özelliği değil, bir boşluk. Observability eki `MdcKeys`'te `sagaId`/`eventId`'yi
+tam da bunun için REZERVE etmiş, resilience eki de order→product/account yazma sınırına
+bilerek HİÇBİR circuit breaker/retry eklememişti (`NoResilienceOnSaleWriteClientsTest`
+yokluğu kanıtlıyor) — çünkü o sınır yamanmak yerine buraya taşınacaktı.
+
+**Modül.** `backend/crm-messaging-starter` (kütüphane; `spring-boot-maven-plugin`
+repackage YOK, diğer iki starter gibi):
+
+| Paket | İçerik | Broker görebilir mi? |
+|---|---|---|
+| `com.crm.messaging.contract` | `EventEnvelope`, `EnvelopeCodec`, `Destinations`, `MessageTypes` | **hayır** |
+| `com.crm.messaging.outbox` | entity, repo, `OutboxRecorder`, `OutboxRelay`, retention, metrikler, `OutboxPublisher` **portu** | **hayır** |
+| `com.crm.messaging.inbox` | entity, repo, `InboxGuard`, `InboxDispatcher`, `MessageHandler` **portu**, metrikler | **hayır** |
+| `com.crm.messaging.adapter.stream` | `StreamBridgeOutboxPublisher`, `MessageHeaders` | **evet — tek yer** |
+
+Servis tarafında aynı kural: `com.crm.product.messaging.adapter.OrderEventStreamAdapter`
+tek `Consumer<Message<byte[]>>`; gövdesi tek bir delegasyon. Karar veren her şey altındaki
+düz Java sınıflarında (`InboxDispatcher`, `OrderSubmittedHandler`) — `new
+OrderSubmittedHandler(codec).handle(envelope)` hiçbir şey çalışmadan geçerli bir çağrı.
+
+**Neden `@EntityScan`/`@EnableJpaRepositories` üç `*Application` sınıfına yazıldı.**
+Auto-configuration'dan entity paketi kaydetmek Boot'un auto-configuration paket taramasını
+GENİŞLETMEZ, DEĞİŞTİRİR — o zaman `com.crm.order`'ın kendi entity'leri sessizce
+bulunamaz olurdu. Açıkça yazmak yarı-doğru olmayı imkânsız kılıyor.
+
+**Neden `OutboxScheduler` kendi thread'ini kuruyor.** Paylaşılan bir starter'dan
+`@EnableScheduling` açmak, ona bağlı HER serviste Spring scheduling'i açardı — bu modülün
+işi olmayan bir davranış değişikliği. Tek thread, çünkü sıra garantisi partition key
+başına ve bir havuz aynı satışın iki mesajını sırasız yayınlayabilirdi.
+
+**Neden `OutboxStatusWriter` ayrı bean.** `OrderPersistence`'ın javadoc'unda zaten kayıtlı
+olan tuzak: `@Transactional` proxy tabanlı, `this.markPublished(...)` proxy'yi atlar ve
+annotation sessizce hiçbir şey yapmaz. Burada bunun bedeli, yayınlanmış ama "published"
+işaretlenmemiş — yani her poll'da yeniden yayınlanan — bir mesaj olurdu.
+
+**Şema.** `outbox_message` + `inbox_message`, her serviste KENDİ veritabanında (order V4,
+product V6, account V5). `outbox_message` için iki **partial** index (`WHERE published_at
+IS NULL` / `IS NOT NULL`): relay kuyruğu, iki gauge ve retention tam bu iki yüklemi
+sorguluyor. `inbox_message` için `uq_inbox_message_id_group`.
+
+**Değişen mevcut testler.** `ProductServiceIntegrationTest#schemaContainsOnlyProductTables`
+ve `AccountServiceIntegrationTest#schemaContainsOnlyAccountTables` — iki yeni tablo
+eklendi. Bu testler tablo SAHİPLİĞİNİ iddia ediyor, ve iddia hâlâ doğru: bunlar o
+veritabanının KENDİ tabloları, paylaşılan değil.
+
+**Bilerek YAPILMAYANLAR:** asenkron SALE cutover'ı; retry destination MERDİVENİ
+(isimlendirme kuralı var — `Destinations.retry(...)` — ama otomatik escalation yok,
+binder retry'ı `max-attempts: 1` ile KAPALI, tek retry yolu redelivery + Inbox);
+account/product tarafında consumer (yalnız Outbox kaydı var, tüketen yok).
+
+Detay: **ADR-017**, `docs/runbooks/eventing.md`, `docs/contracts/events/`,
+`infra/eventing/README.md`.
+
 ---
 
 ## 5. Alınan Kararlar ve Gerekçeleri
@@ -1432,6 +1555,8 @@ auth-service iskeleti KALDIRILDI; BFF gateway'de, kimlik Keycloak'ta.
 salt-okunur FR-PROD-01..02 dilimi ✅ (2026-07-29 — §4.9)** de tamamlandı.
 **FR-SALE §2.7 ✅ (2026-08-02, ADR-015/016 — §4.10):** order-service + product yazma
 dilimi + account involvement komutu; §9.1b'deki ADR borcu kapandı.
+**Eventing temeli ✅ (2026-08-07, ADR-017 — §4.11):** transactional Outbox/Inbox,
+versiyonlu zarf, broker sınırı; **SALE cutover'ı DEĞİL** (bkz. §9.6).
 **Sıradaki adaylar:** §2.7'nin üç frontend ekranı (Offer Selection / Product
 Configuration / Submit Order), customer-service takip PR'ı (KR-02 `accountNumber` ve
 artık `orderNumber` araması, aktif-ürün guard'ı, `MSG-ADDR-IN-USE`), FR-LANG
@@ -1522,6 +1647,33 @@ lokalizasyon (varsayılan dil İngilizce), Keycloak login sayfası proje teması
 - [ ] discovery-server, gateway ve customer-service için graceful shutdown.
 - [ ] **Lombok `annotationProcessorPaths` düzeltmesi kök `pom.xml`'in `<pluginManagement>`'ına taşınmalı**
   (bkz. §5.9) — şu an sadece customer-service'te, her yeni Lombok kullanan serviste tekrar eklenmesi gerekiyor.
+
+### 9.7 Eventing temelinden kalan işler (ADR-017 — altyapı bitti, bunlar takip)
+
+Temel UYGULANDI (§4.11). Kalanlar, **sırasıyla**:
+
+- [ ] **SALE cutover'ı — ayrı bir dal, ayrı bir ADR eki.** Üç adım, her biri bir
+  sonrakinden önce gözlemlenebilir (`docs/runbooks/eventing.md` §6): (1) yalnız kayıt
+  (`outbox.enabled=true`, API yanıtları bit-bit aynı kalmalı), (2) yayınla
+  (`broker.enabled=true` + **tam bir** relay), (3) tüket — `POST /api/orders`'ın
+  DEĞİŞTİĞİ adım budur. Adımları birleştirme.
+- [ ] **Debezium connector'ları canlı doğrulama.** `docker compose --profile eventing`
+  yapılandırması `docker compose config` ile geçerli ve connector JSON'ları yerinde,
+  ancak **connector'lar çalışan bir Connect'e karşı henüz kaydedilmedi**; in-process
+  relay yolu ise testlerle kanıtlı. Cutover adım 2'nin ön koşulu.
+- [ ] **Retry destination merdiveni.** İsimlendirme kuralı ve
+  `Destinations.retry(dest, attempt)` var; otomatik escalation YOK ve binder retry'ı
+  bilerek kapalı (`max-attempts: 1`). Tek retry yolu redelivery + Inbox. Cutover neyin
+  fazlasına ihtiyaç duyduğunu söyleyene kadar bu böyle kalmalı.
+- [ ] **DLQ için operatör aracı.** Bugün DLQ'yu okumanın yolu
+  `kafka-console-consumer.sh`; replay elle. Yeterli, ama bir tüketici canlıya çıkmadan
+  önce gözden geçirilmeli.
+- [ ] **Prometheus alarm kuralları.** Metrikler yayında (§4.11) ama alarm tanımlanmadı.
+  Doğru alarm `crm_outbox_oldest_unpublished_age_seconds` ve
+  `crm_inbox_dead_letter_total` üzerine; backlog kapasite göstergesi, duplicate ise
+  sağlıklı davranış — ikisine alarm kurma.
+- [ ] **Grafana dashboard'una eventing paneli** — "CRM Lite — Overview" henüz outbox/inbox
+  metriklerini göstermiyor.
 
 ---
 

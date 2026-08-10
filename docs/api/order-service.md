@@ -423,3 +423,28 @@ curl -sS -H "Accept: application/json" \
   UI offers them as account-row actions but no FR/AC covers them. Analyst question.
 - **Frontend is out of scope** — Offer Selection, Product Configuration and Submit
   Order screens are a separate follow-up (ADR-016 §9).
+
+## Eventing foundation (ADR-017, 2026-08-07) — **this contract is unchanged**
+
+The reliable-messaging foundation landed in this repository on 2026-08-07: a transactional
+Outbox in `order_db`, a versioned event envelope, and a broker boundary. **None of it
+changes anything on this page.** `POST /api/orders` still runs the synchronous ADR-016 §5
+orchestration, returns the same statuses and the same message keys, and still requires the
+same `Idempotency-Key`.
+
+What exists but is switched off (`crm.messaging.outbox.enabled=false`,
+`.relay.enabled=false`, `crm.messaging.broker.enabled=false`):
+
+- `OrderPersistence#persistOrder` would record **`crm.order.order-submitted` v1** to
+  `outbox_message` **inside the same transaction** that writes `bsn_inter` / `cust_ord` /
+  `cust_ord_item`. Nothing consumes it.
+- The envelope's `sagaId` is **the client's `Idempotency-Key`** — one sale, one id, so a
+  request traced through this API and the messages it produces share an identifier.
+  Nothing else about the header's behaviour changes (see §Idempotency above).
+- Payload contract: `docs/contracts/events/crm.order.order-submitted.v1.schema.json`.
+
+When the cutover happens it will be a separate branch with its own ADR amendment, and
+**this page will change** — statuses, timing and possibly the response shape. Until then,
+treat everything above the line as the whole truth about `/api/orders`.
+
+Operations: `docs/runbooks/eventing.md`.

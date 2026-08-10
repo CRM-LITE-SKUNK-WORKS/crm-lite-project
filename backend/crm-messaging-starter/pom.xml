@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.crm</groupId>
+        <artifactId>crm-lite-project</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>crm-messaging-starter</artifactId>
+    <packaging>jar</packaging>
+    <name>crm-messaging-starter</name>
+    <description>
+        Reliable-messaging foundation for CRM Lite (ADR-017): the versioned event
+        envelope, the transactional Outbox/Inbox mechanics, destination naming
+        conventions, retention and metrics — plus ONE broker adapter package
+        (com.crm.messaging.adapter.stream) that is the only place Spring Cloud
+        Stream is referenced.
+
+        Deliberately NOT a shared domain model: this module contains no business
+        payload type from any service. Event payloads travel as JSON inside the
+        envelope and are decoded into CONSUMER-OWNED DTOs, so adding a field to a
+        producer never forces a lock-step release on a consumer. The versioned
+        contract definitions live in docs/contracts/events/, not here.
+    </description>
+
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-autoconfigure</artifactId>
+        </dependency>
+        <!-- Outbox/Inbox are ordinary JPA tables in each service's OWN database.
+             The entities live here; the tables are created by each service's own
+             Flyway migration (never a cross-database reference — ADR-002/ADR-017). -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+        <!-- MdcKeys only: a recorded message reuses the request's EXISTING correlation id
+             instead of inventing a second id for the same causal chain. -->
+        <dependency>
+            <groupId>com.crm</groupId>
+            <artifactId>crm-observability-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Jackson 3 (tools.jackson.*) — the same databind Spring Boot 4 uses. -->
+        <dependency>
+            <groupId>tools.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- THE broker boundary. Referenced only from com.crm.messaging.adapter.stream;
+             an ArchitectureGuard test in every consuming service asserts that no
+             domain/application package resolves org.apache.kafka.* or
+             org.springframework.cloud.stream.* (ADR-017 §4). -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-stream</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-stream-binder-kafka</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <!-- Same Lombok annotation-processor path every module needs on this
+                     JDK (PROJECTBRAIN §5.9). -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Library module: no spring-boot-maven-plugin repackaging. -->
+
+</project>

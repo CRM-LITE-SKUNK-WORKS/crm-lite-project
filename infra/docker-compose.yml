@@ -95,6 +95,20 @@ services:
   postgres:
     image: postgres:16
     container_name: postgres
+    # wal_level=logical is what makes Debezium's Outbox Event Router possible at all
+    # (ADR-017 §9): logical decoding cannot be turned on at runtime, it needs a restart,
+    # so it is set unconditionally rather than only under the eventing profile — a
+    # developer must not have to recreate their database volume to try the profile.
+    # The cost when Debezium is not running is a slightly larger WAL and nothing else;
+    # no slot is created until a connector asks for one.
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
     environment:
       POSTGRES_USER: crmlite
       POSTGRES_PASSWORD: crmlite
@@ -520,6 +534,125 @@ services:
     networks:
       - crm-net
 
+  # ---------------------------------------------------------------------------
+  # Eventing stack (docs/runbooks/eventing.md, ADR-017) — OPT-IN via the "eventing"
+  # Compose profile, never started by a plain `docker compose up`:
+  #   docker compose --profile eventing up -d
+  #
+  # This is the ONLY place in the repository where Kafka, Kafka Connect and Debezium
+  # appear (ADR-017 §3): the application services stay broker-agnostic and start
+  # perfectly well with this profile down, because crm.messaging.broker.enabled is
+  # false in every service's configuration. Starting the profile does NOT cut the SALE
+  # flow over to messaging — that is a separate, deliberate configuration change.
+  # ---------------------------------------------------------------------------
+
+  kafka:
+    # KRaft mode: no ZooKeeper. Single broker, which is why every topic below is
+    # created with replication factor 1 — a local dev stack, not a durability model
+    # anyone should copy into a real deployment.
+    image: apache/kafka:3.9.0
+    container_name: kafka
+    profiles: ["eventing"]
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Two listeners on purpose: containers on crm-net reach kafka:9092, while a
+      # service running from the IDE on the host reaches localhost:29092. A single
+      # advertised listener would break one of those two, and both are normal here.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: crm-lite-local-cluster
+    ports:
+      - "29092:29092"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 20s
+    networks:
+      - crm-net
+
+  # Kafka Connect with the Debezium PostgreSQL connector and the Outbox Event Router SMT
+  # already on the image. It is the PRIMARY outbox relay (ADR-017 §9): it reads the WAL,
+  # so publishing needs no application thread and no polling.
+  #
+  # It reads three DIFFERENT databases through three separate connectors, each with its
+  # own replication slot and publication. That is NOT cross-database access by a service:
+  # every connector is bound to exactly the outbox table of the service that owns that
+  # database, and no service ever reads another's tables (ADR-002/ADR-017 §9.4).
+  kafka-connect:
+    image: debezium/connect:3.0.0.Final
+    container_name: kafka-connect
+    profiles: ["eventing"]
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: crm-lite-connect
+      CONFIG_STORAGE_TOPIC: _connect_configs
+      OFFSET_STORAGE_TOPIC: _connect_offsets
+      STATUS_STORAGE_TOPIC: _connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      # The envelope is already JSON produced by the application; Connect must pass the
+      # bytes through unchanged rather than wrapping them in its own schema envelope,
+      # otherwise the consumer's EnvelopeCodec would be handed something it never wrote.
+      KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://127.0.0.1:8083/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - crm-net
+
+  # One-shot connector registration, same pattern (and same rationale) as keycloak-init:
+  # PUT is idempotent, so every `up` re-applies the same three configurations, and
+  # nothing depends_on this container — if it fails the rest of the stack still comes up.
+  kafka-connect-init:
+    image: curlimages/curl:8.11.1
+    container_name: kafka-connect-init
+    profiles: ["eventing"]
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      # A literal block (|), not a folded one (>): a folded scalar keeps the newlines of
+      # more-indented lines, which would split each curl invocation across two commands.
+      - |
+        set -e
+        for svc in order product account; do
+          echo "kafka-connect-init: registering $${svc}-outbox-connector"
+          curl -sS -X PUT -H 'Content-Type: application/json' --data @/connectors/$${svc}-outbox-connector.json http://kafka-connect:8083/connectors/$${svc}-outbox-connector/config
+          echo
+        done
+    volumes:
+      - ./eventing/connectors:/connectors:ro
+    depends_on:
+      kafka-connect:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - crm-net
+
 networks:
   crm-net:
     driver: bridge
@@ -529,3 +662,4 @@ volumes:
   prometheus-data:
   loki-data:
   grafana-data:
+  kafka-data:

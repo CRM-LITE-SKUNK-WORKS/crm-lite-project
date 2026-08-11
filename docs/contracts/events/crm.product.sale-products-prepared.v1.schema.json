@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.sale-products-prepared.v1.schema.json",
+  "title": "crm.product.sale-products-prepared, payload v1",
+  "description": "The outcome of product preparation (ADR-018 §5). Destination: crm.product.evt.sale-products-prepared.v1. On SUCCEEDED the products exist as PNDG — prepared, not sold. They stay PNDG until account involvement is established and only then become ACTV, which is what gives an activation failure something that can be compensated cleanly. PNDG for an in-flight sale is analyst-supported (ADR-018 §2).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "result"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$"
+    },
+    "result": {
+      "enum": ["SUCCEEDED", "FAILED"]
+    },
+    "failureCode": {
+      "type": ["string", "null"],
+      "description": "Operator-facing detail. Never returned to a client."
+    },
+    "failureMessageKey": {
+      "type": ["string", "null"],
+      "pattern": "^MSG-[A-Z0-9-]+$",
+      "description": "The analyst's own key for a rejected basket — MSG-SALE-OFFER-INACTIVE, MSG-SALE-NO-INTERNET, MSG-VAL-CHAR-REQUIRED and the rest (ADR-015 §6) — relayed unchanged, so the user is told what is actually wrong rather than a generic failure."
+    },
+    "totalAmount": {
+      "type": ["number", "null"],
+      "description": "SUCCEEDED only: the AUTHORITATIVE amount snapshot. order-service stores it rather than recomputing, so a past order's total cannot change when a price does (ADR-016 §2.4). The prices themselves are non-normative demo fixtures (ADR-018 §2)."
+    },
+    "products": {
+      "type": ["array", "null"],
+      "description": "SUCCEEDED only: one entry per created product, which is exactly what order-service writes into cust_ord_item.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["productId", "offerId"],
+        "properties": {
+          "productId": { "type": "integer" },
+          "offerId": { "type": "integer" },
+          "amount": { "type": ["number", "null"] },
+          "main": {
+            "type": "boolean",
+            "description": "The INTERNET product; the others hang off it. Derived from the service type, never declared by the caller (AC-SALE-01-09)."
+          }
+        }
+      }
+    },
+    "productIds": {
+      "type": ["array", "null"],
+      "items": { "type": "integer" },
+      "description": "The same ids as 'products', flattened for consumers that need only the list."
+    }
+  }
+}

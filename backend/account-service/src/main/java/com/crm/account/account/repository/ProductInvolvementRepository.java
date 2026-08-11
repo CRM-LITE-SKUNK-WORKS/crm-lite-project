@@ -32,4 +32,17 @@ public interface ProductInvolvementRepository extends JpaRepository<ProductInvol
      */
     List<ProductInvolvement> findByCustomerAccountIdAndProductIdInAndDeletedDateIsNull(
             Long customerAccountId, Collection<Long> productIds);
+
+    /**
+     * The saga-scoped compensation's ONLY query (ADR-018 §7): the still-live rows THIS
+     * sale operation created for THIS account.
+     *
+     * <p>Both keys are part of the predicate, not one of them. {@code saleOperationId}
+     * alone would be enough in practice, but pairing it with the account makes the
+     * compensation structurally incapable of touching another account's rows even if it
+     * were ever handed the wrong id — and rows with a NULL operation id (the seed, and
+     * everything the synchronous route wrote) match nothing here at all.
+     */
+    List<ProductInvolvement> findByCustomerAccountIdAndSaleOperationIdAndDeletedDateIsNull(
+            Long customerAccountId, String saleOperationId);
 }

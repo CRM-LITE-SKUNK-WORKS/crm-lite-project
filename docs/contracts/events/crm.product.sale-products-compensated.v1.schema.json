@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.sale-products-compensated.v1.schema.json",
+  "title": "crm.product.sale-products-compensated, payload v1",
+  "description": "The outcome of product compensation (ADR-018 §5). Destination: crm.product.evt.sale-products-compensated.v1. SUCCEEDED takes the saga to FAILED and the order to CANCELLED — fully unwound. FAILED takes it to MANUAL_INTERVENTION, which is a state, a gauge and a log line rather than residue nobody counted: 'a partial compensation failure must remain recoverable and observable' is the whole reason this event has a failure branch at all.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "result"],
+  "properties": {
+    "orderNumber": { "type": "string", "pattern": "^\\d{10}$" },
+    "result": { "enum": ["SUCCEEDED", "FAILED"] },
+    "failureCode": { "type": ["string", "null"] },
+    "failureMessageKey": {
+      "type": ["string", "null"],
+      "pattern": "^MSG-[A-Z0-9-]+$",
+      "description": "MSG-SALE-OPERATION-MISMATCH if the ids belong to another sale — which the orchestrator treats as a defect needing an operator, not as a sale to retry."
+    },
+    "totalAmount": { "type": ["number", "null"], "description": "Unused by this step." },
+    "products": { "type": ["array", "null"], "description": "Unused by this step.", "items": { "type": "object" } },
+    "productIds": {
+      "type": ["array", "null"],
+      "items": { "type": "integer" },
+      "description": "The ids the command named. Empty when there was nothing to compensate."
+    }
+  }
+}

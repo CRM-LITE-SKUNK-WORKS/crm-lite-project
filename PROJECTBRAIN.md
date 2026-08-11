@@ -4,7 +4,136 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-07 (**Eventing TEMELİ UYGULANDI — güvenilir mesajlaşma
+> **Son güncelleme:** 2026-08-10 (**ASENKRON SALE KESİMİ YAPILDI — taslak sipariş +
+> kalıcı saga orkestrasyonu CANLI (ADR-018, Accepted):**
+> **ÖNCE ŞUNU OKU: canlı satış yolu artık asenkron.** `POST /api/orders` **deprecated**
+> — build'de duruyor çünkü (a) mevcut merge edilmiş frontend hâlâ onu çağırıyor ve
+> (b) geri dönüş yolu o. Yeni akış: `POST /api/orders/drafts` → `POST /api/orders/{n}/submit`
+> (**202**) → `GET /api/orders/{n}/status`. **Bir satış ASLA iki yoldan birden geçemez** —
+> convention değil, yapı gereği: legacy uç her zaman YENİ bir sipariş yaratır ve o zaten
+> MIDLWARE'dir, submit ise yalnız WAIT taslağı kabul eder. Testle sabitlendi
+> (`legacyAndAsyncCannotBothRunOneSale`).
+> **(1) ANALİST KARARLARI (10.08.2026) — üç açık soru KAPANDI:**
+> **(A1)** *"Kullanıcı işleme başladığında ilgili tablolarda kayıtlar zaten
+> oluşturulmalı. Kayıtlar var, ama sipariş henüz tamamlanmadığı/onaylanmadığı için
+> statüleri MIDLWARE değil. Sipariş onayıyla statü MIDLWARE'e geçer. Dolayısıyla Order ID
+> bu noktada gösterilebilir."* → Sipariş **Submit'ten ÖNCE** var; statüsü workbook'ta
+> ZATEN BULUNAN `GNL_ST WAIT`(3). **Yeni bir DRAFT satırı UYDURULMADI** — analistin tarif
+> ettiği statüye katalog zaten sahipti. **ADR-016 §8.3 ("numara yalnız submit'ten sonra")
+> ve §6 ("WAIT hiç yazılmaz") SUPERSEDE edildi.**
+> **(A2)** Order ID **benzersiz** olmalı; artan basit bir sequence yeterli, kuralı teknik
+> ekip belirleyebilir → **KR-12 üreteci DEĞİŞTİRİLMEDİ**; statüsü düzeltildi: artık
+> "analist onayı bekleyen proje-önerisi" değil, **analist gereksinimini karşılayan proje
+> teknik tercihi**. Çalışan, testli bir şemayı zaten cevapladığı bir gereksinim için
+> yeniden tasarlamak değişiklik için değişiklik olurdu.
+> **(A3)** Teklif fiyatları **demo verisi, blocker değil** → seed değerleri aynen kaldı,
+> artık **non-normatif demo fixture** olarak kayıtlı; document-delta'daki #10 / P1 / P5 /
+> P10 "analist onayı bekliyor" işaretleri KAPATILDI. Gerçek bir fiyat listesi uydurulmadı.
+> **(A4)** Genel hata mesajı onaylandı → spesifik anahtarlar **KORUNDU** (product-service'in
+> `MSG-SALE-*`/`MSG-VAL-CHAR-*`'ları aynen aktarılıyor, gerçek erişilemezlik hâlâ
+> `MSG-SERVICE-UNAVAILABLE`); `MSG-SALE-FAILED` YALNIZCA hiçbir mevcut anahtar doğruyu
+> söylemediğinde kullanılan jenerik son çare.
+> **(A5)** İşlenmekte olan siparişin ürünleri için **PNDG kullanılabilir** → ADR-015
+> §5.5'in "uçuştaki satış için hazırlanmış, henüz commit edilmemiş" anlamı artık proje
+> yorumu değil, **analist destekli**. Saga'nın ürünleri involvement'a kadar PNDG tutmasını
+> mümkün kılan şey bu.
+> **(A6)** Transfer / Servis Adresi Değişikliği **KAPSAM DIŞI** → yapılmadı; `GNL_TP`
+> TRANSFER(8)/CANCEL(9) satırları yazılmamış halde kalıyor ve yeni işlevsellik için
+> gerekçe olarak KULLANILMAZ.
+> **(2) Taslak (draft) yaşam döngüsü:** `POST /api/orders/drafts` → `bsn_inter` + `cust_ord`
+> **WAIT** + KR-12 numarası (Submit ekranı numarayı buradan gösterir). **Ürün yok, saga yok,
+> mesaj yok.** `customerNumber` **hesaptan** çözülür, tarayıcıdan ALINMAZ.
+> **AC-SALE-01-16 hâlâ yapı gereği doğru** — ve eskisinden daha güçlü bir nedenle: taslak
+> SEPETİ değil SİPARİŞİ yaratıyor; WAIT siparişinin kalemi yok, ürünü yok, saga'sı yok ve
+> onu adlandıran hiçbir komut yok, yani tarayıcı abandon ucunu çağırsa da çağırmasa da
+> işlenemez. `DELETE /api/orders/{n}/draft` idempotent ve **yalnız WAIT** (MIDLWARE → 409
+> `MSG-ORDER-NOT-DRAFT`) — bu guard, ucun KR-7'nin kapsam dışı bıraktığı submit-sonrası
+> sipariş iptaline dönüşmesini engelliyor. Süresi geçen taslakları temizleyen job
+> **YALNIZCA iptal eder**; hiçbir kod yolu bir taslağı submit/fulfil edemez.
+> **(3) Submit = TEK yerel transaction:** kalemler + `WAIT → MIDLWARE` + `sale_saga` satırı
+> + saga'nın İLK Outbox komutu **birlikte commit** olur; 202 o commit'ten SONRA döner ve
+> product-service/account-service'i **beklemez**. 201 değil 202, çünkü 201 gövdesinin
+> anlattığı durumda var olan bir kaynak vaat eder — Submit'ten sonra ürünler henüz yok.
+> **(4) `sagaId` = `orderNumber` — ADR-017 §5.1 SUPERSEDE edildi.** Eskiden sagaId
+> istemcinin `Idempotency-Key`'iydi, çünkü satışın Submit'e kadar kendi kimliği YOKTU.
+> A1 o kısıtı kaldırdı. Artık: **`Idempotency-Key` = BİR HTTP komutu**, `sagaId` = satış.
+> Taslak ve submit **AYRI** anahtar alır; iki yeni uç gövdeyle birlikte **path**'i de
+> hash'liyor, böylece bir anahtarı iki uçta kullanmak yanlış komutun cevabının replay'i
+> değil `409 MSG-IDEMPOTENCY-KEY-CONFLICT` oluyor. (Legacy uç eski body-only hash'ini
+> KORUYOR: değiştirmek canlı tablodaki mevcut anahtarları deploy sonrası uyumsuz kılar ve
+> uçuştaki bir retry'ı sahte 409'a çevirirdi.)
+> **(5) Saga = order-service'in TEK sahibi olduğu kalıcı process manager** (`sale_saga`,
+> Flyway **V5**, PK `saga_id` = order numarası, `CHECK (saga_id = order_number)`).
+> Optimistic lock (`@Version`), retry bütçesi/vadesi, operatör-yüzlü `failure_code` +
+> **istemci-güvenli** `failure_message_key`, sebep mesaj id'si, ve iki JSON kolonu:
+> gönderilen sepet snapshot'ı (karakteristik DEĞERLERİ `order_db`'de başka hiçbir yerde
+> yok — restart sonrası komutu yeniden üretmek için şart) ve ürün id'leri. **Servisler
+> arası ortak saga veritabanı YOK, cross-database FK YOK.**
+> Akış: hesap kontrolü → ürünler **PNDG** → hesaba **link** → **ACTV**'ye yükselt →
+> `crm.sale.sale-completed` (yalnız koreografi kancası, çekirdek tutarlılıktan SONRA).
+> **(6) Sıralama ADR-016 §5'in TERSİ, bilerek:** senkron akış önce ACTV yapıp sonra
+> involvement yazıyordu; saga önce **link** edip sonra **activate** ediyor — bir ürün,
+> hiçbir hesap onu talep etmiyorken commit edilmemeli. Bedeli: aktivasyon hatasının geri
+> alacak bir involvement'ı olması. Bu yüzden account-service'e **saga-kapsamlı, İÇSEL**
+> bir involvement telafisi eklendi: `cust_acct_prod_invl`'e nullable `sale_operation_id`
+> (Flyway **V6**); mevcut satırlar NULL kalır ve bu yüzden **hiçbir saga tarafından
+> telafi EDİLEMEZ** (güvenli varsayılan — backfill bir sahip UYDURMAK zorunda kalırdı).
+> **Kullanıcıya açık unlink ucu HÂLÂ YOK** (ADR-013 §8.6 geçerli).
+> **(7) Telafi başarısız olursa `MANUAL_INTERVENTION`** — ve sipariş **CANCELLED
+> YAPILMAZ**: CANCELLED gerçekleşmemiş bir geri-alımı iddia ederdi. Operatörün bulması
+> gereken tek durum, temiz bir rollback'ten ayırt edilebilir kalıyor (durum + gauge +
+> ERROR log). Public `processingStatus` yine de `FAILED`.
+> **(8) İki statü ekseni, gereksiz tekrar DEĞİL:** `orderStatus` analistin GNL_ST'si
+> (WAIT/MIDLWARE/CANCELLED); `processingStatus` bu servisin KENDİ sözleşmesi
+> (DRAFT/PROCESSING/COMPLETED/FAILED) ve **GNL_ST'ye EKLENMEDİ**. Tamamlanmış satış =
+> **MIDLWARE + COMPLETED**, çünkü MIDLWARE analistin onay anında tanımladığı statü ve
+> kabul edilmiş hiçbir gereksinim başka bir terminal ORDER statüsü tanımlamıyor —
+> ikisini tek alana indirmek, tam da A1'in kaçındığı uydurmayı zorunlu kılardı.
+> **(9) At-least-once altında doğruluk:** birebir kopya Inbox'ın
+> `(message_id, consumer_group)` kısıtıyla yutuluyor; duruma UYMAYAN cevap sayılıyor
+> (`crm_saga_unexpected_messages_total`) ve saga'yı İLERLETMİYOR — sessizce atılmıyor,
+> çünkü kalıcı sıfır-olmayan oran gerçek bir sözleşme kusurunun imzasıdır; aynı saga'ya
+> yarışan iki teslimatı `@Version` çözüyor (kaybeden claim + saga + giden komutla
+> BİRLİKTE rollback olup yeniden teslim ediliyor).
+> **(10) Atomiklik — nerede gevşetildiği DAHİL:** order-service'te saga geçişi + giden
+> komut HER ZAMAN tek commit. product/account-service'te Inbox claim + giden cevap her
+> zaman tek commit, ama **iş mutasyonu `REQUIRES_NEW`**: bir saga adımı İŞ hatası olarak
+> başarısız olabilmeli, oysa `REQUIRED` bir metot patlayınca çağıranın transaction'ı
+> rollback-only işaretlenir ve hata cevabı HİÇ yazılamazdı (reddedilen sepet DLQ'ya kadar
+> sonsuz yeniden teslim). Hata yolunda yazılan bir şey yok → atomiklik zaten sağlam;
+> başarı yolunda mutasyon bir an önce commit oluyor ve her komut alıcısında idempotent
+> olduğu için yeniden teslim aynı cevaba yakınsıyor, ikinci bir satışa değil.
+> **(11) Kurtarma broker-bağımsız:** transport'un GÖREMEDİĞİ sorun, başarıyla yayınlanmış
+> ama hiç cevaplanmamış komuttur. `SaleSagaRecoveryJob` `reply-timeout` sonrası bekleyen
+> komutu üstel backoff ile **idempotent** yeniden yayınlıyor, bütçe bitince
+> `MANUAL_INTERVENTION`'a yükseltiyor (altıncı kopya beşincinin alamadığı cevabı almaz —
+> o yük, kurtarma değil). Her saga KENDİ transaction'ında; bir optimistic-lock kaybı
+> (gerçek cevap tam o an geldiğinde beklenen sonuç) yalnız o saga'ya mal oluyor.
+> Terminal saga ASLA yeniden yayınlanmaz → aynı sipariş iki kez fulfil edilemez.
+> **(12) Metrikler** (mevcut Micrometer/Prometheus hattı): `crm_saga_state{state}` (durum
+> başına AYRI seri — kimsenin bulunmadığı durum da 0 raporlamalı), `crm_saga_stuck`,
+> **`crm_saga_compensation_failures_total` (insan gerektiren TEK metrik)**,
+> `crm_saga_unexpected_messages_total`, `crm_saga_command_reissues_total`,
+> completed/failed sayaçları, `crm_sale_async_duration_seconds`. Kopya ve dead-letter
+> BURADA TEKRAR SAYILMIYOR — onlar Inbox özelliği ve zaten `InboxMetrics`'te var; tek olay
+> için iki sayı ilk dead-letter'da birbirini tutmazdı.
+> **(13) Açma/kapama TEK profil:** `SPRING_PROFILES_ACTIVE=async-sale`. Profilsiz
+> çalıştırmada üç anahtar da `false`, binder oluşturulmuyor, yığın **Kafka'sız** bugünkü
+> gibi kalkıyor — Kafka'yı her yerel çalıştırmanın zorunlu bağımlılığı yapmak, satışla
+> ilgilenmeyen herkesi bozardı. Profil kapalıyken submit **503 `MSG-SERVICE-UNAVAILABLE`**
+> ile **fail-closed**: aksi halde recorder sessizce hiçbir şey yazmaz, transaction commit
+> olur ve istemci hiç gönderilmemiş bir komutun cevabını sonsuza kadar bekleyen MIDLWARE
+> bir siparişi poll ederdi.
+> **(14) AÇIK BIRAKILAN, bilerek:** AC-SALE-01-15'in **işlem ekranı UX yorumu** —
+> polled bir status kaynağının frontend'de nasıl gösterileceği (ayrı ekran mı, satır içi
+> durum mu) — **PROJE YORUMU, analistin nihai UX açıklamasını BEKLİYOR**; analist onaylı
+> gereksinim olarak KAYDEDİLMEDİ. Backend sözleşmesi bilerek UX-nötr.
+> Test kanıtı: order-service **66/66** (22 yeni `AsyncSaleFlowIntegrationTest`),
+> product-service **54/54** (7 yeni `SaleCommandHandlerTest`), account-service **61/61**
+> (8 yeni `SaleCommandHandlerTest`), tüm backend reactor **BUILD SUCCESS**.
+> Detay: **ADR-018**, `docs/api/order-service.md` §Asynchronous SALE,
+> `docs/runbooks/eventing.md` §5b, `docs/contracts/events/registry.md`.)
+> Önceki durum: 2026-08-07 (**Eventing TEMELİ UYGULANDI — güvenilir mesajlaşma
 > altyapısı, SALE akışı HENÜZ KESİLMEDİ (ADR-017, Accepted):**
 > **ÖNCE ŞUNU OKU: `POST /api/orders` DEĞİŞMEDİ.** ADR-016 §5'in senkron
 > orkestrasyonu hâlâ TEK canlı SALE yolu; üç anahtarın ÜÇÜ DE `false` geliyor
@@ -55,6 +184,10 @@
 > istemcinin seçtiği bir kimliği var, ikinci bir id üretmek aynı satışa kimsenin
 > ilişkilendiremeyeceği iki kimlik vermek olurdu. Partition key = `sagaId`, yoksa
 > `aggregateId` (= order numarası) — sıra garantisi yalnız SATIŞ İÇİNDE gerekiyor.
+> **[10.08.2026 itibarıyla SUPERSEDE edildi — ADR-018 §3: `sagaId` = `orderNumber`.**
+> Gerekçesi o gün için doğruydu: sipariş Submit'ten önce var olmadığı için satışın kendi
+> kimliği yoktu. A1 kararı bunu değiştirdi; `Idempotency-Key` artık bir HTTP komutunu
+> tanımlıyor, satışı değil. Partition key kuralı aynen geçerli — iki değer artık aynı.]
 > **(8) Compose'a opt-in `eventing` profile:** Kafka (KRaft, tek broker) + Kafka Connect
 > (Debezium) + one-shot `kafka-connect-init`. `postgres` artık `wal_level=logical` ile
 > koşuyor — çalışırken değiştirilemeyen bir ayar, ve bir geliştiricinin profili denemek
@@ -259,7 +392,8 @@
 > sepet/sipariş/Kafka/Redis YOK, karakteristik tabloları yalnız şema+seed. **Lookup HTTP
 > client YOK** — yazma olmadığı için sadece `LookupContract` sabitleri (ADR-002 aynen
 > korunuyor: lokal katalog tablosu/seed'i yok). Belgeli workbook sapmaları: uydurulmuş
-> teklif fiyatları (analist onayı BEKLİYOR), kampanyalı/pasif ürün fixture'ları, ve
+> teklif fiyatları (**10.08.2026 itibarıyla: analist onayı BEKLEMİYOR — kararı A3 ile
+> "non-normatif demo fixture", blocker değil**), kampanyalı/pasif ürün fixture'ları, ve
 > ürün 3/4 involvement satırları account-service'in `V3` migration'ında. Test kanıtı:
 > product-service 13/13, account-service 43/43, customer-service 80/80 YEŞİL.
 > **ADR-015 (product boundary) + ADR-013'e "read-side" fıkrası BORÇLU.**
@@ -382,7 +516,7 @@ domain servisleri zero-trust resource server; `auth-service` iskeleti SİLİNDİ
 | `mernis-stub` | 8084 | Fake MERNİS/KPS doğrulama (KR-10) — DB'siz, deterministik, gateway'e AÇIK DEĞİL, **CRM token'ı görmez (ADR-010)** | ✅ Çalışıyor |
 | `account-service` | 8085 | Fatura hesapları: FR-ACCT-01..04 + KR-11 (`account_db` — ADR-013/014) — **JWT resource server**; K-8 tembel 223; silme = pasifleştirme | ✅ Uygulandı (2026-07-23) — Postgres + lookup-service + customer-service (yazma işlemleri için) |
 | `product-service` | 8086 | Ürün görüntüleme + katalog + **FR-SALE yazma dilimi**: FR-PROD-01..02 & ürün yaratma/confirm/cancel + karakteristik şeması (`product_db`) — **JWT resource server**; liste account-service'in `product-ids` ucu üzerinden kompoze; `account_db`'ye ASLA dokunmaz; sepet/karakteristik doğrulaması burada | ✅ Uygulandı (2026-07-29 okuma + 2026-08-02 yazma, ADR-015) — Postgres + account + customer + **lookup** |
-| `order-service` | 8087 | **Satış orkestrasyonu + siparişler:** FR-SALE-01..02 (`order_db` — ADR-016) — **JWT resource server**; KR-12 sipariş numarası; üç DB'ye dağıtık transaction olmadan yazar, telafi adımlarıyla | ✅ Uygulandı (2026-08-02) — Postgres + lookup + account + product |
+| `order-service` | 8087 | **Satış orkestrasyonu + siparişler:** FR-SALE-01..02 (`order_db` — ADR-016/**ADR-018**) — **JWT resource server**; KR-12 sipariş numarası (taslakta tahsis edilir); **CANLI akış asenkron:** taslak → 202 submit → status polling, kalıcı `sale_saga` ile orkestrasyon ve iki yönlü telafi. Senkron `POST /api/orders` deprecated ama build'de (geri dönüş + mevcut frontend) | ✅ Uygulandı (2026-08-02), **asenkron kesim 2026-08-10** — Postgres + lookup + account + product (+ Kafka yalnız `async-sale` profilinde) |
 | ~~`auth-service`~~ | ~~8081~~ | ~~Kimlik doğrulama~~ | 🗑️ **SİLİNDİ (2026-07-17, ADR-007)** — BFF gateway'de, kimlik Keycloak'ta; iskelet geri getirilmeyecek |
 
 **Planlanan servisler (henüz YOK — analist/mimari onayı bekliyor; ayrıntı:
@@ -948,17 +1082,29 @@ crm-lite-project-dev/
   `order_number_seq`. Lokal `gnl_*` tablosu ve cross-database FK YOK (ADR-002,
   testle kanıtlı). `customer_number`, `customer_account_number`, `product_offer_id`,
   `product_id` FK'sız dış referanslar.
-- **Sadece İKİ uç:** `POST /api/orders` (Submit — tüm sepet tek gövdede) ve
-  `GET /api/orders/{orderNumber}`. **Sepet tablosu YOK, sipariş-iptal ucu YOK
-  (KR-7 kapsam dışı), sipariş listesi YOK** (hiçbir FR istemiyor).
-- **KR-12 sipariş numarası (proje-önerisi, analist onayı BEKLİYOR):**
+- **Uçlar (ADR-018, 10.08.2026 sonrası):** CANLI asenkron sözleşme
+  `POST /api/orders/drafts` → `POST /api/orders/{n}/submit` (**202**) →
+  `GET /api/orders/{n}/status`, artı `DELETE /api/orders/{n}/draft` (yalnız WAIT,
+  idempotent). `POST /api/orders` **DEPRECATED** ama build'de: mevcut frontend + geri
+  dönüş yolu. `GET /api/orders/{orderNumber}` değişmedi. **Sepet tablosu YOK, sipariş-iptal
+  ucu YOK (KR-7 kapsam dışı), sipariş listesi YOK** (hiçbir FR istemiyor) — taslak SEPETİ
+  değil SİPARİŞİ erken yaratıyor.
+- **KR-12 sipariş numarası (analist gereksinimini karşılayan proje teknik tercihi —
+  10.08.2026'da netleşti, artık "onay bekleyen" DEĞİL; taslak yaratılırken tahsis edilir,
+  bu yüzden Submit'ten önce gösterilebilir):**
   `[T][YY][SSSSSS][C]` — KR-11'in şeklini birebir koruyor, Luhn, `order_number_seq`
   ADR-014 desenine paralel. Üreteç account-service'ten **kopyalandı** (paylaşılan
   iş-mantığı kütüphanesi yok; iki kopya aynı test vektörleriyle sabitlendi).
   ⚠️ **Sipariş ve hesap numaraları aynı değer uzayında** — seed sipariş numarası
   `1261000002`, hesap `1261000002` ile aynı. Kabul edildi (ayrı DB/servis, ortak
   namespace yok; KR-02 iki ayrı arama alanıyla ayırıyor); analist notu (ADR-016 §8.1).
-- **Orkestrasyon (ADR-016 §5) — üç DB, dağıtık transaction YOK:**
+- **Orkestrasyon (ADR-016 §5) — üç DB, dağıtık transaction YOK.**
+  ⚠️ **CANLI YOL OLARAK SUPERSEDE EDİLDİ (ADR-018, 10.08.2026):** aşağıdaki senkron
+  sıralama artık deprecated `POST /api/orders`'ın davranışıdır. Canlı satış, order-service'in
+  sahibi olduğu kalıcı saga ile yürüyor ve **link → activate** sırasını kullanıyor (aşağıdaki
+  (4)/(5) adımlarının TERSİ), çünkü hiçbir hesap talep etmiyorken bir ürün commit edilmemeli.
+  §4.10'un geri kalanı (adım 3'ün gerekçesi, product-service yazma dilimi, involvement
+  komutu, iki kusur) her iki yol için de aynen geçerli.
   (0) hesap ön koşulu (var mı/224 mü/**Active** mi — AC-SALE-02-01) →
   (1) `order_db`'ye tek yerel transaction, MIDLWARE →
   (2) product-service'te ürünler **PNDG** →
@@ -1005,17 +1151,32 @@ crm-lite-project-dev/
      `POST /api/products` idempotent DEĞİL: retry ikinci bir PNDG seti yaratıp
      ilkini öksüz bırakırdı. Üç giden client'ta da `disableAutomaticRetries()`
      (ADR-016 §5.3b). Retry orkestrasyonun kararıdır, transport'un değil.
-- **Kullanılmayan katalog satırları (bilinçli):** GNL_ST `WAIT`(3) hiç yazılmaz;
-  `CANCELLED`(5) yalnız sistem telafisinde; GNL_TP `TRANSFER`(8)/`CANCEL`(9) için FR
-  yok. `bsn_inter_type_id` kolonu var ve NEWSALE(7) yazılıyor — gelecek bir akış
-  migration gerektirmesin diye.
-- **Testler:** `OrderServiceIntegrationTest` (15 IT — şema/seed, happy path, ön
+- **Katalog satırları (10.08.2026 itibarıyla güncel):** GNL_ST `WAIT`(3) **artık
+  yazılıyor** — Submit öncesi taslağın statüsü (analist kararı A1, ADR-018 §1.1); bu satır
+  eskiden "hiç yazılmaz" diye kayıtlıydı ve o kayıt SUPERSEDE edildi. `MIDLWARE`(4)
+  Submit'ten itibaren; `CANCELLED`(5) yalnız sistem tarafından — telafi, terk edilmiş
+  taslak veya süresi geçmiş taslak; **kullanıcının submit edilmiş bir siparişi iptal
+  etmesi HÂLÂ YOK** (KR-7 kapsam dışı). GNL_TP `TRANSFER`(8)/`CANCEL`(9) **hâlâ hiç
+  yazılmaz** — Transfer/Servis Adresi Değişikliği analist kararıyla kapsam dışı (A6) ve bu
+  satırlar yeni işlevsellik için gerekçe DEĞİL. `bsn_inter_type_id` kolonu var ve
+  NEWSALE(7) yazılıyor — gelecek bir akış migration gerektirmesin diye.
+- **Testler (ADR-018 sonrası order-service toplamı 66/66):** yeni
+  `AsyncSaleFlowIntegrationTest` (**22 IT** — taslak yaşam döngüsü, Submit'in tek-commit
+  atomikliği, 202'nin beklememesi, kopya/sırasız cevap, her hata dalı, iki telafi sırası,
+  başarısız telafinin `MANUAL_INTERVENTION`'a yükselmesi, güvensiz hata anahtarının
+  değiştirilmesi, takılı saga'nın yeniden yayınlanması, bütçe bitişi, terminal saga'nın
+  ASLA yeniden yayınlanmaması, legacy ile async'in aynı satışı işleyememesi) +
+  `OrderServiceIntegrationTest` (19 IT — şema/seed, happy path, ön
   koşullar, gövde doğrulama, **her adımın telafi yolu**, CANCELLED siparişin
   numarasını koruması ve görünür kalması, fail-closed, gapless sequence) +
-  `OrderNumberFormatTest` (6) + `LuhnCheckDigitTest` (4) = **25/25**.
-  product-service **33/33** (IT 16→24 + yeni `CharacteristicValidationRulesTest`),
-  account-service **51/51** (IT 25→30). Üç dış client da yalnız **arayüz** seviyesinde
-  mock'lanır — "adım 4 patlarsa" senaryosu canlı bir stack'ten istenemezdi.
+  Outbox IT'leri (10) + `OrderNumberFormatTest` (6) + `LuhnCheckDigitTest` (4) + mimari/
+  resilience guard'ları (5) = **66/66**. product-service **54/54** (yeni
+  `SaleCommandHandlerTest` 7 — Spring context'siz, Docker'sız), account-service **61/61**
+  (yeni `SaleCommandHandlerTest` 8). Üç dış client da yalnız **arayüz** seviyesinde
+  mock'lanır — "adım 4 patlarsa" senaryosu canlı bir stack'ten istenemezdi; saga
+  cevapları da broker olmadan doğrudan `InboxDispatcher`'a besleniyor, çünkü kopya /
+  sırasız / başarısız-telafi senaryolarını gerçek bir broker'dan istemek dakikalar
+  sürerdi ve determinizmi olmazdı.
 - **Yeni fixture:** product-service `V4__seed_passive_offer_fixture.sql` — tek pasif
   teklif (id 11). `MSG-SALE-OFFER-INACTIVE` dalının verisi yoktu; V2'nin pasif *ürün*
   fixture'ıyla (document-delta P3) aynı gerekçe. `GET /api/offers` ACTV filtreli

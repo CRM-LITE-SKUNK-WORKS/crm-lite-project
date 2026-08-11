@@ -32,6 +32,23 @@ public final class MessageKeys {
     /** The Idempotency-Key header is absent or not a UUID. */
     public static final String IDEMPOTENCY_KEY_REQUIRED = "MSG-IDEMPOTENCY-KEY-REQUIRED";
 
+    // Asynchronous SALE (ADR-018). Project additions — the analyst approved a GENERAL
+    // failure message for unavailable/failed SALE processing but named no key, and the
+    // draft lifecycle is a project mechanism serving the analyst's "the records already
+    // exist before Submit" decision.
+    /**
+     * The generic terminal failure of an asynchronous sale. Used ONLY when no existing
+     * specific key truthfully describes the outcome: a rejected basket still comes back
+     * as product-service's own MSG-SALE-* key, and a genuine unavailability still comes
+     * back as {@link #SERVICE_UNAVAILABLE}. A generic key that swallowed those would be
+     * a downgrade, not a simplification.
+     */
+    public static final String SALE_FAILED = "MSG-SALE-FAILED";
+    /** Submit or abandon was asked of an order that is not a WAIT draft. */
+    public static final String ORDER_NOT_DRAFT = "MSG-ORDER-NOT-DRAFT";
+    /** The draft was abandoned before Submit — a status outcome, never an error body. */
+    public static final String SALE_DRAFT_ABANDONED = "MSG-SALE-DRAFT-ABANDONED";
+
     // Established platform keys (same semantics as the other domain services).
     public static final String VALIDATION_ERROR = "MSG-VALIDATION-ERROR";
     public static final String INTERNAL_ERROR = "MSG-INTERNAL-ERROR";

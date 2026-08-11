@@ -31,6 +31,34 @@ question — closing the gap from the OTHER side of the same incident §5.3b alr
 fixed. No Kafka, no Debezium, no asynchronous processing or saga state is
 introduced; the synchronous orchestration in §5 is otherwise unchanged.
 
+> ### Addendum 2026-08-10 — partially superseded by ADR-018
+>
+> **This document is preserved as written and remains the record of the synchronous
+> design.** `POST /api/orders` and everything §5 describes still exist in the build,
+> deprecated, as the rollback route and for the currently merged frontend. Three parts of
+> it are no longer current, and all three are changed by **ADR-018**, not by editing here:
+>
+> - **§8.3 — "the Order Number exists only after submission" is SUPERSEDED
+>   (ADR-018 §1.1).** The analyst clarified on 2026-08-10 that the records already exist
+>   when the user starts the process, with a status that is not yet MIDLWARE, and that the
+>   Order ID may therefore be displayed at that point. The workbook's existing
+>   `GNL_ST WAIT` is that status. §8.3's two objections were real and are answered in
+>   ADR-018 and in `document-delta.md`, not waved away.
+> - **§6 — "WAIT is never written" is SUPERSEDED** for the same reason. `CANCELLED`
+>   remains system-only, and there is still no user-facing order cancellation (KR-7).
+>   `GNL_TP TRANSFER`/`CANCEL` remain unwritten: out of scope by analyst decision.
+> - **§4 — KR-12's status is CORRECTED (ADR-018 §1.2).** It is no longer "a
+>   project-proposed rule awaiting analyst sign-off". The analyst set the *requirement*
+>   (the Order ID must be unique) and left the rule to the technical team, so the format
+>   below is a **project technical choice that satisfies an analyst requirement**. The
+>   algorithm is unchanged; only its status is.
+>
+> **§5's orchestration is superseded as the LIVE flow** by ADR-018's saga, which also
+> reverses the activation/involvement ordering (§5 activates then links; the saga links
+> then activates, so a failure has something it can cleanly undo). §5's own honest
+> admission — that a failing compensation is "logged and swallowed" — is what ADR-018
+> closes.
+
 ## Context
 
 FR §2.7 defines the only multi-service write flow in the system. The entity

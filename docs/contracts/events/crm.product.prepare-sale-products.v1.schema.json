@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.prepare-sale-products.v1.schema.json",
+  "title": "crm.product.prepare-sale-products, payload v1 (COMMAND)",
+  "description": "Step 2 of the SALE saga (ADR-018 §5): create this sale's products as PNDG. Destination: crm.product.cmd.prepare-sale-products.v1. The consumer routes it into the SAME ProductService#create the synchronous endpoint calls, with saleOperationId = orderNumber — which is what makes a reissued command replay the first result instead of creating a second installation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "accountNumber", "customerNumber", "serviceAddressId", "items"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The sagaId, and the saleOperationId the consumer deduplicates on."
+    },
+    "accountNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$"
+    },
+    "customerNumber": {
+      "type": "integer",
+      "description": "From account-service's own reply, never from the browser (ADR-015 §5.9)."
+    },
+    "serviceAddressId": {
+      "type": "integer",
+      "description": "AC-SALE-01-11: the address chosen for the main product. Ownership is validated by the consumer against customer-service, not asserted here."
+    },
+    "campaignId": {
+      "type": ["string", "null"],
+      "description": "The PUBLIC campaign code (e.g. CMP-ADSL-01), never an internal id — the consumer resolves it through the catalog exactly as the synchronous path does."
+    },
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The submitted basket, replayed from the saga's stored snapshot. Characteristic VALUES live here and nowhere else in order_db, which is why the snapshot exists at all (ADR-018 §4).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["offerId", "characteristics"],
+        "properties": {
+          "offerId": { "type": "integer" },
+          "characteristics": {
+            "type": "object",
+            "description": "characteristicId -> submitted value, forwarded verbatim. Validation belongs to product-service, which alone knows the declared data type (ADR-015 §6).",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}

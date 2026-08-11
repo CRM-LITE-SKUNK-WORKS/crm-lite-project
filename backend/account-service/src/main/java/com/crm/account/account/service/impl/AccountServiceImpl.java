@@ -139,6 +139,9 @@ public class AccountServiceImpl implements AccountService {
             involvement.setCustomerAccountId(account.getId());
             involvement.setProductId(productId);
             involvement.setShortCode(AccountContract.INVOLVEMENT_SHORT_CODE);
+            // Null from the legacy synchronous route and from any caller that has no
+            // saga — which is exactly what makes those rows uncompensatable (ADR-018 §7).
+            involvement.setSaleOperationId(request.getSaleOperationId());
             involvement.setStatusId(activeStatusId);
             involvement.markCreated(actor);
             involvementRepository.save(involvement);
@@ -172,6 +175,59 @@ public class AccountServiceImpl implements AccountService {
                         account.getAccountNumber(), List.copyOf(newlyLinked), allProductIds));
 
         return new ProductInvolvementResponse(account.getAccountNumber(), allProductIds);
+    }
+
+    /**
+     * Saga-scoped involvement compensation (ADR-018 §7) — <b>internal, and deliberately
+     * not reachable over HTTP</b>.
+     *
+     * <p>It exists for exactly one situation: the asynchronous sale links products to the
+     * account BEFORE activating them, so an activation that fails terminally leaves
+     * involvement rows claiming products that will be passivated. Undoing that is the
+     * only way the sale can be unwound cleanly, and ADR-013 §8.6's refusal to create an
+     * involvement-delete command still stands for every other purpose — which is why this
+     * is a saga command with an ownership guard, not an endpoint.
+     *
+     * <p><b>Three properties that make it safe:</b>
+     * <ul>
+     *   <li><b>Scoped.</b> It touches only rows whose {@code sale_operation_id} is this
+     *       saga's. A row written by the seed or by the synchronous route has a NULL
+     *       operation id and matches nothing, so it cannot be reached from here at all.
+     *   <li><b>Idempotent.</b> Already-passivated rows are excluded by the query (it
+     *       reads non-deleted rows only), so a repeated command finds nothing and
+     *       succeeds. A compensating orchestrator that retries must not get an error.
+     *   <li><b>Soft.</b> Passivation with the full invariant (PASV + deleted metadata),
+     *       never a physical delete — the same rule the whole project follows, so a
+     *       compensated sale stays visible as something that was attempted.
+     * </ul>
+     *
+     * <p>The account itself is looked up WITHOUT the Active check that
+     * {@link #addProductInvolvements} applies. Compensation must work on an account that
+     * has since been passivated: refusing to unwind a sale because the account is no
+     * longer sellable into would leave exactly the residue this method exists to remove.
+     *
+     * @return how many involvement rows were passivated
+     */
+    @Override
+    @Transactional
+    public int compensateProductInvolvements(String accountNumber, String saleOperationId) {
+        if (saleOperationId == null || saleOperationId.isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, MessageKeys.VALIDATION_ERROR,
+                    "A sale operation id is required to compensate involvements");
+        }
+        CustomerAccount account = findVisibleAccount(accountNumber);
+        List<ProductInvolvement> owned = involvementRepository
+                .findByCustomerAccountIdAndSaleOperationIdAndDeletedDateIsNull(account.getId(), saleOperationId);
+        if (owned.isEmpty()) {
+            return 0;   // nothing this sale created is still live — a no-op success
+        }
+        // Resolved through the shared catalog even here: fail closed is a property of the
+        // write path, not of whether it had work to do (ADR-002 §7).
+        long passiveStatusId = lookupCatalog.resolveStatusId("status",
+                LookupContract.STATUS_PASSIVE, LookupContract.STATUS_DOMAIN_GENERAL);
+        String actor = actorProvider.get();
+        owned.forEach(involvement -> involvement.passivate(passiveStatusId, actor));
+        return owned.size();
     }
 
     /**

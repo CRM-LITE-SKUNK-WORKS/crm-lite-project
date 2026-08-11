@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.compensate-sale-products.v1.schema.json",
+  "title": "crm.product.compensate-sale-products, payload v1 (COMMAND)",
+  "description": "Compensation (ADR-018 §5): passivate the PNDG products this saga created. Destination: crm.product.cmd.compensate-sale-products.v1. Sale-scoped by construction — the consumer refuses any product whose saleOperationId is not this order number (409 MSG-SALE-OPERATION-MISMATCH), so one saga can never passivate another's products even if handed their ids. NOT the KR-7 product cancellation, which stays out of phase (ADR-015 §5.7).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "productIds"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The sagaId, and the saleOperationId every named product must be owned by."
+    },
+    "productIds": {
+      "type": "array",
+      "items": { "type": "integer" },
+      "description": "May be EMPTY: a sale can fail before any product existed, and the consumer answers SUCCEEDED for it — 'there was nothing to undo' is a completed compensation, and the orchestrator is waiting for that answer."
+    }
+  }
+}

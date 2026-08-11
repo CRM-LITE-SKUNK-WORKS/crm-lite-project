@@ -325,6 +325,13 @@ services:
       SPRING_DATASOURCE_PASSWORD: crmlite
       # JWKS via internal DNS; issuer validation stays on the canonical value.
       CRM_SECURITY_JWKSETURI: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/certs
+      # ADR-018: EMPTY by default, so a plain `docker compose up` runs exactly as it
+      # always has — no Kafka, no bindings, no binder. Set async-sale to make the
+      # asynchronous SALE flow live:
+      #   docker compose --profile eventing up -d
+      #   SPRING_PROFILES_ACTIVE=async-sale docker compose up -d --force-recreate \
+      #       account-service product-service order-service
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8085' || exit 1"]
       interval: 5s
@@ -363,6 +370,9 @@ services:
       SPRING_DATASOURCE_PASSWORD: crmlite
       # JWKS via internal DNS; issuer validation stays on the canonical value.
       CRM_SECURITY_JWKSETURI: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/certs
+      # ADR-018 — see account-service above. Empty by default; async-sale turns on the
+      # broker, the Outbox and the three SALE command consumers.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8086' || exit 1"]
       interval: 5s
@@ -403,6 +413,10 @@ services:
       SPRING_DATASOURCE_PASSWORD: crmlite
       # JWKS via internal DNS; issuer validation stays on the canonical value.
       CRM_SECURITY_JWKSETURI: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/certs
+      # ADR-018 — see account-service above. Empty by default, in which case
+      # POST /api/orders/{n}/submit answers 503 MSG-SERVICE-UNAVAILABLE (fail closed)
+      # and the deprecated synchronous POST /api/orders is the working route.
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8087' || exit 1"]
       interval: 5s

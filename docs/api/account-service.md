@@ -360,3 +360,55 @@ curl -sS -H "Accept: application/json" \
   caller as 409 `MSG-CUST-HAS-PRODUCTS`.
 - The address `MSG-ADDR-IN-USE` in-use check **remains a customer-service TODO**,
   even though `cust_acct.address_id` makes it possible.
+
+## SALE saga commands (ADR-018, 2026-08-10) — **the live sale reaches this service by message**
+
+`GET /api/accounts/{n}/product-ids` and `POST /api/accounts/{n}/product-involvements` are
+**unchanged** and still serve the deprecated synchronous route. Since ADR-018 the live sale
+reaches account-service as three Spring Cloud Stream commands instead, handled by
+`com.crm.account.messaging.SaleCommandHandler`:
+
+| Command destination | Routes into | Reply destination |
+|---|---|---|
+| `crm.account.cmd.check-sale-account.v1` | `AccountService#getByAccountNumber` (a read) | `crm.account.evt.sale-account-checked.v1` |
+| `crm.account.cmd.link-sale-products.v1` | `AccountService#addProductInvolvements` | `crm.account.evt.sale-products-linked.v1` |
+| `crm.account.cmd.compensate-sale-involvements.v1` | `AccountService#compensateProductInvolvements` (**new, internal**) | `crm.account.evt.sale-involvements-compensated.v1` |
+
+The account check is deliberately re-asked inside the saga even though Submit already
+checked synchronously: an account can be passivated between Submit and fulfilment, and the
+reply is also where the sale learns the **authoritative** `customerNumber` — never from
+the browser. A Passive account is a `FAILED` outcome rather than an exception, because a
+Passive account stays *readable* (AC-ACCT-04-02); it is the status that rejects the sale
+(AC-SALE-02-01).
+
+### The one new capability: saga-scoped involvement compensation
+
+**Still no involvement-removal endpoint exists** — not here, not anywhere. ADR-013 §8.6's
+refusal stands for every user-facing purpose, and product cancellation remains out of phase
+(KR-7).
+
+What ADR-018 adds is narrower and internal. The asynchronous flow links products to the
+account **before** activating them (so a product is never committed while no account claims
+it), which means an activation that fails terminally leaves involvement rows to undo. A
+nullable `sale_operation_id` on `cust_acct_prod_invl` (Flyway **V6**) records which saga
+wrote each row, and the compensation matches on
+`(customer_account_id, sale_operation_id, deleted_date IS NULL)`:
+
+- **existing rows keep NULL** — the V3 activation seed and everything the synchronous route
+  wrote belong to no saga and are therefore **uncompensatable by any saga**. That is the
+  safe default; a backfill would have had to invent an owner, which is exactly what would
+  make the guard unsafe;
+- pairing the account with the operation id makes it structurally incapable of reaching
+  another account's rows;
+- it is **idempotent** (already-passivated rows are outside the query, so a repeat removes
+  zero rows and still succeeds) and **soft** (PASV + deleted metadata, never a physical
+  delete);
+- the account is looked up **without** the Active check the link command applies —
+  compensation must work on an account that has since been passivated, or unwinding a sale
+  would be blocked by the very state it is trying to clean up.
+
+`ProductInvolvementRequest` gains an optional `saleOperationId` (purely additive; the
+legacy route sends null). Contracts:
+`docs/contracts/events/crm.account.*.v1.schema.json`. Enabled by
+`SPRING_PROFILES_ACTIVE=async-sale`; without it no binding is created and this service
+starts with no broker present.

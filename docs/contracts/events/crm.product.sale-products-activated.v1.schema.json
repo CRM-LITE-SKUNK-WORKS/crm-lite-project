@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.sale-products-activated.v1.schema.json",
+  "title": "crm.product.sale-products-activated, payload v1",
+  "description": "The outcome of activation (ADR-018 §5). Destination: crm.product.evt.sale-products-activated.v1. A SUCCEEDED outcome is what completes the saga; a FAILED one is the hard case — involvement rows already exist, so the orchestrator compensates the involvement FIRST and only then the products.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "result"],
+  "properties": {
+    "orderNumber": { "type": "string", "pattern": "^\\d{10}$" },
+    "result": { "enum": ["SUCCEEDED", "FAILED"] },
+    "failureCode": { "type": ["string", "null"] },
+    "failureMessageKey": {
+      "type": ["string", "null"],
+      "pattern": "^MSG-[A-Z0-9-]+$",
+      "description": "MSG-PROD-NOT-FOUND if an id vanished; otherwise the generic terminal key. Never an exception message (ADR-018 §8)."
+    },
+    "totalAmount": { "type": ["number", "null"], "description": "Unused by this step; part of product-service's shared outcome shape." },
+    "products": { "type": ["array", "null"], "description": "Unused by this step.", "items": { "type": "object" } },
+    "productIds": {
+      "type": ["array", "null"],
+      "items": { "type": "integer" },
+      "description": "SUCCEEDED only: the ids that are now ACTV (including any that already were — activation is idempotent)."
+    }
+  }
+}

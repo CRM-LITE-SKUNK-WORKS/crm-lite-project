@@ -48,6 +48,26 @@ public class IdempotencyService {
     }
 
     /**
+     * The asynchronous endpoints' hash (ADR-018 §3): the request PATH plus the raw body.
+     *
+     * <p>Two differences from {@link #normalizedRequestHash} and both are deliberate.
+     * The path is included because one {@code Idempotency-Key} identifies one HTTP
+     * command, and draft creation and submission are two — without the path, a client
+     * that reused a key would be served the wrong command's recorded response instead of
+     * the 409 that tells it about the mistake. The body is not round-tripped through a
+     * DTO because there are two different DTOs here; the normalization that buys was only
+     * ever worth it for a single, known wire shape, and a client that sends
+     * byte-identical retries (which is what a retry is) needs none of it.
+     */
+    public String scopedRequestHash(String requestPath, byte[] rawBody) {
+        byte[] path = (requestPath + "\n").getBytes(CHARSET);
+        byte[] combined = new byte[path.length + rawBody.length];
+        System.arraycopy(path, 0, combined, 0, path.length);
+        System.arraycopy(rawBody, 0, combined, path.length, rawBody.length);
+        return sha256Hex(combined);
+    }
+
+    /**
      * The concurrency guard is {@link IdempotencyPersistence#reserve}'s UNIQUE-constraint
      * INSERT, not this method's control flow: two threads racing here both attempt the
      * insert, and the database — not a prior SELECT — decides which one gets

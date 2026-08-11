@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.compensate-sale-involvements.v1.schema.json",
+  "title": "crm.account.compensate-sale-involvements, payload v1 (COMMAND)",
+  "description": "Compensation (ADR-018 §7): soft-remove the involvement rows THIS saga created. Destination: crm.account.cmd.compensate-sale-involvements.v1. INTERNAL — there is no HTTP endpoint for it, and ADR-013 §8.6's refusal to create a user-facing involvement-delete stands unchanged. It exists only because the asynchronous flow links products BEFORE activating them, so an activation failure leaves involvement rows claiming products that are about to be passivated. Scoped by orderNumber, which is the sale_operation_id stored on the rows: a row written by the seed or by the synchronous route has a NULL owner and can never be reached from here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "accountNumber"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The sagaId, and the sale_operation_id the rows must carry to be touched."
+    },
+    "accountNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "Part of the predicate as well as the operation id — pairing them makes the compensation structurally incapable of reaching another account's rows even if handed the wrong id."
+    }
+  }
+}

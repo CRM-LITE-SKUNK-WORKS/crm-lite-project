@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.sale-involvements-compensated.v1.schema.json",
+  "title": "crm.account.sale-involvements-compensated, payload v1",
+  "description": "The outcome of involvement compensation (ADR-018 §7). Destination: crm.account.evt.sale-involvements-compensated.v1. SUCCEEDED lets the saga proceed to compensate the products; FAILED takes it to MANUAL_INTERVENTION rather than continuing, because passivating the products while an account still claims them is precisely the inconsistency the ordering exists to avoid. Zero rows removed is a SUCCESS, not a failure: a repeated command must be safe.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "result"],
+  "properties": {
+    "orderNumber": { "type": "string", "pattern": "^\\d{10}$" },
+    "result": { "enum": ["SUCCEEDED", "FAILED"] },
+    "failureCode": { "type": ["string", "null"] },
+    "failureMessageKey": {
+      "type": ["string", "null"],
+      "pattern": "^MSG-[A-Z0-9-]+$"
+    },
+    "customerNumber": { "type": ["integer", "null"], "description": "Unused by this step." },
+    "productIds": { "type": ["array", "null"], "items": { "type": "integer" }, "description": "Unused by this step." }
+  }
+}

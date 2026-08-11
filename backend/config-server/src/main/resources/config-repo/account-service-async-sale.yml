@@ -1,0 +1,60 @@
+# account-service, Spring profile "async-sale" — the LIVE asynchronous SALE flow (ADR-018).
+#
+# Layered ON TOP of account-service.yml, which is unchanged and still ships every
+# messaging switch OFF. Activate with SPRING_PROFILES_ACTIVE=async-sale.
+#
+# The synchronous POST /api/accounts/{n}/product-involvements is untouched and still
+# serves the legacy route. The three consumers below route into the SAME AccountService
+# methods, plus the one internal, saga-scoped involvement compensation ADR-018 §7 adds —
+# which is a saga command with an ownership guard, and deliberately NOT an endpoint.
+
+spring:
+  cloud:
+    stream:
+      function:
+        definition: checkSaleAccount;linkSaleProducts;compensateSaleInvolvements
+      kafka:
+        bindings:
+          checkSaleAccount-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.account.cmd.check-sale-account.v1.dlq
+          linkSaleProducts-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.account.cmd.link-sale-products.v1.dlq
+          compensateSaleInvolvements-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.account.cmd.compensate-sale-involvements.v1.dlq
+      bindings:
+        # max-attempts: 1 — redelivery plus the Inbox guard is the retry policy
+        # (ADR-017 §8.3).
+        checkSaleAccount-in-0:
+          destination: crm.account.cmd.check-sale-account.v1
+          group: account-service.crm.account.cmd.check-sale-account.v1
+          consumer:
+            max-attempts: 1
+        linkSaleProducts-in-0:
+          destination: crm.account.cmd.link-sale-products.v1
+          group: account-service.crm.account.cmd.link-sale-products.v1
+          consumer:
+            max-attempts: 1
+        compensateSaleInvolvements-in-0:
+          destination: crm.account.cmd.compensate-sale-involvements.v1
+          group: account-service.crm.account.cmd.compensate-sale-involvements.v1
+          consumer:
+            max-attempts: 1
+
+crm:
+  messaging:
+    broker:
+      enabled: true
+    outbox:
+      # Required: the saga's reply events are recorded here. An account-service with the
+      # outbox off would consume commands and answer nothing, stalling every sale at its
+      # first step.
+      enabled: true
+      relay:
+        # In-process relay. Mutually exclusive with Debezium (ADR-017 §9.3).
+        enabled: true

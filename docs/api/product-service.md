@@ -410,3 +410,42 @@ PNDG products.
 - **Campaign activation-window rules** (`activation_end_date` enforcement) are
   not applied to any read: no FR/AC in §2.6 asks for it, and inventing a filter
   would silently hide catalog rows.
+
+## SALE saga commands (ADR-018, 2026-08-10) — **the live sale reaches this service by message**
+
+`POST /api/products`, `/confirm` and `/compensate` above are **unchanged** and still
+serve the deprecated synchronous route. Since ADR-018 the live sale reaches product-service
+as three Spring Cloud Stream commands instead, handled by
+`com.crm.product.messaging.SaleCommandHandler`:
+
+| Command destination | Routes into | Reply destination |
+|---|---|---|
+| `crm.product.cmd.prepare-sale-products.v1` | `ProductService#create` | `crm.product.evt.sale-products-prepared.v1` |
+| `crm.product.cmd.activate-sale-products.v1` | `ProductService#confirm` | `crm.product.evt.sale-products-activated.v1` |
+| `crm.product.cmd.compensate-sale-products.v1` | `ProductService#compensate` | `crm.product.evt.sale-products-compensated.v1` |
+
+**No new business logic exists.** Each command routes into the *same* service method the
+HTTP endpoint calls, so composition rules, characteristic validation, the PNDG lifecycle
+and the sale-scoped ownership guard live in exactly one place each. What the handler adds
+is the translation and one decision:
+
+- a **business** failure (4xx — an inactive offer, a broken basket, a characteristic that
+  fails validation) is an ANSWER: it is published as a `FAILED` outcome carrying the
+  analyst's own message key, and the message is acknowledged. Redelivering it would
+  produce the same rejection forever while the customer waited;
+- an **infrastructure** failure (5xx, an unreachable catalog) is NOT an answer: it is
+  rethrown, the Inbox claim rolls back with it, and the transport redelivers.
+
+`saleOperationId` is now **the KR-12 order number** (it was the client's `Idempotency-Key`
+before ADR-018). That is what makes a reissued command replay the first response through
+the existing sale-operation coordinator rather than create a second installation — and it
+is why the recovery job may reissue any command without checking whether the original was
+applied.
+
+**PNDG is analyst-supported as of 10.08.2026.** The analyst confirmed PNDG may be used for
+products belonging to an order that is currently being processed, which is what lets the
+saga hold products PNDG until the account involvement exists and only then activate them.
+
+Contracts: `docs/contracts/events/crm.product.*.v1.schema.json`. Enabled by
+`SPRING_PROFILES_ACTIVE=async-sale`; without it no binding is created and this service
+starts with no broker present.

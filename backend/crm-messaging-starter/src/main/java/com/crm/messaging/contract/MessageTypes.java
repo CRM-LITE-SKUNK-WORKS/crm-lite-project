@@ -36,6 +36,76 @@ public final class MessageTypes {
     public static final int PRODUCTS_LINKED_V = 1;
 
     // ---------------------------------------------------------------------------
+    // SALE saga — commands (imperative, exactly one intended handler) and the
+    // outcome events they produce (ADR-018). Every one of them carries the sagaId,
+    // which for the live SALE flow IS the KR-12 order number.
+    //
+    // Each step has ONE outcome event carrying a SUCCEEDED/FAILED result rather than
+    // a separate success type and failure type. Both are facts about the same step,
+    // the orchestrator's next move is decided by the same state guard either way, and
+    // one destination per step keeps the binding table (and the recovery job's notion
+    // of "what am I waiting for") a single row per step instead of two.
+    // ---------------------------------------------------------------------------
+
+    /** order-service → account-service: is this billing account sellable into? */
+    public static final String CHECK_SALE_ACCOUNT = "crm.account.check-sale-account";
+    public static final int CHECK_SALE_ACCOUNT_V = 1;
+
+    /** account-service → order-service: the outcome of the above, with the authoritative customerNumber. */
+    public static final String SALE_ACCOUNT_CHECKED = "crm.account.sale-account-checked";
+    public static final int SALE_ACCOUNT_CHECKED_V = 1;
+
+    /** order-service → product-service: create this sale's products as PNDG. */
+    public static final String PREPARE_SALE_PRODUCTS = "crm.product.prepare-sale-products";
+    public static final int PREPARE_SALE_PRODUCTS_V = 1;
+
+    /** product-service → order-service: the products exist (PNDG) with ids and amounts, or did not. */
+    public static final String SALE_PRODUCTS_PREPARED = "crm.product.sale-products-prepared";
+    public static final int SALE_PRODUCTS_PREPARED_V = 1;
+
+    /** order-service → account-service: link this sale's products to the billing account. */
+    public static final String LINK_SALE_PRODUCTS = "crm.account.link-sale-products";
+    public static final int LINK_SALE_PRODUCTS_V = 1;
+
+    /** account-service → order-service: the involvement rows exist, or the link failed. */
+    public static final String SALE_PRODUCTS_LINKED = "crm.account.sale-products-linked";
+    public static final int SALE_PRODUCTS_LINKED_V = 1;
+
+    /** order-service → product-service: promote this sale's PNDG products to ACTV. */
+    public static final String ACTIVATE_SALE_PRODUCTS = "crm.product.activate-sale-products";
+    public static final int ACTIVATE_SALE_PRODUCTS_V = 1;
+
+    /** product-service → order-service: the products are ACTV, or activation failed. */
+    public static final String SALE_PRODUCTS_ACTIVATED = "crm.product.sale-products-activated";
+    public static final int SALE_PRODUCTS_ACTIVATED_V = 1;
+
+    /** order-service → product-service: passivate the PNDG products owned by THIS saga. */
+    public static final String COMPENSATE_SALE_PRODUCTS = "crm.product.compensate-sale-products";
+    public static final int COMPENSATE_SALE_PRODUCTS_V = 1;
+
+    /** product-service → order-service: the saga's products were passivated, or could not be. */
+    public static final String SALE_PRODUCTS_COMPENSATED = "crm.product.sale-products-compensated";
+    public static final int SALE_PRODUCTS_COMPENSATED_V = 1;
+
+    /** order-service → account-service: soft-remove the involvement rows owned by THIS saga. */
+    public static final String COMPENSATE_SALE_INVOLVEMENTS = "crm.account.compensate-sale-involvements";
+    public static final int COMPENSATE_SALE_INVOLVEMENTS_V = 1;
+
+    /** account-service → order-service: the saga's involvement rows were removed, or could not be. */
+    public static final String SALE_INVOLVEMENTS_COMPENSATED = "crm.account.sale-involvements-compensated";
+    public static final int SALE_INVOLVEMENTS_COMPENSATED_V = 1;
+
+    /**
+     * order-service → anyone: the sale reached core consistency (ADR-018 §7).
+     *
+     * <p>The ONE terminal fact reactions subscribe to, and the only message in this
+     * catalog that is choreography rather than orchestration: it is published after the
+     * saga is COMPLETED, so a consumer that fails cannot fail the sale.
+     */
+    public static final String SALE_COMPLETED = "crm.sale.sale-completed";
+    public static final int SALE_COMPLETED_V = 1;
+
+    // ---------------------------------------------------------------------------
     // Aggregate type names (envelope aggregateType + Debezium routing field, §9).
     // ---------------------------------------------------------------------------
 
@@ -63,6 +133,19 @@ public final class MessageTypes {
             case ORDER_SUBMITTED -> ORDER_SUBMITTED_V;
             case PRODUCTS_CREATED -> PRODUCTS_CREATED_V;
             case PRODUCTS_LINKED -> PRODUCTS_LINKED_V;
+            case CHECK_SALE_ACCOUNT -> CHECK_SALE_ACCOUNT_V;
+            case SALE_ACCOUNT_CHECKED -> SALE_ACCOUNT_CHECKED_V;
+            case PREPARE_SALE_PRODUCTS -> PREPARE_SALE_PRODUCTS_V;
+            case SALE_PRODUCTS_PREPARED -> SALE_PRODUCTS_PREPARED_V;
+            case LINK_SALE_PRODUCTS -> LINK_SALE_PRODUCTS_V;
+            case SALE_PRODUCTS_LINKED -> SALE_PRODUCTS_LINKED_V;
+            case ACTIVATE_SALE_PRODUCTS -> ACTIVATE_SALE_PRODUCTS_V;
+            case SALE_PRODUCTS_ACTIVATED -> SALE_PRODUCTS_ACTIVATED_V;
+            case COMPENSATE_SALE_PRODUCTS -> COMPENSATE_SALE_PRODUCTS_V;
+            case SALE_PRODUCTS_COMPENSATED -> SALE_PRODUCTS_COMPENSATED_V;
+            case COMPENSATE_SALE_INVOLVEMENTS -> COMPENSATE_SALE_INVOLVEMENTS_V;
+            case SALE_INVOLVEMENTS_COMPENSATED -> SALE_INVOLVEMENTS_COMPENSATED_V;
+            case SALE_COMPLETED -> SALE_COMPLETED_V;
             default -> throw new IllegalArgumentException("Unknown message type: " + messageType);
         };
     }

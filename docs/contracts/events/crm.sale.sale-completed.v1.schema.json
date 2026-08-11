@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.sale.sale-completed.v1.schema.json",
+  "title": "crm.sale.sale-completed, payload v1",
+  "description": "The SALE's terminal fact (ADR-018 §7). Destination: crm.sale.evt.sale-completed.v1. Produced by order-service in the SAME transaction that moves the saga to COMPLETED, and ONLY from that transition — so a consumer can never observe it for a sale that is not complete. This is the CHOREOGRAPHY seam (ADR-017 §2): by the time it exists the products are ACTV and linked to the account, so a reaction that fails cannot fail the sale. The test for whether a new requirement belongs here or in the saga is 'if this step fails, must the sale be undone?' — no means here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "accountNumber"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The KR-12 number, which is also the sagaId and the envelope aggregateId."
+    },
+    "accountNumber": { "type": "string", "pattern": "^\\d{10}$" },
+    "customerNumber": {
+      "type": ["integer", "null"],
+      "description": "As reported by account-service during the saga, never client-supplied."
+    },
+    "productIds": {
+      "type": ["array", "null"],
+      "items": { "type": "integer" },
+      "description": "The products this sale created, now ACTV and linked to the account."
+    },
+    "totalAmount": {
+      "type": ["number", "null"],
+      "description": "The order's stored amount snapshot. Non-normative demo fixtures feed it (ADR-018 §2)."
+    }
+  }
+}

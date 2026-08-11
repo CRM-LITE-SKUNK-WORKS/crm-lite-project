@@ -1,0 +1,123 @@
+# order-service, Spring profile "async-sale" — the LIVE asynchronous SALE flow (ADR-018).
+#
+# Layered ON TOP of order-service.yml, which is unchanged and still ships every messaging
+# switch OFF. That separation is the whole point: a developer who runs the stack without
+# this profile gets exactly today's behaviour and needs no Kafka at all, while turning the
+# real flow on is one environment variable:
+#
+#   SPRING_PROFILES_ACTIVE=async-sale
+#
+# Without it POST /api/orders/{n}/submit answers 503 MSG-SERVICE-UNAVAILABLE rather than
+# accepting a sale nothing can process (SaleDraftServiceImpl#requireAsyncSaleAvailable) —
+# failing closed instead of issuing a 202 for work that would never start.
+
+spring:
+  cloud:
+    stream:
+      # Spring Cloud Stream auto-discovers a SINGLE function bean; with six consumers it
+      # must be told which ones to bind. Missing or misspelling a name here is a binding
+      # that silently never receives anything, so the list is exactly the six @Bean names
+      # on SaleSagaStreamAdapter.
+      function:
+        definition: saleAccountChecked;saleProductsPrepared;saleProductsLinked;saleProductsActivated;saleProductsCompensated;saleInvolvementsCompensated
+      kafka:
+        bindings:
+          # A message this build cannot parse or version is terminal (ADR-017 §8.3);
+          # parking it is what keeps it from blocking everything behind it on the
+          # partition. Named per Destinations#deadLetter.
+          saleAccountChecked-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.account.evt.sale-account-checked.v1.dlq
+          saleProductsPrepared-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.product.evt.sale-products-prepared.v1.dlq
+          saleProductsLinked-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.account.evt.sale-products-linked.v1.dlq
+          saleProductsActivated-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.product.evt.sale-products-activated.v1.dlq
+          saleProductsCompensated-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.product.evt.sale-products-compensated.v1.dlq
+          saleInvolvementsCompensated-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.account.evt.sale-involvements-compensated.v1.dlq
+      bindings:
+        # <function-bean-name>-in-0 by Spring Cloud Stream convention. group is
+        # <consumer-service>.<destination> (Destinations#consumerGroup) and is also the
+        # value written to the Inbox consumer_group column — every instance of this
+        # service must share one group or the same reply gets applied once per instance.
+        #
+        # max-attempts: 1 on every one of them. The retry policy is the transport's
+        # redelivery plus the Inbox duplicate guard (ADR-017 §8.3); a second, in-memory
+        # retry loop here would only re-run a handler whose transaction already rolled
+        # back, while holding up the partition.
+        saleAccountChecked-in-0:
+          destination: crm.account.evt.sale-account-checked.v1
+          group: order-service.crm.account.evt.sale-account-checked.v1
+          consumer:
+            max-attempts: 1
+        saleProductsPrepared-in-0:
+          destination: crm.product.evt.sale-products-prepared.v1
+          group: order-service.crm.product.evt.sale-products-prepared.v1
+          consumer:
+            max-attempts: 1
+        saleProductsLinked-in-0:
+          destination: crm.account.evt.sale-products-linked.v1
+          group: order-service.crm.account.evt.sale-products-linked.v1
+          consumer:
+            max-attempts: 1
+        saleProductsActivated-in-0:
+          destination: crm.product.evt.sale-products-activated.v1
+          group: order-service.crm.product.evt.sale-products-activated.v1
+          consumer:
+            max-attempts: 1
+        saleProductsCompensated-in-0:
+          destination: crm.product.evt.sale-products-compensated.v1
+          group: order-service.crm.product.evt.sale-products-compensated.v1
+          consumer:
+            max-attempts: 1
+        saleInvolvementsCompensated-in-0:
+          destination: crm.account.evt.sale-involvements-compensated.v1
+          group: order-service.crm.account.evt.sale-involvements-compensated.v1
+          consumer:
+            max-attempts: 1
+
+crm:
+  messaging:
+    broker:
+      enabled: true
+    outbox:
+      enabled: true
+      relay:
+        # The IN-PROCESS relay (ADR-017 §9.2) is the default here because it needs only
+        # Kafka, not Kafka Connect — so `docker compose --profile eventing up -d` plus
+        # this profile is a complete, demonstrable asynchronous sale.
+        #
+        # MUTUALLY EXCLUSIVE with the Debezium Outbox Event Router (ADR-017 §9.3): both
+        # read the same rows, so running both publishes every message twice. If you
+        # register the connectors, set this to false.
+        enabled: true
+  order:
+    # Saga recovery (ADR-018 §8). Broker-independent by construction: none of it is a
+    # Kafka setting. It answers the problem the transport cannot see — a command that was
+    # published successfully and simply never answered.
+    saga:
+      recovery-enabled: true
+      recovery-interval: 15s
+      reply-timeout: 30s
+      max-retries: 5
+      retry-backoff-multiplier: 2.0
+      max-retry-delay: 5m
+      stuck-after: 2m
+      draft:
+        # Drafts the browser never came back for. Cancels; never submits.
+        cleanup-enabled: true
+        stale-after: 2h

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.check-sale-account.v1.schema.json",
+  "title": "crm.account.check-sale-account, payload v1 (COMMAND)",
+  "description": "Step 1 of the SALE saga (ADR-018 §5). order-service asks account-service whether this billing account may still be sold into. A COMMAND: exactly one intended handler, and a command nobody handles is a stuck sale rather than an unread fact. Destination: crm.account.cmd.check-sale-account.v1. Envelope aggregateType=order, aggregateId=sagaId=orderNumber. Re-asked here even though Submit already checked, because an account can be passivated between Submit and fulfilment.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "accountNumber"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The KR-12 number, which IS the sagaId (ADR-018 §3). Carried in the body as well as the envelope because no business decision may be made from anything outside the payload contract (ADR-017 §7.7)."
+    },
+    "accountNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The KR-11 billing account fixed when the draft was created. Not accepted from the browser at Submit — it is read from the draft."
+    }
+  }
+}

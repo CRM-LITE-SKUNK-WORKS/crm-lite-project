@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.sale-products-linked.v1.schema.json",
+  "title": "crm.account.sale-products-linked, payload v1",
+  "description": "The outcome of the involvement write (ADR-018 §5). Destination: crm.account.evt.sale-products-linked.v1. Distinct from crm.account.products-linked, which is the terminal choreography fact the LEGACY synchronous route publishes: that one says 'the sale is real', this one says 'here is how your step went'. Merging them would make a saga reply look like a terminal fact to every choreography consumer.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "result"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$"
+    },
+    "result": {
+      "enum": ["SUCCEEDED", "FAILED"]
+    },
+    "failureCode": {
+      "type": ["string", "null"]
+    },
+    "failureMessageKey": {
+      "type": ["string", "null"],
+      "pattern": "^MSG-[A-Z0-9-]+$",
+      "description": "MSG-ACCT-NOT-ACTIVE if the account was passivated mid-sale, MSG-ACCT-NOT-FOUND if it vanished. A FAILED outcome here means PNDG products exist that no account claims — the orchestrator compensates them and stops."
+    },
+    "customerNumber": {
+      "type": ["integer", "null"],
+      "description": "Unused by this step; part of account-service's shared outcome shape."
+    },
+    "productIds": {
+      "type": ["array", "null"],
+      "items": { "type": "integer" },
+      "description": "SUCCEEDED only: the ids now linked to the account."
+    }
+  }
+}

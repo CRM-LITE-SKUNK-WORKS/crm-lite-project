@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.product.activate-sale-products.v1.schema.json",
+  "title": "crm.product.activate-sale-products, payload v1 (COMMAND)",
+  "description": "Step 4 of the SALE saga (ADR-018 §5): promote this sale's PNDG products to ACTV. Destination: crm.product.cmd.activate-sale-products.v1. Deliberately AFTER the involvement — the reverse of the synchronous ADR-016 §5 ordering — because a product must not be committed while no account claims it. The cost is that an activation failure has an involvement to undo, which is what the involvement compensation exists for. Idempotent: ids that are no longer PNDG are skipped, so a reissued command is a no-op.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "productIds"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$"
+    },
+    "productIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "integer" }
+    }
+  }
+}

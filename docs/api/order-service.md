@@ -1,6 +1,6 @@
 # order-service API — Product Sale and Orders (FR-SALE-01..02)
 
-Last updated: 2026-08-05. Source requirements: FR/AC **v8-2 (03.08.2026)**
+Last updated: 2026-08-10 (ADR-018 asynchronous SALE cutover). Source requirements: FR/AC **v8-2 (03.08.2026)**
 §2.7 (SALE-02-01/SALE-01 validation wording clarified from v8-1; no behavioral
 change — see `docs/requirements/document-delta.md`). Architecture: **ADR-016**
 (boundary, KR-12 order number, sale orchestration),
@@ -16,15 +16,26 @@ token with role `crm-user`; browser cookies never reach this service. Swagger:
 unified gateway UI (`http://localhost:8080/swagger-ui.html`, dropdown entry
 `order-service`, ADR-012).
 
-> **KR-12 awaits analyst sign-off.** The Order Number format is a *project-proposed*
-> rule (ADR-016 §4), recorded at the same level as the invented offer prices. It is
-> labelled KR-12 (project-proposed) everywhere, never as analyst-issued.
+> **KR-12 is settled (10.08.2026).** The analyst required the Order ID to be **unique**
+> and said a simple increasing sequence would suffice, leaving any rule to the technical
+> team. The existing format is therefore a **project technical choice that satisfies an
+> analyst requirement** — not analyst-mandated, and no longer an open sign-off. It is
+> unchanged (ADR-018 §1.2).
+
+> **The live SALE flow is asynchronous (ADR-018, 10.08.2026).** `POST /api/orders` below
+> is the **deprecated** synchronous route, kept for the currently merged frontend and as
+> the rollback path. New clients use the draft → submit → poll contract in
+> *Asynchronous SALE* at the bottom of this page.
 
 ## Endpoints (complete list — deliberately nothing else)
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/api/orders` | Submit Order — the whole sale, one atomic command (AC-SALE-01-15) |
+| POST | `/api/orders/drafts` | Start New Sale — creates the WAIT order and its Order Number (ADR-018) |
+| DELETE | `/api/orders/{orderNumber}/draft` | Cancel before submit — WAIT only, idempotent |
+| POST | `/api/orders/{orderNumber}/submit` | Confirm Submit — **202**, the saga starts (AC-SALE-01-15) |
+| GET | `/api/orders/{orderNumber}/status` | Business status + asynchronous processing status |
+| POST | `/api/orders` | **DEPRECATED** — the legacy synchronous whole-sale command |
 | GET | `/api/orders/{orderNumber}` | Order detail by its KR-12 public number |
 
 **What is absent, and why:**
@@ -32,11 +43,13 @@ unified gateway UI (`http://localhost:8080/swagger-ui.html`, dropdown entry
 - **No order-cancel endpoint.** KR-7 leaves cancellation out of phase and no AC moves
   an order out of `MIDLWARE`. `CANCELLED` is reached only by the orchestration's own
   compensation (ADR-016 §6).
-- **No basket endpoints, no basket table.** The basket is frontend/session state; the
-  backend learns about a sale exactly once, at Submit. That is what makes
-  **AC-SALE-01-16** ("an abandoned sale must never be processed later") true by
-  construction rather than by a cleanup job — there is nothing to abandon. LBL-PREVIOUS
-  (AC-SALE-01-13/14) is likewise a pure frontend concern.
+- **No basket endpoints, no basket table.** The basket is still frontend/session state;
+  the backend learns about it exactly once, at Submit. ADR-018's draft creates the
+  **order** early, not the basket — so **AC-SALE-01-16** ("an abandoned sale must never
+  be processed later") is still true by construction: a WAIT draft has no items, no
+  products, no saga and no command naming it, so nothing can process it whether or not
+  the browser ever calls the abandon endpoint. LBL-PREVIOUS (AC-SALE-01-13/14) is
+  likewise a pure frontend concern.
 - **No order list.** No FR asks for one, and inventing a list contract means inventing
   sorting, filtering and pagination rules an analyst has not written.
 
@@ -222,7 +235,7 @@ validationErrors}` shape.
   analyst catalog names no order outcomes, because §2.7 never describes an order being
   looked up or refused. EN/TR suggestions: *"Order not found." / "Sipariş bulunamadı."*
 
-## KR-12 Order Number (project-proposed — ADR-016 §4)
+## KR-12 Order Number (a project format satisfying the analyst's uniqueness requirement — ADR-016 §4, ADR-018 §1.2)
 
 `[T][YY][SSSSSS][C]` — deliberately the exact shape KR-11 defines for account numbers:
 segment `1` (NEWSALE this phase) + last two year digits + per-segment/per-year sequence
@@ -267,13 +280,24 @@ The workbook itself is never edited; all of these are also in
    is never used. No FR/AC covers them (ADR-016 §6/§8.2) — flagged for analysts, not
    built.
 
-## Database (`order_db`, Flyway V1–V3)
+## Database (`order_db`, Flyway V1–V5)
 
-Five tables: `bsn_inter`, `cust_ord`, `cust_ord_item`, `order_number_seq`,
+Eight tables: `bsn_inter`, `cust_ord`, `cust_ord_item`, `order_number_seq`,
 `idempotency_key` (V3, ADR-016 idempotency addendum — project bookkeeping, not a
 workbook table; holds the key, the normalized request hash, status, the order number
 once known, a response snapshot + HTTP status, created/updated timestamps and a
-retention `expires_at`).
+retention `expires_at`), `outbox_message` + `inbox_message` (V4, ADR-017), and
+`sale_saga` (V5, ADR-018).
+
+`sale_saga` is keyed by `saga_id` = the KR-12 order number, with
+`CHECK (saga_id = order_number)` — the equality is the identity decision, and a
+constraint is the only documentation a future migration cannot silently contradict. It
+carries the internal state, an optimistic-lock `version`, the retry budget and due time,
+the operator-facing failure code and the client-safe failure message key, the causing
+message id, and two JSON columns: the submitted basket snapshot (the characteristic
+values live nowhere else in `order_db`) and the product ids. It is owned by
+order-service alone — **no service reads another's saga state, and there is no
+cross-database foreign key.**
 
 - **No local `gnl_st`/`gnl_tp` table, no local catalog seed, no cross-database FK**
   (ADR-002) — asserted by an integration test over `information_schema`. `status_id`
@@ -424,27 +448,129 @@ curl -sS -H "Accept: application/json" \
 - **Frontend is out of scope** — Offer Selection, Product Configuration and Submit
   Order screens are a separate follow-up (ADR-016 §9).
 
-## Eventing foundation (ADR-017, 2026-08-07) — **this contract is unchanged**
+## Asynchronous SALE (ADR-018, 2026-08-10) — **the live flow**
 
-The reliable-messaging foundation landed in this repository on 2026-08-07: a transactional
-Outbox in `order_db`, a versioned event envelope, and a broker boundary. **None of it
-changes anything on this page.** `POST /api/orders` still runs the synchronous ADR-016 §5
-orchestration, returns the same statuses and the same message keys, and still requires the
-same `Idempotency-Key`.
+Everything above describes the **deprecated** synchronous route. This section is what a
+new client uses. Both exist until the frontend PR moves the browser over; **one sale can
+never enter both** — the legacy endpoint always creates a NEW order, already `MIDLWARE`,
+and `POST .../submit` accepts only a `WAIT` draft.
 
-What exists but is switched off (`crm.messaging.outbox.enabled=false`,
-`.relay.enabled=false`, `crm.messaging.broker.enabled=false`):
+### Why an order exists before Submit
 
-- `OrderPersistence#persistOrder` would record **`crm.order.order-submitted` v1** to
-  `outbox_message` **inside the same transaction** that writes `bsn_inter` / `cust_ord` /
-  `cust_ord_item`. Nothing consumes it.
-- The envelope's `sagaId` is **the client's `Idempotency-Key`** — one sale, one id, so a
-  request traced through this API and the messages it produces share an identifier.
-  Nothing else about the header's behaviour changes (see §Idempotency above).
-- Payload contract: `docs/contracts/events/crm.order.order-submitted.v1.schema.json`.
+The analyst clarified on 2026-08-10 that *"records should already be created in the
+relevant tables… because the order has not yet been completed/approved their status is not
+MIDLWARE… therefore the Order ID may be displayed at this point."* The workbook's existing
+`GNL_ST WAIT (3, ORDER)` is that status — **no new status row is invented**. This
+supersedes ADR-016 §8.3's "order number only after submission".
 
-When the cutover happens it will be a separate branch with its own ADR amendment, and
-**this page will change** — statuses, timing and possibly the response shape. Until then,
-treat everything above the line as the whole truth about `/api/orders`.
+```
+Start New Sale   POST /api/orders/drafts              → 201  WAIT      Order Number visible
+Confirm Submit   POST /api/orders/{n}/submit          → 202  MIDLWARE  saga starts
+poll             GET  /api/orders/{n}/status          → 200  ...       PROCESSING → COMPLETED / FAILED
+cancel first     DELETE /api/orders/{n}/draft         → 204  CANCELLED WAIT only
+```
 
-Operations: `docs/runbooks/eventing.md`.
+### `POST /api/orders/drafts` → 201
+
+`Idempotency-Key` required (UUID). Body is one field:
+
+```json
+{ "accountNumber": "1261000010" }
+```
+
+The customer number is resolved **from the billing account**, never accepted from the
+browser. The account must exist and be **Active** (`404 MSG-ACCT-NOT-FOUND` /
+`409 MSG-ACCT-NOT-ACTIVE`). Creates `bsn_inter` + `cust_ord` with status `WAIT` and
+allocates the KR-12 number. **No product, no saga, no message.**
+
+A replayed key returns the first response — one draft, not two.
+
+### `DELETE /api/orders/{orderNumber}/draft` → 204
+
+Idempotent, and **`WAIT` only**: a submitted order is `409 MSG-ORDER-NOT-DRAFT`. That
+guard is what stops this from becoming the post-submit order cancellation KR-7 keeps out
+of phase. No `Idempotency-Key` — DELETE of a named resource is idempotent by identity.
+
+A draft the browser simply abandons is cancelled by a configurable cleanup job, which
+**only ever cancels**; there is no code path anywhere that can submit or fulfil a draft.
+
+### `POST /api/orders/{orderNumber}/submit` → 202
+
+`Idempotency-Key` required — a **different** key from the draft's (see §Idempotency
+below). Body is the basket, without `accountNumber` (it is read from the draft):
+
+```json
+{ "serviceAddressId": 1, "campaignId": "CMP-ADSL-01",
+  "items": [ { "offerId": 1, "characteristics": [ { "characteristicId": 1, "value": "16" } ] } ] }
+```
+
+In **one `order_db` transaction**: the order items, `WAIT → MIDLWARE`, the saga row, and
+the saga's first Outbox command. The 202 is returned after that commit and **never** waits
+for product-service or account-service.
+
+```
+HTTP/1.1 202 Accepted
+Location: /api/orders/1261000018/status
+{ "orderNumber": "1261000018", "orderStatus": "MIDLWARE",
+  "processingStatus": "PROCESSING", "failureMessageKey": null, "updatedAt": "..." }
+```
+
+202 rather than 201 because a 201 promises a created resource whose state is what the body
+says, and after Submit the products do not exist yet.
+
+Outcomes: `404 MSG-ORDER-NOT-FOUND`, `409 MSG-ORDER-NOT-DRAFT` (not WAIT, or the basket
+does not belong to this draft's account), `409 MSG-ACCT-NOT-ACTIVE`,
+`503 MSG-SERVICE-UNAVAILABLE` when asynchronous processing is not enabled in this
+environment (fail closed — see *Enabling it* below).
+
+### `GET /api/orders/{orderNumber}/status` → 200
+
+```json
+{ "orderNumber": "1261000018", "orderStatus": "MIDLWARE",
+  "processingStatus": "COMPLETED", "failureMessageKey": null, "updatedAt": "..." }
+```
+
+**Two axes, and they are not redundant.** `orderStatus` is the analyst's GNL_ST value
+(`WAIT` / `MIDLWARE` / `CANCELLED`); `processingStatus` is this service's own contract
+(`DRAFT` / `PROCESSING` / `COMPLETED` / `FAILED`) and is **not** in GNL_ST. A completed
+sale is `MIDLWARE` + `COMPLETED`, because MIDLWARE is what the analyst defined at approval
+and no accepted requirement defines another terminal ORDER status.
+
+`failureMessageKey` appears only on a terminal failure and is always a catalog key —
+product-service's own `MSG-SALE-*` where the basket was rejected,
+`MSG-SERVICE-UNAVAILABLE` for a genuine outage, `MSG-SALE-FAILED` as the approved general
+fallback, `MSG-SALE-DRAFT-ABANDONED` for a draft that was cancelled before submit.
+**Never** an exception message or a stack trace.
+
+Internal saga states are richer than these four (`COMPENSATING_INVOLVEMENT`,
+`MANUAL_INTERVENTION`, …). They are visible to operations through `sale_saga` and the
+`crm_saga_*` metrics, never through this endpoint.
+
+### Idempotency for the asynchronous endpoints
+
+One `Idempotency-Key` identifies **one HTTP command**, not one sale — the sale's identity
+is the order number, which is also the `sagaId`. Draft creation and submission therefore
+take **two independent keys**. Both endpoints hash the request *path* along with the body,
+so reusing one key across them is `409 MSG-IDEMPOTENCY-KEY-CONFLICT` rather than a replay
+of the wrong command's response. (This supersedes ADR-017 §5.1, where the sagaId *was* the
+Idempotency-Key.)
+
+### The saga, in one paragraph
+
+order-service orchestrates: check the account → prepare the products as PNDG → link them
+to the account → activate them → publish `crm.sale.sale-completed` for choreography-only
+reactions. Products stay **PNDG until the involvement exists**, so an activation failure
+compensates the involvement first and the products second. A failure before any product
+exists just cancels the order. A compensation that itself fails goes to
+`MANUAL_INTERVENTION` and the order stays `MIDLWARE` — `CANCELLED` would assert an undo
+that did not happen. Commands are reissued by a bounded recovery job when no reply
+arrives; every one of them is idempotent at its receiver. Contracts:
+`docs/contracts/events/`, registry: `docs/contracts/events/registry.md`.
+
+### Enabling it
+
+One Spring profile — `SPRING_PROFILES_ACTIVE=async-sale` — turns on the broker, the
+Outbox and one relay for order/product/account-service. Without it every messaging switch
+stays `false`, no binder is instantiated, the stack runs with **no Kafka at all**, and
+`POST .../submit` answers `503 MSG-SERVICE-UNAVAILABLE` rather than accepting a sale
+nothing can process. Operations: `docs/runbooks/eventing.md`.

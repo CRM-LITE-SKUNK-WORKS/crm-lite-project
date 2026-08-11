@@ -25,10 +25,13 @@ import org.junit.jupiter.api.condition.EnabledIf;
  * classpath. The constant pool, by contrast, contains every type the class actually
  * depends on, which is the property the rule is really about.
  *
- * <p>The allowed exception is the adapter package (there are none in order-service today —
- * it is a producer only, and even its publisher lives in the shared starter). The rule is
- * not "Kafka is banned": it is that Kafka lives in exactly one nameable place, so a reader
- * can find the broker boundary by looking at package names.
+ * <p>The allowed exception is {@code com.crm.order.messaging.adapter}, which since ADR-018
+ * holds the six functional bindings that receive the SALE saga's replies. The rule is not
+ * "Kafka is banned": it is that Kafka lives in exactly one nameable place, so a reader can
+ * find the broker boundary by looking at package names. The second test asserts the
+ * exemption is <b>load-bearing</b> — if someone moves a binding into the service layer the
+ * first test fails, and if someone deletes the adapters and quietly keeps the exemption,
+ * the third one does.
  *
  * <p>Skipped when {@code target/classes} is absent (an IDE running tests without a Maven
  * compile), rather than passing vacuously — a guard test that silently checks nothing is
@@ -42,10 +45,7 @@ class NoBrokerTypesInDomainOrApplicationTest {
             "org/springframework/kafka/",
             "org/springframework/cloud/stream/");
 
-    /**
-     * Packages permitted to see the broker. Empty for order-service by design; the
-     * constant exists so the exception is stated rather than implied by an absence.
-     */
+    /** The one package permitted to see the broker (ADR-017 §4). */
     private static final List<String> ADAPTER_PACKAGES = List.of(
             "com/crm/order/messaging/adapter/");
 
@@ -87,6 +87,37 @@ class NoBrokerTypesInDomainOrApplicationTest {
                         + "Move the dependency into a *.messaging.adapter package, or express it "
                         + "through the OutboxPublisher / MessageHandler ports.")
                 .isEmpty();
+    }
+
+    /**
+     * The exemption must be earning its keep. If the adapter package stopped referencing
+     * the transport, the rule above would still "pass" while protecting nothing — and the
+     * next person to add a binding would have no reason to put it in the right place.
+     */
+    @Test
+    @EnabledIf("compiledClassesExist")
+    @DisplayName("the adapter package really does reference the transport — the exemption is load-bearing")
+    void adapterPackageActuallyUsesTheTransport() throws IOException {
+        Path adapters = classesRoot().resolve(Paths.get("messaging", "adapter"));
+        assertThat(Files.isDirectory(adapters))
+                .as("ADR-018 puts the SALE saga's stream bindings in com.crm.order.messaging.adapter")
+                .isTrue();
+
+        boolean referencesTransport = false;
+        try (Stream<Path> classFiles = Files.walk(adapters)) {
+            for (Path classFile : classFiles.filter(p -> p.toString().endsWith(".class")).toList()) {
+                String bytecode = new String(Files.readAllBytes(classFile), StandardCharsets.ISO_8859_1);
+                if (bytecode.contains("org/springframework/messaging/")
+                        || FORBIDDEN.stream().anyMatch(bytecode::contains)) {
+                    referencesTransport = true;
+                    break;
+                }
+            }
+        }
+        assertThat(referencesTransport)
+                .as("if the adapter package no longer touches the transport, the exemption above "
+                        + "is protecting nothing and should be removed rather than left as decoration")
+                .isTrue();
     }
 
     @Test

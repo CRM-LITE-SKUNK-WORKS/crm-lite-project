@@ -1,0 +1,65 @@
+# product-service, Spring profile "async-sale" — the LIVE asynchronous SALE flow (ADR-018).
+#
+# Layered ON TOP of product-service.yml, which is unchanged and still ships every
+# messaging switch OFF. Activate with SPRING_PROFILES_ACTIVE=async-sale.
+#
+# POST /api/products is untouched and still serves the legacy synchronous orchestration.
+# The three consumers below route into the SAME ProductService methods, so basket
+# composition, characteristic validation, the PNDG lifecycle and the sale-scoped
+# compensation guard exist in exactly one place.
+
+spring:
+  cloud:
+    stream:
+      # orderSubmitted is the pre-existing observe-only consumer from ADR-017; the three
+      # sale* ones are the saga commands. All four must be listed — Spring Cloud Stream
+      # auto-discovers only a single function bean.
+      function:
+        definition: orderSubmitted;prepareSaleProducts;activateSaleProducts;compensateSaleProducts
+      kafka:
+        bindings:
+          prepareSaleProducts-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.product.cmd.prepare-sale-products.v1.dlq
+          activateSaleProducts-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.product.cmd.activate-sale-products.v1.dlq
+          compensateSaleProducts-in-0:
+            consumer:
+              enable-dlq: true
+              dlq-name: crm.product.cmd.compensate-sale-products.v1.dlq
+      bindings:
+        # max-attempts: 1 — the retry policy is the transport's redelivery plus the Inbox
+        # duplicate guard, not an in-memory loop that re-runs a rolled-back handler while
+        # holding the partition (ADR-017 §8.3).
+        prepareSaleProducts-in-0:
+          destination: crm.product.cmd.prepare-sale-products.v1
+          group: product-service.crm.product.cmd.prepare-sale-products.v1
+          consumer:
+            max-attempts: 1
+        activateSaleProducts-in-0:
+          destination: crm.product.cmd.activate-sale-products.v1
+          group: product-service.crm.product.cmd.activate-sale-products.v1
+          consumer:
+            max-attempts: 1
+        compensateSaleProducts-in-0:
+          destination: crm.product.cmd.compensate-sale-products.v1
+          group: product-service.crm.product.cmd.compensate-sale-products.v1
+          consumer:
+            max-attempts: 1
+
+crm:
+  messaging:
+    broker:
+      enabled: true
+    outbox:
+      # Required, not optional: the saga's reply events are recorded here, so a
+      # product-service with the outbox off would consume commands and answer nothing —
+      # every sale would then stall until the recovery job escalated it.
+      enabled: true
+      relay:
+        # In-process relay. Mutually exclusive with Debezium (ADR-017 §9.3) — set false
+        # if you register the connectors.
+        enabled: true

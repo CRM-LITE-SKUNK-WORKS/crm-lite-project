@@ -43,4 +43,19 @@ public class ProductInvolvement extends StatusAwareEntity {
 
     @Column(name = "short_code", nullable = false, length = 20)
     private String shortCode;
+
+    /**
+     * The SALE saga that created this row — the KR-12 order number (ADR-018 §7).
+     *
+     * <p>NULL for every row written by the V3 seed or by the synchronous ADR-016 §5
+     * orchestration, and that is the safe default rather than a gap: the saga-scoped
+     * compensation matches on this column exclusively, so a row with no owner can never
+     * be passivated by any saga.
+     *
+     * <p>An ownership guard, not a feature. Nothing reads it except that compensation,
+     * and no endpoint exposes it — there is still no user-facing way to unlink a product
+     * from an account (ADR-013 §8.6).
+     */
+    @Column(name = "sale_operation_id", length = 64)
+    private String saleOperationId;
 }

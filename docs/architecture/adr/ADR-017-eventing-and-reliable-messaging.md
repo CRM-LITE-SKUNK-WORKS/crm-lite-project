@@ -18,6 +18,29 @@ involvement — the SALE's commit point), **ADR-002** (no cross-database access)
 Debezium containers are behind an opt-in Compose profile. Nothing in this document should
 be read as a claim that an end-to-end asynchronous sale has run.
 
+> ### Addendum 2026-08-10 — the cutover happened (ADR-018)
+>
+> **Everything above and below is preserved as written on 2026-08-07 and is still the
+> record of what was decided then.** Two things about it are no longer current, and both
+> are changed by **ADR-018**, not by editing this document:
+>
+> 1. **The "not done here" paragraph and the paragraph above it.** The asynchronous SALE
+>    cutover *has* been performed. `POST /api/orders` is now the deprecated route; the live
+>    flow is draft → 202 submit → poll, orchestrated by a persisted saga in order-service.
+>    The three switches still ship `false` **by default** — they are turned on by the
+>    `async-sale` Spring profile — so the sentence "every switch ships false" remains
+>    literally true of the base configuration.
+> 2. **§5.1 (`sagaId` is the client's `Idempotency-Key`) is SUPERSEDED by ADR-018 §3.**
+>    Its reasoning was sound for its time and is worth keeping: before ADR-018 a sale had
+>    no identity of its own until it was submitted. The analyst's decision that the order
+>    exists *before* Submit removed that constraint, so `sagaId = orderNumber` and the
+>    `Idempotency-Key` now identifies one HTTP command rather than one sale.
+>
+> Everything else here — the envelope, the naming conventions, the service-local
+> Outbox/Inbox, the two relays and their mutual exclusion, the dead-letter policy, the
+> package boundary and its bytecode guard, the metrics — is unchanged and is what ADR-018
+> is built on.
+
 ## Context
 
 ADR-016 §5 states the problem plainly: the sale writes to three databases with no

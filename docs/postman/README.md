@@ -6,7 +6,7 @@ MERNIS stub, negative scenarios). Collection schema: **Postman v2.1**.
 
 | File | Purpose |
 |---|---|
-| `CRM-Lite.postman_collection.json` | The collection (folders 00–10) |
+| `CRM-Lite.postman_collection.json` | The collection (folders 00–12) |
 | `CRM-Lite.local.postman_environment.json` | Local environment: base URLs + dynamic variables. **Contains no secrets and no tokens** |
 
 ## Authentication (READ FIRST — ADR-006..008)
@@ -89,6 +89,26 @@ Folders are numbered in the intended order. Within these folders order matters:
   too. The last two requests exercise account-service's internal
   `/product-ids` read endpoint (ADR-013 §5 read side), which product-service
   normally calls directly via Eureka rather than through the gateway.
+- **12 - Asynchronous SALE (FR-SALE, ADR-018)**: **run top-to-bottom, order matters**
+  — each request stores what the next one needs (`draftOrderNumber`,
+  `submitOrderNumber`, `abandonOrderNumber`).
+
+  **Prerequisite:** the three sale services must be running with
+  `SPRING_PROFILES_ACTIVE=async-sale` and the Compose `eventing` profile up
+  (`docker compose --profile eventing up -d`). Without them the *Submit draft*
+  request answers **503 `MSG-SERVICE-UNAVAILABLE`** — that is the intended
+  fail-closed behaviour (ADR-018 §10), not a broken collection: accepting a 202
+  for a sale nothing can process would be the actual bug.
+
+  The *Poll status until terminal* request **re-runs itself** (`setNextRequest`)
+  while `processingStatus` is `PROCESSING`, bounded at 20 attempts so a genuinely
+  stuck saga fails the run instead of looping. Expected end state: `orderStatus`
+  `MIDLWARE` **+** `processingStatus` `COMPLETED` — a completed sale stays MIDLWARE,
+  because no accepted requirement defines another terminal ORDER status.
+
+  The deprecated synchronous `POST /api/orders` is deliberately **not** in the
+  collection: one sale must never enter both routes, and the folder's
+  *Submit the SAME order again with a NEW key* request is what proves the guard.
 - Other folders are order-independent.
 
 Business requests go through `{{gatewayBaseUrl}}` (port 8080) and need the
@@ -110,6 +130,10 @@ Test scripts write values back into the environment:
 | `addressId` | *05 / List addresses* (first row of seed customer 1001) | set-primary-back in folder 05 |
 | `createdAddressId` | *05 / Create address* (from the 201 response) | PUT update, set primary, delete in folder 05 |
 | `createdAccountNumber` | *10 / Create billing account* (from the 201 response) | update, delete and Passive-policy checks in folder 10 |
+| `draftIdemKey` / `submitIdemKey` | *12* pre-request scripts (`{{$guid}}`) | the two duplicate-key replay checks — deliberately **two different** keys, because one `Idempotency-Key` identifies one HTTP command, not one sale (ADR-018 §3) |
+| `draftOrderNumber` | *12 / Create draft* (from the 201 response) | submit, status, and the not-a-draft check in folder 12 |
+| `submitOrderNumber` | *12 / Submit draft* (from the 202 response) | status polling and order detail in folder 12 |
+| `abandonOrderNumber` | *12 / Cancel before submit: create a second draft* | abandon, abandoned-status and abandoned-submit checks in folder 12 |
 
 Static defaults you may edit: `customerNumber` (1001), `cityId` (1), `districtId`
 (1), `nationalityId` (see the freshness rule above).

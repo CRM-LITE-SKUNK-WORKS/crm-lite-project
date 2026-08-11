@@ -212,6 +212,83 @@ public class OrderPersistence {
         }
     }
 
+    /**
+     * The asynchronous counterpart of {@link #attachProducts(long, ProductCreationResult)}
+     * (ADR-018 §5, step 2 reply): the same local write, addressed by order NUMBER and fed
+     * from a message rather than from an HTTP response.
+     *
+     * <p>Two methods and not one overload of a shared type, deliberately: the synchronous
+     * path's {@code ProductCreationResult} is an HTTP client DTO owned by
+     * {@code com.crm.order.product}, and making the saga depend on it would tie the
+     * message contract to the shape of a REST response that ADR-018 exists to stop using.
+     *
+     * <p>Runs in the caller's transaction — which for the saga is the one holding the
+     * Inbox claim and the outgoing command — so the order lines, the saga transition and
+     * the next command commit together.
+     */
+    @Transactional
+    public void attachProducts(String orderNumber, List<ProductSnapshot> products, BigDecimal totalAmount) {
+        CustomerOrder order = orderRepository.findByOrderNumberWithItems(orderNumber).orElseThrow(
+                () -> new IllegalStateException("No order " + orderNumber + " to attach products to"));
+        Map<Long, ProductSnapshot> byOffer = new LinkedHashMap<>();
+        products.forEach(product -> byOffer.put(product.offerId(), product));
+
+        String actor = actorProvider.get();
+        for (CustomerOrderItem item : order.getItems()) {
+            ProductSnapshot created = byOffer.get(item.getProductOfferId());
+            if (created == null) {
+                // product-service answered for a different offer set than was ordered.
+                // Throwing rolls back the whole reply — claim included — so the message
+                // is redelivered rather than leaving lines pointing at nothing.
+                throw new IllegalStateException("No product was reported for offer "
+                        + item.getProductOfferId() + " (order " + orderNumber + ")");
+            }
+            item.setProductId(created.productId());
+            item.setAmount(created.amount());
+            item.markUpdated(actor);
+        }
+        order.setTotalAmount(totalAmount == null ? sumOf(order) : totalAmount);
+        order.markUpdated(actor);
+        orderRepository.save(order);
+    }
+
+    /** One order line's authoritative facts as the preparing service reported them. */
+    public record ProductSnapshot(Long offerId, Long productId, BigDecimal amount) {
+    }
+
+    /**
+     * Cancel by public number, <b>propagating failure</b> — the asynchronous counterpart
+     * of {@link #cancelOrder(long, String)}.
+     *
+     * <p>The difference is the whole point. The synchronous version swallows, because it
+     * runs while a real exception is already on its way to the user and replacing that
+     * cause would misreport what went wrong. Here the cancel IS the work: a failure must
+     * roll the transaction back so the reply is redelivered, rather than committing a
+     * FAILED saga over an order still claiming to be MIDLWARE.
+     */
+    @Transactional
+    public void cancelByOrderNumber(String orderNumber, String reason) {
+        long cancelledStatusId = lookupCatalog.resolveStatusId("status",
+                LookupContract.STATUS_CANCELLED, LookupContract.STATUS_DOMAIN_ORDER);
+        CustomerOrder order = orderRepository.findByOrderNumberWithItems(orderNumber).orElseThrow(
+                () -> new IllegalStateException("No order " + orderNumber + " to cancel"));
+        String actor = actorProvider.get();
+        order.setStatusId(cancelledStatusId);
+        order.markUpdated(actor);
+        order.getBusinessInteraction().setStatusId(cancelledStatusId);
+        order.getBusinessInteraction().markUpdated(actor);
+        orderRepository.save(order);
+        log.warn("Order {} cancelled: {}", orderNumber, reason);
+    }
+
+    /** The order's amount snapshot, for the terminal SaleCompleted fact. */
+    @Transactional(readOnly = true)
+    public BigDecimal totalAmountOf(String orderNumber) {
+        return orderRepository.findByOrderNumberWithItems(orderNumber)
+                .map(CustomerOrder::getTotalAmount)
+                .orElse(null);
+    }
+
     @Transactional(readOnly = true)
     public OrderResponse read(long orderId) {
         return orderRepository.findById(orderId).map(mapper::toResponse).orElseThrow();

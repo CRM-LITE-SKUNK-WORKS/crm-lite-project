@@ -26,14 +26,19 @@ public class OrderMapper {
     }
 
     /**
-     * The ORDER-domain short code, derived from the stored external reference. Only
-     * two values are reachable (ADR-016 §6): MIDLWARE for every order a user sees,
-     * CANCELLED for a compensated one. Anything else would mean order_db holds a
-     * status this domain never writes, so it is surfaced as the raw id rather than
-     * guessed at — a wrong label is worse than an obviously odd one.
+     * The ORDER-domain short code, derived from the stored external reference. All
+     * THREE ORDER-domain values are reachable since ADR-018: WAIT for a started but
+     * unsubmitted sale (the analyst's "the records already exist, their status is not
+     * yet MIDLWARE"), MIDLWARE from Submit onwards, CANCELLED for an abandoned draft or
+     * a compensated sale. Anything else would mean order_db holds a status this domain
+     * never writes, so it is surfaced as the raw id rather than guessed at — a wrong
+     * label is worse than an obviously odd one.
      */
-    private String statusCode(CustomerOrder order) {
+    public String statusCode(CustomerOrder order) {
         Long statusId = order.getStatusId();
+        if (Long.valueOf(LookupContract.STATUS_WAITING_ID).equals(statusId)) {
+            return LookupContract.STATUS_WAITING;
+        }
         if (Long.valueOf(LookupContract.STATUS_MIDDLEWARE_ID).equals(statusId)) {
             return LookupContract.STATUS_MIDDLEWARE;
         }

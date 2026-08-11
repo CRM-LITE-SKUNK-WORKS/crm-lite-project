@@ -21,16 +21,22 @@ public final class LookupContract {
     public static final long STATUS_PASSIVE_ID = 2L;
 
     /**
-     * GNL_ST ORDER domain. Only two of the three are ever written (ADR-016 §6):
+     * GNL_ST ORDER domain. All three are written since ADR-018 — the analyst's
+     * clarification that "records should already be created in the relevant tables
+     * [but] because the order has not yet been completed/approved their status is not
+     * MIDLWARE" made the workbook's existing WAIT row the pre-submit status:
      * <ul>
-     *   <li><b>MIDLWARE</b> — the status every order is created with and the only one
-     *       a user ever sees. Its workbook name is literally
-     *       <i>"Siparis Alindi Isleniyor..."</i>, which is the state AC-SALE-01-15
-     *       tells the user about, and no AC moves an order out of it.
-     *   <li><b>CANCELLED</b> — system-triggered compensation ONLY (ADR-016 §5). No
-     *       endpoint lets a user cancel an order; KR-7 keeps that out of phase.
-     *   <li><b>WAIT</b> — never written. No AC references it; the constant exists so
-     *       a future reader sees the omission is deliberate, not an oversight.
+     *   <li><b>WAIT</b> — a started sale whose Submit has not been confirmed. The order
+     *       and its KR-12 number already exist, which is what lets the Submit screen show
+     *       the Order Number (AC-SALE-01-12). A WAIT order can never start fulfilment on
+     *       its own: nothing consumes it and no command exists for it (ADR-018 §6).
+     *   <li><b>MIDLWARE</b> — from Submit onwards; the workbook's
+     *       <i>"Siparis Alindi Isleniyor..."</i>, the state AC-SALE-01-15 tells the user
+     *       about, and the one no accepted AC moves an order out of. A COMPLETED sale
+     *       therefore stays MIDLWARE.
+     *   <li><b>CANCELLED</b> — system-triggered only: an abandoned/expired draft, or a
+     *       terminally compensated sale. No endpoint lets a user cancel a SUBMITTED
+     *       order; KR-7 keeps that out of phase (ADR-018 §6).
      * </ul>
      */
     public static final String STATUS_DOMAIN_ORDER = "ORDER";

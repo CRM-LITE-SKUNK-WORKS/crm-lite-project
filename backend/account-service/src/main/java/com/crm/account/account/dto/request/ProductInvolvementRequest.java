@@ -29,4 +29,17 @@ public class ProductInvolvementRequest {
 
     @NotEmpty
     private List<@Positive Long> productIds;
+
+    /**
+     * The SALE saga that owns the rows this command creates — the KR-12 order number
+     * (ADR-018 §7). Optional and purely additive.
+     *
+     * <p>Null from the legacy synchronous route, which has no saga and needs none: it
+     * never compensates an involvement, because ADR-016 §5 writes the involvement LAST
+     * and nothing follows it. Set by the asynchronous saga, where the involvement is
+     * written before activation and therefore may have to be undone — and where undoing
+     * it safely means knowing exactly which rows this sale created.
+     */
+    @jakarta.validation.constraints.Size(max = 64)
+    private String saleOperationId;
 }

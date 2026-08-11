@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.sale-account-checked.v1.schema.json",
+  "title": "crm.account.sale-account-checked, payload v1",
+  "description": "The outcome of the account check (ADR-018 §5). Produced by account-service in the SAME transaction as the Inbox claim for the command that caused it. Destination: crm.account.evt.sale-account-checked.v1. ONE event carries both outcomes through 'result': both are facts about the same step and the orchestrator's next move is decided by the same state guard either way, so a separate failure destination would double the binding table without adding information.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "result"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The sagaId this outcome belongs to."
+    },
+    "result": {
+      "enum": ["SUCCEEDED", "FAILED"]
+    },
+    "failureCode": {
+      "type": ["string", "null"],
+      "description": "Operator-facing detail (e.g. account-passive). Never returned to a client."
+    },
+    "failureMessageKey": {
+      "type": ["string", "null"],
+      "pattern": "^MSG-[A-Z0-9-]+$",
+      "description": "A CATALOG key and nothing else: MSG-ACCT-NOT-ACTIVE, MSG-ACCT-NOT-FOUND. The consumer replaces anything not shaped like this with the generic MSG-SALE-FAILED, so an exception message can never reach the status endpoint (ADR-018 §8)."
+    },
+    "customerNumber": {
+      "type": ["integer", "null"],
+      "description": "SUCCEEDED only: the AUTHORITATIVE owner of the account. The sale learns who the customer is from the account, never from the browser — it is what product-service validates the service address against (ADR-015 §5.9)."
+    },
+    "productIds": {
+      "type": ["array", "null"],
+      "items": { "type": "integer" },
+      "description": "Unused by this step. Present because account-service publishes one outcome shape for all three of its saga replies; a consumer that never reads it for this type is structurally unaffected."
+    }
+  }
+}

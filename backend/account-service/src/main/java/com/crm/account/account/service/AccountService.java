@@ -17,6 +17,15 @@ public interface AccountService {
 
     ProductInvolvementResponse addProductInvolvements(String accountNumber, ProductInvolvementRequest request);
 
+    /**
+     * Saga-scoped involvement compensation (ADR-018 §7). INTERNAL: invoked only by the
+     * SALE saga's compensation command and exposed by no endpoint — ADR-013 §8.6's
+     * refusal to create a user-facing involvement-delete stands unchanged.
+     *
+     * @return how many rows this sale operation owned and passivated (0 is a success)
+     */
+    int compensateProductInvolvements(String accountNumber, String saleOperationId);
+
     AccountResponse create(AccountCreateRequest request);
 
     AccountResponse update(String accountNumber, AccountUpdateRequest request);

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://crm-lite.internal/contracts/events/crm.account.link-sale-products.v1.schema.json",
+  "title": "crm.account.link-sale-products, payload v1 (COMMAND)",
+  "description": "Step 3 of the SALE saga (ADR-018 §5): link this sale's products to the billing account — the sale's commit point (ADR-013 §8). Destination: crm.account.cmd.link-sale-products.v1. The consumer stores orderNumber as sale_operation_id on every row it creates, which is the ownership key that lets an activation failure undo exactly these rows and nothing else.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["orderNumber", "accountNumber", "productIds"],
+  "properties": {
+    "orderNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$",
+      "description": "The sagaId, and the sale_operation_id written onto the involvement rows."
+    },
+    "accountNumber": {
+      "type": "string",
+      "pattern": "^\\d{10}$"
+    },
+    "productIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "integer" },
+      "description": "The ids product-service reported. Bulk on purpose — one call per sale, never N — so a partial link set can never be observed (ADR-013 §8.1). Idempotent per (account, product), so a reissued command relinks nothing."
+    }
+  }
+}

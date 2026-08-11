@@ -4,6 +4,35 @@ Reconciliation record: what changed in the analyst-approved source documents
 (`docs/source/**`) between revisions, and how each change was handled in this
 repository. The binary source documents themselves are never edited here.
 
+## Analyst decisions of 10.08.2026 (verbal clarifications, no document revision)
+
+These arrived as **clarifications against the v8-2 document, not as a new revision** —
+`CRM_Lite_FR_AC_v8-2.docx` is unchanged and is still the current source. They are recorded
+here because three of them **close open questions this file has been carrying**, and one
+of them changes behaviour the repository had already implemented the other way.
+
+Full reasoning and consequences: **ADR-018 §1**.
+
+| # | Analyst decision | What it closes | Where it lands |
+|---|---|---|---|
+| A1 | *"When the user starts the process, records should already be created in the relevant tables. The records exist, but because the order has not yet been completed/approved their status is not MIDLWARE. With order approval the status moves to MIDLWARE. Therefore the Order ID may be displayed at this point."* | The Order Number's visibility on the Submit screen (AC-SALE-01-12) | **Supersedes ADR-016 §8.3.** An order now exists before Submit with the workbook's existing `GNL_ST WAIT (3, ORDER)`; no new status row is invented. `POST /api/orders/drafts` creates it |
+| A2 | The Order ID must be **unique**; a simple increasing sequence would suffice, and the technical team may define a rule | Open item **#11 / P11's status** — KR-12 was recorded as "a project-proposed rule **awaiting analyst sign-off**" | **Requirement satisfied by the existing generator.** KR-12 `[T][YY][SSSSSS][C]` is kept unchanged and its status corrected: a **project technical choice satisfying an analyst requirement**, no longer an unanswered blocker. Not redesigned — it already answers the requirement |
+| A3 | The exact offer prices are **demo data and not a blocker** | Open conflict **#10** and deviations **P1 / P5 / P10**, all marked "analyst approval pending" | **Resolved as NON-NORMATIVE demo fixtures.** The seeded values (299/149/49 and the P5/P10 additions) stay exactly as they are. No "real" price list is invented, and they are no longer tracked as a blocking question |
+| A4 | A **general failure message** is approved for unavailable/failed SALE processing | The absence of any analyst key for an asynchronous terminal failure | Specific keys are **preserved**: product-service's own `MSG-SALE-*` / `MSG-VAL-CHAR-*` are relayed unchanged and `MSG-SERVICE-UNAVAILABLE` still answers concrete unavailability. `MSG-SALE-FAILED` is added as a project key used **only** when no existing key is truthful (ADR-018 §1.4) |
+| A5 | **PNDG may be used** for products belonging to an order that is currently being processed | ADR-015 §5.5's PNDG semantic, previously a project interpretation | The existing meaning — *prepared/reserved for an in-flight sale, not yet committed* — is now **analyst-supported**. It is what lets the asynchronous flow hold products PNDG until account involvement exists |
+| A6 | **Transfer and Service Address Change are OUT OF SCOPE** | Recurring speculation from the populated-but-unused `GNL_TP TRANSFER`/`CANCEL` rows | Not implemented. Those rows stay populated-but-unused exactly as ADR-016 §6/§8.2 left them, and are explicitly **not** treated as licence to build anything |
+
+**Still open after these decisions**, and deliberately not closed by them:
+
+- **P16** (`PROD.transaction_id` stays NULL) — untouched; still an open analyst question
+  and still not a blocker, because order → product is already navigable.
+- **AC-SALE-01-15's processing-screen UX.** The analyst's status text
+  ("Sipariş Alındı, İşleniyor…") is approved; how a frontend renders it against a polled
+  status resource — a dedicated screen, an inline state, or something else — is a
+  **PROJECT INTERPRETATION PENDING the analyst's final UX clarification** (ADR-018 §6).
+  It is recorded as an interpretation, not as an approved requirement. The backend
+  contract is deliberately UX-neutral.
+
 ## v8-2, 03.08.2026 revision (current)
 
 **Supersedes the 23.07.2026 v8-1 Final document** (see the section below for that
@@ -140,7 +169,7 @@ analyst approval**:
 
 | # | Deviation | Why | Where |
 |---|---|---|---|
-| P1 | **`PROD_OFR.product_offer_total_price` filled with invented values** — offer 1 `299.00`, offer 2 `149.00`, offer 3 `49.00` | The workbook leaves the column empty in all three rows, but AC-SALE-01-12 requires per-offer "tutar" and a "Total Amount". Something had to be seeded to make the §2.7 screens buildable | `product-service` `V2__seed_product_data.sql` — **analyst approval pending** |
+| P1 | **`PROD_OFR.product_offer_total_price` filled with invented values** — offer 1 `299.00`, offer 2 `149.00`, offer 3 `49.00` | The workbook leaves the column empty in all three rows, but AC-SALE-01-12 requires per-offer "tutar" and a "Total Amount". Something had to be seeded to make the §2.7 screens buildable | `product-service` `V2__seed_product_data.sql` — **RESOLVED 10.08.2026 (A3): non-normative demo fixtures**, values unchanged, no longer a blocker |
 | P2 | **Campaign fixture:** `PROD` rows 1 and 2 carry `campaign_id = 1` (`CMP-ADSL-01`) | Every workbook `PROD` row has `campaign_id` empty, so AC-PROD-01-03's "show campaign information when the product was bought within a campaign" branch was untestable. Product 3 deliberately stays campaign-less so the `"-"` branch is covered too | same file |
 | P3 | **Passive product fixture:** new `PROD` row 4 (`ADSL 8MB Legacy`), `status_id = 2` (PASV) with `deleted_date`/`deleted_by` set | Every workbook product is `ACTV`, leaving AC-PROD-01-03's Status "pasif" branch untestable. Follows the full soft-delete invariant rather than a status-only row | same file |
 | P4 | **Involvement rows for products 3 and 4** added to `cust_acct_prod_invl` (account 2 = `1261000010`) | The workbook links only products 1 and 2 to an account, leaving product 3 (ADSL Activation) dangling. ⚠️ These rows belong to `account_db`, so they are seeded by **account-service's own `V3__seed_activation_involvement.sql`** — product-service never writes `account_db` (ADR-013 §5). Product 4's involvement is PASV-but-not-deleted, so the product stays listed while the AC-ACCT-04-03 delete guard (ACTV-only) is unaffected | `account-service` `V3__seed_activation_involvement.sql` |
@@ -196,7 +225,7 @@ same open conflicts already logged above (P1/#10):
 
 | # | Deviation | Why | Where |
 |---|---|---|---|
-| P5 | **More invented offer prices**: Fiber 100MB `399.00`, Fiber 500MB `599.00`, Fiber 1000MB `799.00`, Fiber Wi-Fi 6 Modem `249.00`, Fiber Activation `79.00`, ADSL 16MB `349.00`, ADSL 24MB `379.00` | Same root cause as P1 — the workbook/analyst document names no prices, and a compact demo dataset needs more than 3 offers to exercise the campaign/basket screens. All project-added, relatively ordered (slower/basic < faster/premium; device priced separately; activation below the recurring main offer) | `product-service` `V3__expand_product_test_fixtures.sql` — **analyst approval pending, same as P1** |
+| P5 | **More invented offer prices**: Fiber 100MB `399.00`, Fiber 500MB `599.00`, Fiber 1000MB `799.00`, Fiber Wi-Fi 6 Modem `249.00`, Fiber Activation `79.00`, ADSL 16MB `349.00`, ADSL 24MB `379.00` | Same root cause as P1 — the workbook/analyst document names no prices, and a compact demo dataset needs more than 3 offers to exercise the campaign/basket screens. All project-added, relatively ordered (slower/basic < faster/premium; device priced separately; activation below the recurring main offer) | `product-service` `V3__expand_product_test_fixtures.sql` — **RESOLVED 10.08.2026 (A3), same as P1: non-normative demo fixtures** |
 | P6 | **3 more active campaigns** (`CMP-FIBER-01`, `CMP-FIBER-02`, `CMP-ADSL-02`), each a main-internet + resource + activation triple, future `activation_end_date` | AC-PROD-01-03/campaign screens need more than one campaign to demo meaningfully; no expired or passive campaign fixture was added (explicitly out of scope) | same file |
 | P7 | **13 more product instances** (ids 5-17) across 6 new customers' billing accounts, including 2 independent product families sharing one billing account and a 2nd main+children family | Demonstrates FR-PROD-01/02 branches (multi-family accounts, non-primary service address resolution) that the V2 seed's single family couldn't cover | same file |
 | P8 | **8 more customers** (1004-1011) covering middle-name search, shared last names, GSM-prefix grouping, multi-address customers with exactly one primary, and a fully populated contact record | AC-CUST-01 search branches (middle name, GSM prefix, multiple addresses) had only 2-3 active customers to test against | `customer-service` `V3__expand_customer_test_fixtures.sql` |
@@ -224,7 +253,7 @@ Architecture: **ADR-015** (product boundary), **ADR-016** (order boundary), plus
 
 | # | Deviation | Why | Where |
 |---|---|---|---|
-| P10 | **Passive-offer fixture:** new `PROD_OFR` row 11 (`ADSL 4MB Offer (retired)`), `status_id = 2` (PASV) with full soft-delete metadata | AC-SALE-01-08 requires every basket offer to be Active and names `MSG-SALE-OFFER-INACTIVE`, but every seeded offer (workbook V2 + the V3 expansion) is ACTV — the branch had no fixture. Exactly the same gap and remedy as P3's passive *product*. Invisible to `GET /api/offers` (ACTV-filtered), so no existing contract changed. Price 199.00 follows the P1/P5 provisional convention | `product-service` `V4__seed_passive_offer_fixture.sql` — **analyst approval pending, same as P1** |
+| P10 | **Passive-offer fixture:** new `PROD_OFR` row 11 (`ADSL 4MB Offer (retired)`), `status_id = 2` (PASV) with full soft-delete metadata | AC-SALE-01-08 requires every basket offer to be Active and names `MSG-SALE-OFFER-INACTIVE`, but every seeded offer (workbook V2 + the V3 expansion) is ACTV — the branch had no fixture. Exactly the same gap and remedy as P3's passive *product*. Invisible to `GET /api/offers` (ACTV-filtered), so no existing contract changed. Price 199.00 follows the P1/P5 provisional convention | `product-service` `V4__seed_passive_offer_fixture.sql` — **RESOLVED 10.08.2026 (A3), same as P1: non-normative demo fixture** |
 | P11 | **`CUST_ORD.order_number` 5001 regenerated to KR-12 `1261000002`** | The workbook's legacy value satisfies no format rule; regenerated from the production generator (segment 1, year 2026, first sequence value). Exactly how ADR-014 §8 regenerated the `CUST_ACCT` seed. ⚠️ The value collides with account `1261000002` — accepted and recorded (ADR-016 §8.1) | `order-service` `V2__seed_order_data.sql` |
 | P12 | **`CUST_ORD.customer_id` → `customer_number`; `BSN_INTER.customer_account_id` → `customer_account_number`** | Internal ids never leave the service that owns them, so they are not observable here; the public business number is the only stable cross-service reference. The identical reasoning ADR-013 §2.3 applied to `cust_acct.customer_number` | `order-service` `V1`/`V2` |
 | P13 | **Amount snapshot columns added** — `cust_ord.total_amount`, `cust_ord_item.amount` (neither is in the workbook) | AC-SALE-01-12 requires a Total Amount and per-offer amounts, and `PROD_OFR.product_offer_total_price` is a *current catalog price*: reading it back later would silently rewrite the history of a past order whenever a price changes. **The columns are sound; the values feeding them are provisional** (P1/P5, conflict #10) | `order-service` `V1`, ADR-016 §2.4 |
@@ -262,19 +291,35 @@ Architecture: **ADR-015** (product boundary), **ADR-016** (order boundary), plus
 **Interpretation decisions where the FR is silent or self-contradictory** (recorded so
 they are not mistaken for requirements):
 
-- **AC-SALE-01-12 lists an "Order ID" on the Submit screen, i.e. before submission.**
+- ~~**AC-SALE-01-12 lists an "Order ID" on the Submit screen, i.e. before submission.**
   No order — and therefore no number — can exist before LBL-SUBMIT under the
   basket-is-frontend-state decision. A reservation endpoint was rejected twice over: it
   would burn a gapless KR-12 number on every abandoned sale, **and** create exactly the
   backend trace of an incomplete sale that AC-SALE-01-16 forbids. Resolved as an
   editorial ordering slip: the Order ID is rendered from the 201, in the AC-SALE-01-15
-  *"Sipariş Alındı, İşleniyor…"* state. **Flagged for analysts** (ADR-016 §8.3).
+  *"Sipariş Alındı, İşleniyor…"* state. **Flagged for analysts** (ADR-016 §8.3).~~
+  **ANSWERED 10.08.2026 (decision A1).** It was not an editorial slip — the analyst
+  confirmed the records genuinely exist before approval, with a status that is not
+  MIDLWARE, and that the Order ID may therefore be shown at that point. The interpretation
+  above is superseded by ADR-018 §1.1: `POST /api/orders/drafts` creates the order in
+  `GNL_ST WAIT` and allocates its KR-12 number there. Both original objections still had
+  to be answered, and are: a number **is** burned on an abandoned sale (accepted — KR-12
+  is permanent and gapless-per-allocation, exactly like KR-11, and an abandoned draft
+  keeps its number as a record of what was attempted), and the AC-SALE-01-16 objection
+  dissolves because the draft creates the **order**, not the basket — a WAIT order has no
+  items, no products, no saga and no command naming it, so nothing can process it.
 - **The order response carries only what `order_db` owns.** AC-SALE-01-12's field list
   describes a *screen*, not a payload: offer names, campaign and Service Address are
   catalog/session facts the client already holds (ADR-016 §3).
-- **`GNL_ST WAIT`(3) and `GNL_TP TRANSFER`(8)/`CANCEL`(9) are never written.** No AC
-  references them (ADR-016 §6). The `bsn_inter_type_id` column exists and carries
-  NEWSALE, so a future flow needs no migration.
+- ~~**`GNL_ST WAIT`(3) and `GNL_TP TRANSFER`(8)/`CANCEL`(9) are never written.**~~
+  **Superseded for WAIT on 10.08.2026 (decision A1, ADR-018 §1.1):** `GNL_ST WAIT`(3) is
+  now the status of a started-but-unsubmitted order, which is what makes the Order Number
+  displayable before Submit. The analyst's own words ("the records exist, but… their status
+  is not MIDLWARE") describe a status the workbook already had, so it is used rather than a
+  new `DRAFT` row being invented. **`GNL_TP TRANSFER`(8)/`CANCEL`(9) are still never
+  written** — Transfer and Service Address Change are explicitly out of scope (decision A6),
+  and those rows are not to be treated as licence to build them. The `bsn_inter_type_id`
+  column exists and carries NEWSALE, so a future flow needs no migration.
 - **PNDG products are invisible to FR-PROD-01/02.** The Status column has exactly two
   values and the mapper renders anything non-ACTV as "Passive", so a leaked PNDG row
   would show the customer a passive product they never bought (ADR-015 §5.5).
@@ -305,7 +350,7 @@ ADR-013 §8 (write side) and ADR-016.
 |---|---|---|---|
 | 7 | **Use-case doc still describes FR-ACCT-04 as list removal**, not passivation: "Beklenen Çıktı" says "aktif ürün bağlantısı bulunmayan fatura hesabının **aktif hesap listesinden kaldırılması**"; Ana Senaryo Adım 5 says the system "**fatura hesabını aktif hesap listesinden kaldırır**". Both contradict FR v8-2 AC-ACCT-04-02 (passivation, stays visible as Passive, unchanged since v8-1) | Use-case doc, "Fatura Hesabı Silme (FR-ACCT-04)" | **FR v8-2 AC-ACCT-04-02 governs** (passivation). Use-case wording is superseded and not updated by this revision — flagged for analysts |
 | 8 | **Draw.io ACCT-04 delete-flow node still labeled "Hesabı aktif listeden kaldır"** (remove account from active list) | `CRMLite_Diagrams_Final.drawio`, ACCT-04 flow | Same conflict as #7 — FR v8-2 AC-ACCT-04-02 governs; diagram not updated by this revision — flagged for analysts |
-| 10 | **Workbook `PROD_OFR` rows carry no price, but AC-SALE-01-12 requires amounts** (see deviation P1 above; extended by P5's 7 additional invented offer prices, 2026-07-31). Invented fixture values are in the product-service seed; the analyst document names no prices anywhere | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `PROD_OFR` sheet vs FR §2.7 AC-SALE-01-12 | Workbook not edited. **Awaiting analyst-approved price list**; until then all seeded prices (299/149/49 plus the P5 additions) are explicitly provisional |
+| 10 | **Workbook `PROD_OFR` rows carry no price, but AC-SALE-01-12 requires amounts** (see deviation P1 above; extended by P5's 7 additional invented offer prices, 2026-07-31). Invented fixture values are in the product-service seed; the analyst document names no prices anywhere | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `PROD_OFR` sheet vs FR §2.7 AC-SALE-01-12 | **CLOSED 10.08.2026 (A3).** Workbook not edited. The analyst confirmed the exact values are demo data and not a blocker, so all seeded prices (299/149/49 plus the P5/P10 additions) are recorded as **non-normative demo fixtures** rather than as provisional values awaiting a price list. No price list is expected and none is invented |
 | 11 | **FR §2.6 never mentions how a product links to a billing account**, yet FR-PROD-01 lists products *per account*. The workbook answers it only via `CUST_ACCT_PROD_INVL` (in `account_db`) — `PROD` has no account column | FR v8-2 §2.6 vs workbook `PROD` / `CUST_ACCT_PROD_INVL` sheets | Resolved architecturally, not by inventing a column: product-service **composes** over account-service's `product-ids` endpoint (ADR-013 §5). Flagged for analysts as an FR gap; **ADR-015 owed** |
 | 9 | **Entity/Seed workbook `CUST_ACCT` seed rows use legacy `account_number` values that do not satisfy KR-11**: `0101112900`, `0101112911`, `0101112915`, `0101112441` — all start with segment digit `0`, not the fixed `1` required for this phase, and carry no verifiable check digit. `docs/api/customer-service.md`'s `accountNumber=0101112900` curl example (501 smoke test) also happens to reuse one of these legacy values as an illustrative query param — harmless there (the endpoint is unimplemented and returns 501 regardless of the value's format), but not a valid seed once account-service is built | `CRM_Lite_Entity_Seed_PreviewV8_Final.xlsx`, `CUST_ACCT` sheet | Workbook not edited. When account-service's Flyway seed is authored, these sample account numbers must be regenerated to the KR-11 format, not copied verbatim — flagged for analysts |
 

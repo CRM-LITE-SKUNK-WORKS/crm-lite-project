@@ -1,6 +1,13 @@
 # Service Boundaries
 
-Last updated: 2026-08-05 (**FR/AC v8-2 (03.08.2026) reconciliation** — reviewed against
+Last updated: 2026-08-10 (**the SALE flow is asynchronous — ADR-018**). order-service now
+owns a persisted saga (`sale_saga` in `order_db`) and orchestrates the sale over commands
+and events instead of three synchronous HTTP calls; an order exists in `WAIT` from Start
+New Sale, so the Order Number is visible before Submit (analyst decision of 2026-08-10).
+The synchronous path below is **retained and deprecated** as the rollback route until the
+frontend PR lands. Live under `SPRING_PROFILES_ACTIVE=async-sale`; without that profile
+every messaging switch is `false` and the stack runs with no broker exactly as before.
+Prior: 2026-08-05 (**FR/AC v8-2 (03.08.2026) reconciliation** — reviewed against
 the prior v8-1 baseline; AC-SALE-02-01 wording simplified to a single Active-account
 condition and the three SALE basket messages (MSG-SALE-NO-INTERNET/-RESOURCE/-ACTIVATION)
 rewritten as explicit error conditions, both already matching this document's own
@@ -42,6 +49,32 @@ only). Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
 
         Any failure before (5): the products are discarded and CUST_ORD becomes
         CANCELLED. No distributed transaction, no broker, no saga framework.
+        ^^ DEPRECATED since ADR-018 — kept for the current frontend and as rollback.
+
+   FR-SALE §2.7 sale orchestration (ADR-018) — the LIVE flow, asynchronous:
+
+        POST /api/orders/drafts          order_db: BSN_INTER + CUST_ORD, status WAIT
+                                         KR-12 number allocated -> visible before Submit
+        POST /api/orders/{n}/submit      ONE local transaction: items + WAIT->MIDLWARE
+                                         + sale_saga row + first Outbox command  -> 202
+
+        order-service :8087 (the ONLY saga owner; sagaId = orderNumber)
+          ──cmd check-sale-account────────► account-service   ──evt sale-account-checked──┐
+          ──cmd prepare-sale-products─────► product-service   ──evt sale-products-prepared┤
+          ──cmd link-sale-products────────► account-service   ──evt sale-products-linked──┤
+          ──cmd activate-sale-products────► product-service   ──evt sale-products-activated
+          ──evt sale-completed  (choreography seam — only after core consistency)
+
+        compensation (products stay PNDG until the involvement exists, so an
+        activation failure has an involvement to undo — and undoes it FIRST):
+          ──cmd compensate-sale-involvements─► account-service  (saga-scoped, internal)
+          ──cmd compensate-sale-products─────► product-service  (saga-scoped)
+
+        GET /api/orders/{n}/status       orderStatus (GNL_ST) + processingStatus
+                                         (DRAFT/PROCESSING/COMPLETED/FAILED, NOT GNL_ST)
+
+        No cross-database access, no shared saga database, no Kafka type outside a
+        *.messaging.adapter package. Each service owns its own Outbox and Inbox.
 
         config-server :8888 (native/classpath config-repo) — everyone's config source
         discovery-server :8761 (Eureka) — service registry
@@ -129,8 +162,10 @@ only). Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
    **Basket and characteristic validation live in product-service** (ADR-015 §6) —
    they are `PROD_OFR`/`PROD_SPEC` questions; order-service forwards the basket
    verbatim and relays the upstream's `MSG-SALE-*` / `MSG-VAL-CHAR-*` keys unchanged.
-   **No basket is ever persisted** (AC-SALE-01-16 holds by construction), and
-   `KR-12` (order number) is a **project-proposed** rule awaiting analyst sign-off.
+   **No basket is ever persisted** (AC-SALE-01-16 still holds by construction: ADR-018's
+   draft creates the ORDER early, not the basket, and a WAIT draft has no items, no saga
+   and no command naming it). `KR-12` is a **project format satisfying the analyst's
+   uniqueness requirement** (ADR-018 §1.2), no longer an open sign-off.
 9. **KR-02 customer search over child records (ADR-005 §Addendum, 2026-08-05):**
    `GET /api/customers?accountNumber=` / `?orderNumber=` must return the customer
    that OWNS the record, but those records belong to other databases. customer-service
@@ -173,7 +208,7 @@ only). Prior: 2026-07-18 (authentication/security milestone — ADR-006..011).
 | localization-service | 🗓️ Planned | Required by FR-LANG if the architecture keeps a central label/message catalog; **default language is now English** (16.07.2026). Backend already returns language-neutral `messageKey`s. Not started |
 | account-service | ✅ **Implemented (2026-07-23)** | FR-ACCT-01..04 + KR-11 per **ADR-013/014**: `account_db` (acct_tp/cust_acct/cust_acct_prod_invl/acct_number_seq), gateway route `/api/accounts/**`, zero-trust resource server, K-8 lazy 223, delete = passivation (stays list-visible). Unit + Testcontainers IT suite (`AccountServiceIntegrationTest`); Swagger in the unified gateway UI. customer-service's `accountNumber` **search** 501 converted 2026-08-05 (ADR-005 §Addendum, §9 above); its account-related delete/address **no-ops** are still open |
 | product-service | ✅ **Implemented — read slice (2026-07-29) + FR-SALE write slice (2026-08-02, ADR-015)** | **Read side:** FR-PROD-01..02 §2.6 + read-only catalog: `product_db` (prod_spec/prod_ofr/cmpg/cmpg_prod_ofr/prod/prod_spec_char/prod_spec_char_use/prod_char_val/prod_catal/prod_catal_prod_ofr), port 8086, gateway routes `/api/products/**`, `/api/offers/**`, `/api/campaigns/**`, zero-trust resource server, Swagger in the unified gateway UI. `GET /api/products` composes over account-service's `product-ids` endpoint — `PROD` carries NO account/customer column and this service never touches `account_db` (ADR-013 §5/§7). **Write side (2026-08-02, ADR-015 §5/§6):** `POST /api/products` creates a whole installation as **PNDG** in one local transaction (main/child derived from the INTERNET service type), `/confirm` promotes it to ACTV, `/cancel` is the PNDG-only compensation; `GET /api/offers/{id}/characteristics` serves the Product Configuration schema. The full `LookupCatalogClient` boundary was built **before** the first write (ADR-015 §4.1 — ADR-002 fail-closed). Basket composition (AC-SALE-01-05/08) and characteristic validation (AC-SALE-01-18/19) live here, not in order-service. PNDG rows are invisible to FR-PROD-01/02. Testcontainers IT (`ProductServiceIntegrationTest`, 24 tests) + `CharacteristicValidationRulesTest`, `ProductBusinessRulesTest`. **The ADR debt is discharged** — see `docs/api/product-service.md` |
-| order-service | ✅ **Implemented (2026-08-02)** | FR-SALE-01..02 §2.7 per **ADR-016**: `order_db` (bsn_inter/cust_ord/cust_ord_item/order_number_seq), port 8087, gateway route `/api/orders/**`, zero-trust resource server, Swagger in the unified gateway UI. Two endpoints only — Submit Order and order detail; **no basket table, no order-cancel endpoint, no order list**. Orchestrates across product-service and account-service with compensations instead of a distributed transaction. Unit (`OrderNumberFormatTest`, `LuhnCheckDigitTest`) + Testcontainers IT (`OrderServiceIntegrationTest`, 15 tests covering every compensation path). **KR-12 awaits analyst sign-off** |
+| order-service | ✅ **Implemented (2026-08-02), asynchronous since 2026-08-10 (ADR-018)** | FR-SALE-01..02 §2.7: `order_db` (bsn_inter/cust_ord/cust_ord_item/order_number_seq/idempotency_key/outbox_message/inbox_message/**sale_saga**), port 8087, gateway route `/api/orders/**`, zero-trust resource server, Swagger in the unified gateway UI. **Live contract:** `POST /api/orders/drafts` (WAIT order + Order Number before Submit), `DELETE /{n}/draft` (WAIT-only, idempotent), `POST /{n}/submit` (**202**; items + WAIT→MIDLWARE + saga + first command in one commit), `GET /{n}/status` (business status + processing status). **Deprecated:** the synchronous `POST /api/orders`, kept for the current frontend and as rollback — one sale can never enter both, because the legacy route creates a MIDLWARE order and submit accepts only WAIT. Still **no basket table, no order-cancel endpoint, no order list**. order-service is the sole saga owner (`sagaId = orderNumber`); compensation is a persisted, retried, observable process rather than a best-effort call. Unit + Testcontainers IT (`OrderServiceIntegrationTest` 19, `AsyncSaleFlowIntegrationTest` 22, `Outbox*IntegrationTest` 10, guards 3). **KR-12 is settled**: the analyst required uniqueness, the format is a project technical choice satisfying it (ADR-018 §1.2) |
 
 Planned ≠ approved: the localization ownership above is the team's working assumption
 from the seed workbook; analyst or architecture sign-off is still missing and must

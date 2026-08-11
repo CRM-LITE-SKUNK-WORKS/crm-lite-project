@@ -3407,6 +3407,490 @@
           ]
         }
       ]
+    },
+    {
+      "name": "12 - Asynchronous SALE (FR-SALE, ADR-018)",
+      "description": "The LIVE sale flow: draft -> 202 submit -> poll. Requires the services to run with SPRING_PROFILES_ACTIVE=async-sale and the Compose 'eventing' profile up; without them the submit request answers 503 MSG-SERVICE-UNAVAILABLE by design (fail closed rather than accepting a sale nothing can process).\n\nRun the requests in order — each stores what the next one needs (draftOrderNumber, submitOrderNumber, abandonOrderNumber). Idempotency-Key values are minted per request with {{$guid}} except where a test deliberately reuses one.\n\nThe deprecated synchronous POST /api/orders is NOT exercised here: one sale must never enter both routes, and the async submit refuses any order that is not a WAIT draft.",
+      "item": [
+        {
+          "name": "Create draft -> 201 WAIT with the Order Number (AC-SALE-01-12)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Stored so the duplicate-key request below can replay THIS attempt.",
+                  "pm.collectionVariables.set(\"draftIdemKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Order Number exists BEFORE submit (analyst decision A1)\", () => {",
+                  "    pm.expect(body.orderNumber).to.be.a(\"string\").with.lengthOf(10);",
+                  "});",
+                  "pm.test(\"orderStatus is the workbook's WAIT, not an invented DRAFT row\", () => {",
+                  "    pm.expect(body.orderStatus).to.eql(\"WAIT\");",
+                  "});",
+                  "pm.test(\"processingStatus is DRAFT\", () => pm.expect(body.processingStatus).to.eql(\"DRAFT\"));",
+                  "pm.test(\"Location points at the status resource\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Location\")).to.eql(\"/api/orders/\" + body.orderNumber + \"/status\");",
+                  "});",
+                  "pm.collectionVariables.set(\"draftOrderNumber\", body.orderNumber);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{draftIdemKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"1261000010\"\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/drafts",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "drafts" ]
+            },
+            "description": "Start New Sale. Creates bsn_inter + cust_ord with GNL_ST WAIT and allocates the KR-12 number, so the Submit screen can show the Order ID before anything is confirmed. Creates NO product, NO saga and NO message. customerNumber is resolved from the billing account and is never accepted from the browser."
+          }
+        },
+        {
+          "name": "Duplicate Idempotency-Key -> replays the SAME draft (no second order)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201 (the original answer, replayed)\", () => pm.response.to.have.status(201));",
+                  "pm.test(\"Idempotency-Replayed header is set\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Idempotency-Replayed\")).to.eql(\"true\");",
+                  "});",
+                  "pm.test(\"Same order number — one draft, not two\", () => {",
+                  "    pm.expect(pm.response.json().orderNumber).to.eql(pm.collectionVariables.get(\"draftOrderNumber\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{draftIdemKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"1261000010\"\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/drafts",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "drafts" ]
+            },
+            "description": "A client that never saw the first response retries with the same key. The server cannot tell that apart from an intentional duplicate and does not try: it replays the original 201 verbatim."
+          }
+        },
+        {
+          "name": "Draft on a PASSIVE account -> 409 MSG-ACCT-NOT-ACTIVE (AC-SALE-02-01)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"messageKey is MSG-ACCT-NOT-ACTIVE\", () => {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ACCT-NOT-ACTIVE\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"1261000036\"\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/drafts",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "drafts" ]
+            },
+            "description": "AC-SALE-02-01 enforced server-side. The UI states it only as a disabled action, and a disabled button is not a check."
+          }
+        },
+        {
+          "name": "Draft status before submit -> WAIT / DRAFT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Business status WAIT, processing status DRAFT\", () => {",
+                  "    pm.expect(body.orderStatus).to.eql(\"WAIT\");",
+                  "    pm.expect(body.processingStatus).to.eql(\"DRAFT\");",
+                  "});",
+                  "pm.test(\"No failure key on a healthy draft\", () => {",
+                  "    pm.expect(body.failureMessageKey).to.be.oneOf([null, undefined]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{draftOrderNumber}}/status",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{draftOrderNumber}}", "status" ]
+            },
+            "description": "Two status axes, deliberately not merged: orderStatus is the analyst's GNL_ST value, processingStatus is order-service's own technical contract and is NOT a GNL_ST row."
+          }
+        },
+        {
+          "name": "Submit draft -> 202 Accepted, the saga starts",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A DIFFERENT key from the draft's: one Idempotency-Key identifies one HTTP",
+                  "// command, not one sale. The sale's identity is the order number (= sagaId).",
+                  "pm.collectionVariables.set(\"submitIdemKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 202 Accepted (not 201 — the products do not exist yet)\", () => {",
+                  "    pm.response.to.have.status(202);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test(\"WAIT -> MIDLWARE\", () => pm.expect(body.orderStatus).to.eql(\"MIDLWARE\"));",
+                  "pm.test(\"processingStatus is PROCESSING\", () => pm.expect(body.processingStatus).to.eql(\"PROCESSING\"));",
+                  "pm.test(\"Location header points at the status resource\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Location\")).to.eql(\"/api/orders/\" + body.orderNumber + \"/status\");",
+                  "});",
+                  "pm.test(\"Answered fast — it does not wait for product/account-service\", () => {",
+                  "    pm.expect(pm.response.responseTime).to.be.below(3000);",
+                  "});",
+                  "pm.collectionVariables.set(\"submitOrderNumber\", body.orderNumber);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{submitIdemKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceAddressId\": 1,\n  \"campaignId\": \"CMP-ADSL-01\",\n  \"items\": [\n    { \"offerId\": 1, \"characteristics\": [ { \"characteristicId\": 1, \"value\": \"16\" } ] },\n    { \"offerId\": 2, \"characteristics\": [ { \"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\" } ] },\n    { \"offerId\": 3, \"characteristics\": [] }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{draftOrderNumber}}/submit",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{draftOrderNumber}}", "submit" ]
+            },
+            "description": "No accountNumber in the body — it is read from the draft, so a basket built against a different account cannot be re-pointed. One order_db transaction writes the items, moves WAIT -> MIDLWARE, creates the saga row and records its first Outbox command; the 202 is returned after that commit.\n\nIf this answers 503 MSG-SERVICE-UNAVAILABLE, the services are not running with SPRING_PROFILES_ACTIVE=async-sale. That is the intended fail-closed behaviour, not a bug."
+          }
+        },
+        {
+          "name": "Duplicate submit key -> replayed 202, still ONE saga",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 202 (replayed)\", () => pm.response.to.have.status(202));",
+                  "pm.test(\"Idempotency-Replayed header is set\", () => {",
+                  "    pm.expect(pm.response.headers.get(\"Idempotency-Replayed\")).to.eql(\"true\");",
+                  "});",
+                  "pm.test(\"Same order number\", () => {",
+                  "    pm.expect(pm.response.json().orderNumber).to.eql(pm.collectionVariables.get(\"submitOrderNumber\"));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{submitIdemKey}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceAddressId\": 1,\n  \"campaignId\": \"CMP-ADSL-01\",\n  \"items\": [\n    { \"offerId\": 1, \"characteristics\": [ { \"characteristicId\": 1, \"value\": \"16\" } ] },\n    { \"offerId\": 2, \"characteristics\": [ { \"characteristicId\": 3, \"value\": \"AA:BB:CC:DD:EE:FF\" } ] },\n    { \"offerId\": 3, \"characteristics\": [] }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{draftOrderNumber}}/submit",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{draftOrderNumber}}", "submit" ]
+            },
+            "description": "The replay is served from the idempotency ledger before the controller runs, so no second saga can be created. Verify in order_db: SELECT count(*) FROM sale_saga WHERE saga_id = '<orderNumber>' is 1."
+          }
+        },
+        {
+          "name": "Submit the SAME order again with a NEW key -> 409 MSG-ORDER-NOT-DRAFT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"messageKey is MSG-ORDER-NOT-DRAFT\", () => {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ORDER-NOT-DRAFT\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceAddressId\": 1,\n  \"campaignId\": \"CMP-ADSL-01\",\n  \"items\": [\n    { \"offerId\": 1, \"characteristics\": [ { \"characteristicId\": 1, \"value\": \"16\" } ] }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{draftOrderNumber}}/submit",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{draftOrderNumber}}", "submit" ]
+            },
+            "description": "A new key bypasses the idempotency replay, so this reaches the service — and is refused because the order is no longer WAIT. This is the same guard that makes it impossible for one sale to enter both the legacy synchronous route and this one: a legacy order is created MIDLWARE and can therefore never be submitted here."
+          }
+        },
+        {
+          "name": "Poll status until terminal -> MIDLWARE + COMPLETED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.expect(body.processingStatus).to.be.oneOf([\"PROCESSING\", \"COMPLETED\", \"FAILED\"]);",
+                  "",
+                  "if (body.processingStatus === \"PROCESSING\") {",
+                  "    // Re-run this request until it settles. Bounded so a genuinely stuck",
+                  "    // saga fails the run instead of looping forever.",
+                  "    const attempts = Number(pm.collectionVariables.get(\"statusPollAttempts\") || 0) + 1;",
+                  "    pm.collectionVariables.set(\"statusPollAttempts\", attempts);",
+                  "    pm.test(\"Settles within 20 polls\", () => pm.expect(attempts).to.be.below(21));",
+                  "    if (attempts < 21) { setTimeout(() => {}, 500); pm.execution.setNextRequest(pm.info.requestName); }",
+                  "} else {",
+                  "    pm.collectionVariables.set(\"statusPollAttempts\", 0);",
+                  "    pm.test(\"A completed sale stays MIDLWARE — no invented terminal ORDER status\", () => {",
+                  "        if (body.processingStatus === \"COMPLETED\") pm.expect(body.orderStatus).to.eql(\"MIDLWARE\");",
+                  "    });",
+                  "    pm.test(\"A terminal failure carries a catalog key, never an exception\", () => {",
+                  "        if (body.processingStatus === \"FAILED\") pm.expect(body.failureMessageKey).to.match(/^MSG-[A-Z0-9-]+$/);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{submitOrderNumber}}/status",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{submitOrderNumber}}", "status" ]
+            },
+            "description": "The poll loop a client runs after the 202. Cheap by design — two indexed primary-key reads in one transaction, no downstream call.\n\nExpected end state with the full stack up: orderStatus MIDLWARE, processingStatus COMPLETED. Internal saga states (COMPENSATING_*, MANUAL_INTERVENTION) are visible to operations in sale_saga and the crm_saga_* metrics, never here."
+          }
+        },
+        {
+          "name": "Order detail after completion (product ids + amount snapshots attached)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"Every line carries the product it became and its amount snapshot\", () => {",
+                  "    pm.expect(body.items).to.be.an(\"array\").that.is.not.empty;",
+                  "    body.items.forEach(i => {",
+                  "        pm.expect(i.productId, \"productId\").to.be.a(\"number\");",
+                  "        pm.expect(i.amount, \"amount\").to.not.eql(null);",
+                  "    });",
+                  "});",
+                  "pm.test(\"Total amount is stored, not recomputed\", () => pm.expect(body.totalAmount).to.not.eql(null));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{submitOrderNumber}}",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{submitOrderNumber}}" ]
+            },
+            "description": "The unchanged detail endpoint. product_id and amount are NULL between Submit and the saga's product-preparation reply; by the time the sale is COMPLETED they are filled from product-service's own authoritative answer. The amounts are non-normative demo fixtures (analyst decision A3)."
+          }
+        },
+        {
+          "name": "Cancel before submit: create a second draft",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 201\", () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set(\"abandonOrderNumber\", pm.response.json().orderNumber);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountNumber\": \"1261000010\"\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/drafts",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "drafts" ]
+            },
+            "description": "A draft that will be abandoned rather than submitted."
+          }
+        },
+        {
+          "name": "Abandon draft -> 204 (and again -> 204, idempotent)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 204\", () => pm.response.to.have.status(204));",
+                  "pm.test(\"No body\", () => pm.expect(pm.response.text()).to.be.empty);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{abandonOrderNumber}}/draft",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{abandonOrderNumber}}", "draft" ]
+            },
+            "description": "WAIT only, and idempotent — send it twice and both answer 204, because a client that lost the response must be able to ask again. No Idempotency-Key: DELETE of a named resource is idempotent by identity.\n\nThis is NOT an order-cancellation feature: a submitted (MIDLWARE) order is refused with 409, which is what keeps the KR-7 cancellation out of scope."
+          }
+        },
+        {
+          "name": "Abandoned draft status -> CANCELLED / FAILED with MSG-SALE-DRAFT-ABANDONED",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 200\", () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test(\"orderStatus is CANCELLED\", () => pm.expect(body.orderStatus).to.eql(\"CANCELLED\"));",
+                  "pm.test(\"processingStatus is FAILED with the abandon key\", () => {",
+                  "    pm.expect(body.processingStatus).to.eql(\"FAILED\");",
+                  "    pm.expect(body.failureMessageKey).to.eql(\"MSG-SALE-DRAFT-ABANDONED\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{abandonOrderNumber}}/status",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{abandonOrderNumber}}", "status" ]
+            },
+            "description": "The public contract has four processing values, so an abandoned draft reports FAILED and distinguishes itself through failureMessageKey. It keeps its KR-12 number forever — a compensated or abandoned order is a record of something that was attempted, not something that never happened."
+          }
+        },
+        {
+          "name": "Submit an abandoned draft -> 409 (an abandoned sale is never processed later)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"Status is 409\", () => pm.response.to.have.status(409));",
+                  "pm.test(\"messageKey is MSG-ORDER-NOT-DRAFT\", () => {",
+                  "    pm.expect(pm.response.json().messageKey).to.eql(\"MSG-ORDER-NOT-DRAFT\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{$guid}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceAddressId\": 1,\n  \"campaignId\": \"CMP-ADSL-01\",\n  \"items\": [\n    { \"offerId\": 1, \"characteristics\": [ { \"characteristicId\": 1, \"value\": \"16\" } ] }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{gatewayBaseUrl}}/api/orders/{{abandonOrderNumber}}/submit",
+              "host": [ "{{gatewayBaseUrl}}" ],
+              "path": [ "api", "orders", "{{abandonOrderNumber}}", "submit" ]
+            },
+            "description": "AC-SALE-01-16 from the API side. The stronger guarantee is structural and not visible here: even if this endpoint did not exist, a WAIT draft has no items, no products, no saga and no command naming it, so nothing in the system could process it."
+          }
+        }
+      ]
     }
   ]
 }

@@ -8,7 +8,7 @@ import {
   type CharacteristicResponse,
   type OfferResponse,
 } from '../../../core/catalog';
-import { type OrderResponse } from '../../order';
+import { type OrderStatusResponse } from '../../order';
 import { type AddressResponse } from '../model';
 import { CustomerFlashService } from '../state/customer-flash.service';
 import { SaleWizard } from './sale-wizard';
@@ -121,17 +121,39 @@ const SCHEMAS: Readonly<Record<number, readonly CharacteristicResponse[]>> = {
   104: [CHAR_TEXT],
 };
 
-const CREATED: OrderResponse = {
-  orderNumber: '2026000018',
+const ORDER_NUMBER = '2026000018';
+
+/** `POST /api/orders/drafts` → 201 (ADR-018 §6): the WAIT order, created the
+ *  instant the wizard opens, before the user has picked a single offer. */
+const DRAFT: OrderStatusResponse = {
+  orderNumber: ORDER_NUMBER,
+  orderStatus: 'WAIT',
+  processingStatus: 'DRAFT',
+  failureMessageKey: null,
+  updatedAt: '2026-08-10T10:00:00Z',
+};
+
+/** `POST /api/orders/{n}/submit` → 202: accepted, the saga has started. */
+const ACCEPTED: OrderStatusResponse = {
+  ...DRAFT,
   orderStatus: 'MIDLWARE',
-  accountNumber: ACCOUNT,
-  customerNumber: CUSTOMER,
-  totalAmount: 175,
-  items: [
-    { offerId: 101, productId: 5001, amount: 100 },
-    { offerId: 102, productId: 5002, amount: 50 },
-    { offerId: 103, productId: 5003, amount: 25 },
-  ],
+  processingStatus: 'PROCESSING',
+  updatedAt: '2026-08-10T10:00:01Z',
+};
+
+/** `GET /api/orders/{n}/status` → 200, terminal success. */
+const COMPLETED: OrderStatusResponse = {
+  ...ACCEPTED,
+  processingStatus: 'COMPLETED',
+  updatedAt: '2026-08-10T10:00:05Z',
+};
+
+/** `GET /api/orders/{n}/status` → 200, terminal failure. */
+const SALE_FAILED: OrderStatusResponse = {
+  ...ACCEPTED,
+  processingStatus: 'FAILED',
+  failureMessageKey: 'MSG-SALE-FAILED',
+  updatedAt: '2026-08-10T10:00:05Z',
 };
 
 describe('SaleWizard', () => {
@@ -156,20 +178,35 @@ describe('SaleWizard', () => {
   });
 
   afterEach(() => http.verify());
+  // Some tests below drive the async status poll with `vi.useFakeTimers()`;
+  // restoring real timers here means a test that throws mid-poll can never
+  // leak fake timers into the next one.
+  afterEach(() => vi.useRealTimers());
 
   // --- helpers ---------------------------------------------------------------
+  /** Every entry into the wizard creates exactly one WAIT draft (ADR-018 §6),
+   *  in parallel with the catalog fetch — both fire from the same component
+   *  creation tick. */
   async function enter(): Promise<ComponentFixture<unknown>> {
     await harness.navigateByUrl(
       `/customers/${CUSTOMER}/sales/new?accountNumber=${ACCOUNT}`,
       SaleWizard,
     );
     flushCatalog();
+    flushDraft();
     return harness.fixture;
   }
 
   function flushCatalog(): void {
     http.expectOne((r) => r.url === '/api/offers').flush([...OFFERS]);
     http.expectOne((r) => r.url === '/api/campaigns').flush([...CAMPAIGNS]);
+    harness.detectChanges();
+  }
+
+  function flushDraft(response: OrderStatusResponse = DRAFT): void {
+    http
+      .expectOne((r) => r.method === 'POST' && r.url === '/api/orders/drafts')
+      .flush(response, { status: 201, statusText: 'Created' });
     harness.detectChanges();
   }
 
@@ -786,18 +823,86 @@ describe('SaleWizard', () => {
     expect((el('sale-char-101-11') as HTMLInputElement).value).toBe('XDSL-4242');
   });
 
-  // ---- Step 3: submit ------------------------------------------------------
+  // ---- Step 3: submit (ADR-018 §6 — draft, 202 submit, poll) ---------------
 
-  it('AC-SALE-01-12: the summary shows an em dash for Order Number until the server answers', async () => {
+  /** The store's own polling interval (order-submit.store.ts). Duplicated
+   *  here deliberately: a test asserting observable timing behaves the same
+   *  whether or not it happens to share a literal with the implementation. */
+  const POLL_INTERVAL_MS = 2_000;
+
+  /** Confirms and answers `202`; leaves the poll timer PENDING (fake timers
+   *  must already be active — see the tests that call this). */
+  function submitAndAccept(response: OrderStatusResponse = ACCEPTED): void {
+    click('sale-submit-button');
+    click('sale-submit-confirm-dialog-confirm-button');
+    http
+      .expectOne((r) => r.method === 'POST' && r.url === `/api/orders/${ORDER_NUMBER}/submit`)
+      .flush(response, { status: 202, statusText: 'Accepted' });
+    harness.detectChanges();
+  }
+
+  /** Advances to the first poll and answers it with a terminal status. */
+  function resolvePoll(status: OrderStatusResponse): void {
+    vi.advanceTimersByTime(POLL_INTERVAL_MS);
+    http.expectOne((r) => r.url === `/api/orders/${ORDER_NUMBER}/status`).flush(status, {
+      status: 200,
+      statusText: 'OK',
+    });
+    harness.detectChanges();
+  }
+
+  it('AC-SALE-01-12: the summary shows the REAL Order Number from the draft, before Submit', async () => {
     await enter();
     addOffers(INTERNET, RESOURCE, ACTIVATION);
     goToConfig([101, 102, 103]);
     goToSummary();
 
-    // The client never generates a KR-12 number (approved option (a)).
-    expect(text('sale-summary-order-number')).toBe('—');
+    // The analyst's 2026-08-10 clarification (ADR-018 §1.1): the WAIT draft
+    // already exists from Start New Sale, so its real KR-12 number is here —
+    // never an em dash, never a client-invented placeholder.
+    expect(text('sale-summary-order-number')).toBe(ORDER_NUMBER);
     expect(text('sale-summary-total')).toContain('175.00');
     expect(text('sale-summary-address')).toContain('Kadikoy');
+  });
+
+  it('shows a loading label while the draft is still being created, and locks Submit', async () => {
+    await harness.navigateByUrl(
+      `/customers/${CUSTOMER}/sales/new?accountNumber=${ACCOUNT}`,
+      SaleWizard,
+    );
+    flushCatalog(); // catalog resolves; the draft POST is still open
+    addOffers(INTERNET, RESOURCE, ACTIVATION);
+    goToConfig([101, 102, 103]);
+    goToSummary();
+
+    expect(text('sale-summary-order-number-pending')).toBe('Creating order…');
+    expect(el('sale-summary-order-number')).toBeNull();
+    expect(disabled('sale-submit-button')).toBe(true);
+
+    flushDraft();
+    expect(text('sale-summary-order-number')).toBe(ORDER_NUMBER);
+    expect(disabled('sale-submit-button')).toBe(false);
+  });
+
+  it('a failed draft creation shows the error and never fabricates an Order Number', async () => {
+    await harness.navigateByUrl(
+      `/customers/${CUSTOMER}/sales/new?accountNumber=${ACCOUNT}`,
+      SaleWizard,
+    );
+    flushCatalog();
+    http
+      .expectOne((r) => r.method === 'POST' && r.url === '/api/orders/drafts')
+      .flush({ messageKey: 'MSG-ACCT-NOT-ACTIVE' }, { status: 409, statusText: 'Conflict' });
+    harness.detectChanges();
+
+    addOffers(INTERNET, RESOURCE, ACTIVATION);
+    goToConfig([101, 102, 103]);
+    goToSummary();
+
+    expect(el('sale-submit-error-MSG-ACCT-NOT-ACTIVE')).not.toBeNull();
+    expect(el('sale-summary-order-number-pending')).toBeNull();
+    expect(text('sale-summary-order-number')).toBe('—');
+    expect(disabled('sale-submit-button')).toBe(true);
   });
 
   it('AC-SALE-01-15: Submit opens the confirm dialog and sends NOTHING until Yes', async () => {
@@ -809,7 +914,7 @@ describe('SaleWizard', () => {
     click('sale-submit-button');
     const dialog = el('sale-submit-confirm-dialog') as HTMLElement;
     expect(dialog).not.toBeNull();
-    http.expectNone((r) => r.url === '/api/orders');
+    http.expectNone((r) => r.url.endsWith('/submit'));
 
     // The body states WHICH account and HOW MUCH rather than a bare "are you
     // sure" (scope §4.33) — both read from the sale's own state, and the total
@@ -817,23 +922,30 @@ describe('SaleWizard', () => {
     expect(dialog.textContent).toContain(ACCOUNT);
     expect(dialog.textContent).toContain('175.00 TL');
 
-    // Declining closes it, still sends nothing, and leaves the user here.
+    // Declining closes it, sends no async command, and leaves the WAIT draft
+    // and the basket exactly as they were.
     click('sale-submit-confirm-dialog-cancel-button');
-    http.expectNone((r) => r.url === '/api/orders');
+    http.expectNone((r) => r.url.endsWith('/submit'));
+    http.expectNone((r) => r.method === 'DELETE');
     expect(el('sale-summary-card')).not.toBeNull();
+    expect(text('sale-summary-order-number')).toBe(ORDER_NUMBER);
   });
 
-  it('AC-SALE-01-15: confirming submits once and leaves for Customer Info', async () => {
+  it('AC-SALE-01-15: confirming submits once, shows processing, and leaves for Customer Info on COMPLETED', async () => {
     await enter();
     addOffers(INTERNET, RESOURCE, ACTIVATION);
     goToConfig([101, 102, 103]);
     goToSummary();
+
+    vi.useFakeTimers();
     click('sale-submit-button');
     click('sale-submit-confirm-dialog-confirm-button');
 
-    const request = http.expectOne((r) => r.method === 'POST' && r.url === '/api/orders');
+    const request = http.expectOne(
+      (r) => r.method === 'POST' && r.url === `/api/orders/${ORDER_NUMBER}/submit`,
+    );
+    // No accountNumber: the draft already fixed the account (ADR-018 §6).
     expect(request.request.body).toEqual({
-      accountNumber: ACCOUNT,
       serviceAddressId: 1,
       items: [
         {
@@ -850,8 +962,22 @@ describe('SaleWizard', () => {
       ],
     });
     const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    request.flush(CREATED, { status: 201, statusText: 'Created' });
+    request.flush(ACCEPTED, { status: 202, statusText: 'Accepted' });
     harness.detectChanges();
+
+    // The in-place "Order received, processing…" state (ADR-018 §6) — the
+    // analyst's own MIDLWARE wording, "Sipariş Alındı, İşleniyor…" in Turkish
+    // (OrderContract.java), rendered here through the EN catalog entry the
+    // test environment defaults to. The Order Number stays visible, and
+    // every footer action is locked.
+    expect(text('sale-processing-banner')).toContain('Order received, processing');
+    expect(text('sale-summary-order-number')).toBe(ORDER_NUMBER);
+    expect(disabled('sale-submit-button')).toBe(true);
+    expect(disabled('sale-previous-button')).toBe(true);
+    expect(disabled('sale-cancel-button')).toBe(true);
+    expect(navigate).not.toHaveBeenCalled();
+
+    resolvePoll(COMPLETED);
 
     // AC-SALE-01-15 success LEAVES (scope §4.33): straight to Customer Info,
     // on the account tab, with the account of the order already expanded.
@@ -860,37 +986,61 @@ describe('SaleWizard', () => {
     });
 
     // The order number is not lost by leaving — it rides along in the flash,
-    // together with the product count and the account, all read from the 201.
+    // together with the product count (read from the BASKET: the async
+    // status resource carries no items) and the account.
     expect(TestBed.inject(CustomerFlashService).consume()).toEqual({
       key: 'UI-SALE-TOAST-ORDER-SUBMITTED',
-      params: { orderNumber: '2026000018', count: 3, accountNumber: ACCOUNT },
+      params: { orderNumber: ORDER_NUMBER, count: 3, accountNumber: ACCOUNT },
     });
   });
 
-  it('duplicate-submit guard: a second POST can never leave the client', async () => {
+  it('AC-SALE-01-15: a terminal FAILED sale keeps the Order Number, shows the backend key, and offers a way back', async () => {
     await enter();
     addOffers(INTERNET, RESOURCE, ACTIVATION);
     goToConfig([101, 102, 103]);
     goToSummary();
-    click('sale-submit-button');
-    click('sale-submit-confirm-dialog-confirm-button');
 
-    const first = http.expectOne((r) => r.url === '/api/orders');
+    vi.useFakeTimers();
+    submitAndAccept();
+    resolvePoll(SALE_FAILED);
+
+    expect(el('sale-processing-failed-MSG-SALE-FAILED')).not.toBeNull();
+    expect(text('sale-summary-order-number')).toBe(ORDER_NUMBER); // never hidden
+    expect(disabled('sale-submit-button')).toBe(true);
+    expect(disabled('sale-previous-button')).toBe(true);
+    expect(disabled('sale-cancel-button')).toBe(true);
+    // No success text, no second order attempted from here.
+    expect(el('sale-processing-banner')).toBeNull();
+    http.expectNone((r) => r.url === '/api/orders/drafts');
+    http.expectNone((r) => r.url.endsWith('/submit'));
+
+    const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    click('sale-return-to-customer-button');
+    expect(navigate).toHaveBeenCalledWith(['/customers', CUSTOMER]);
+  });
+
+  it('duplicate-submit guard: a second submit can never leave the client', async () => {
+    await enter();
+    addOffers(INTERNET, RESOURCE, ACTIVATION);
+    goToConfig([101, 102, 103]);
+    goToSummary();
+
+    vi.useFakeTimers();
     vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    first.flush(CREATED, { status: 201, statusText: 'Created' });
-    harness.detectChanges();
+    submitAndAccept();
+    resolvePoll(COMPLETED);
 
     // The screen navigates away on success, so in practice the button is
     // unreachable. The guard that actually matters is independent of that:
     // Submit stays disabled and cannot even REOPEN the confirm dialog, so no
-    // second POST can be started from the UI (ADR-016 §5.3b).
+    // second submit command can be started from the UI (ADR-018 §3).
     expect(disabled('sale-submit-button')).toBe(true);
     click('sale-submit-button');
     expect(el('sale-submit-confirm-dialog-confirm-button')).toBeNull();
-    http.expectNone((r) => r.url === '/api/orders');
+    http.expectNone((r) => r.url.endsWith('/submit'));
   });
 
-  it('AC-SALE-01-18: a rejected submit renders the BACKEND message key, not its message', async () => {
+  it('AC-SALE-01-18: a rejected submit renders the BACKEND message key, not its message, and Submit stays open for retry', async () => {
     await enter();
     addOffers(INTERNET, RESOURCE, ACTIVATION);
     goToConfig([101, 102, 103]);
@@ -899,7 +1049,7 @@ describe('SaleWizard', () => {
     click('sale-submit-confirm-dialog-confirm-button');
 
     http
-      .expectOne((r) => r.url === '/api/orders')
+      .expectOne((r) => r.url === `/api/orders/${ORDER_NUMBER}/submit`)
       .flush(
         { messageKey: 'MSG-SALE-OFFER-INACTIVE', message: 'raw backend english' },
         { status: 400, statusText: 'Bad Request' },
@@ -908,8 +1058,11 @@ describe('SaleWizard', () => {
 
     expect(el('sale-submit-error-MSG-SALE-OFFER-INACTIVE')).not.toBeNull();
     expect(text('sale-submit-error')).not.toContain('raw backend english');
-    // The order does not exist, so Submit comes back for a legitimate retry.
+    // The sale was never accepted, so Submit comes back for a legitimate retry
+    // — and it is still the SAME draft, not a second one.
     expect(el('sale-submit-button')).not.toBeNull();
+    expect(disabled('sale-submit-button')).toBe(false);
+    http.expectNone((r) => r.url === '/api/orders/drafts');
   });
 
   it('AC-SALE-01-19: per-characteristic rejections are listed, never dropped', async () => {
@@ -921,7 +1074,7 @@ describe('SaleWizard', () => {
     click('sale-submit-confirm-dialog-confirm-button');
 
     http
-      .expectOne((r) => r.url === '/api/orders')
+      .expectOne((r) => r.url === `/api/orders/${ORDER_NUMBER}/submit`)
       .flush(
         {
           messageKey: 'MSG-VALIDATION-ERROR',
@@ -943,12 +1096,11 @@ describe('SaleWizard', () => {
     addOffers(INTERNET, RESOURCE, ACTIVATION);
     goToConfig([101, 102, 103]);
     goToSummary();
-    click('sale-submit-button');
-    click('sale-submit-confirm-dialog-confirm-button');
-    http
-      .expectOne((r) => r.url === '/api/orders')
-      .flush(CREATED, { status: 201, statusText: 'Created' });
-    harness.detectChanges();
+
+    vi.useFakeTimers();
+    vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    submitAndAccept();
+    resolvePoll(COMPLETED);
 
     // The mock stashed eds_sale_basket / eds_sale_address / eds_sale_config /
     // eds_pending_sale; none of that is carried over (scope §3.7).
@@ -958,12 +1110,17 @@ describe('SaleWizard', () => {
     setItem.mockRestore();
   });
 
-  it('AC-SALE-01-16: Cancel leaves the flow and destroys the basket', async () => {
+  it('AC-SALE-01-16: pre-submit Cancel abandons the WAIT draft and destroys the basket', async () => {
     await enter();
     addOffers(INTERNET);
     expect(el('sale-basket-item-101')).not.toBeNull();
 
     click('sale-cancel-button');
+    // The draft is abandoned best-effort — no product and no saga are ever
+    // started for it (ADR-018 §6).
+    http
+      .expectOne((r) => r.method === 'DELETE' && r.url === `/api/orders/${ORDER_NUMBER}/draft`)
+      .flush(null, { status: 204, statusText: 'No Content' });
     await harness.fixture.whenStable();
 
     // Re-entering starts from an empty basket: the store died with the wizard,
@@ -971,5 +1128,21 @@ describe('SaleWizard', () => {
     await enter();
     expect(el('sale-basket-empty')).not.toBeNull();
     expect(el('sale-basket-item-101')).toBeNull();
+  });
+
+  it('ADR-018 §6: once accepted, Cancel is disabled and never sends an abandon for the submitted order', async () => {
+    await enter();
+    addOffers(INTERNET, RESOURCE, ACTIVATION);
+    goToConfig([101, 102, 103]);
+    goToSummary();
+
+    vi.useFakeTimers();
+    submitAndAccept();
+
+    expect(disabled('sale-cancel-button')).toBe(true);
+    click('sale-cancel-button'); // disabled buttons still don't fire — belt and suspenders
+    http.expectNone((r) => r.method === 'DELETE');
+
+    resolvePoll(COMPLETED);
   });
 });

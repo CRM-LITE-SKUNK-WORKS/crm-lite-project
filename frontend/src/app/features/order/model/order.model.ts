@@ -4,11 +4,12 @@ import type { OfferResponse, ServiceType } from '../../../core/catalog';
  * order-service contract types (docs/api/order-service.md) plus the
  * CLIENT-ONLY basket shape.
  *
- * The split matters: `SubmitOrderRequest`/`OrderResponse` are the wire
- * contract, while `BasketItem` has NO server counterpart at all — there is no
- * basket table and no basket endpoint. The backend learns about a sale exactly
- * once, at Submit, which is what makes AC-SALE-01-16 ("an abandoned sale must
- * never be processed later") true BY CONSTRUCTION rather than by cleanup.
+ * The split matters: `CreateDraftRequest`/`SubmitDraftRequest`/
+ * `OrderStatusResponse` are the LIVE asynchronous wire contract (ADR-018),
+ * while `BasketItem` has NO server counterpart at all — there is no basket
+ * table and no basket endpoint. The backend learns about a sale exactly once,
+ * at Submit, which is what makes AC-SALE-01-16 ("an abandoned sale must never
+ * be processed later") true BY CONSTRUCTION rather than by cleanup.
  */
 
 /** One characteristic value the user filled in (AC-SALE-01-10). Values are
@@ -27,20 +28,57 @@ export interface OrderItemRequest {
 }
 
 /**
- * `POST /api/orders` — the whole sale as ONE atomic command (AC-SALE-01-15).
- * There is no partial/step-wise request: the six-step orchestration
- * (account precondition → order → products → amounts → confirm → involvement)
- * lives entirely inside order-service. The client must never imitate it.
+ * `POST /api/orders/drafts` — Start New Sale (ADR-018 §6). One field,
+ * deliberately: the draft exists to give the sale an identity, not to record
+ * a basket. The customer number is resolved from the billing account, never
+ * accepted from the browser.
  */
-export interface SubmitOrderRequest {
-  /** KR-11 billing account the sale started from (AC-SALE-01-01). */
+export interface CreateDraftRequest {
+  /** The KR-11 billing account the sale is started from (AC-SALE-01-01). */
   readonly accountNumber: string;
+}
+
+/**
+ * `POST /api/orders/{orderNumber}/submit` — the basket, at the moment the
+ * user confirms Submit (AC-SALE-01-15, ADR-018 §6). No `accountNumber`: the
+ * account was fixed when the draft was created and is read from the draft,
+ * not resent — a caller cannot submit basket A against draft B's account.
+ */
+export interface SubmitDraftRequest {
   /** Address chosen for the MAIN product (AC-SALE-01-11). */
   readonly serviceAddressId: number;
   /** PUBLIC campaign code, OPTIONAL: a basket assembled offer-by-offer belongs
    *  to no campaign. Omitted rather than sent empty. */
   readonly campaignId?: string;
   readonly items: readonly OrderItemRequest[];
+}
+
+/** The four public values of the asynchronous SALE status resource (ADR-018
+ *  §6). Not GNL_ST — this is order-service's own API contract, kept
+ *  deliberately separate from the analyst-owned `orderStatus` axis
+ *  (WAIT / MIDLWARE / CANCELLED). */
+export type ProcessingStatus = 'DRAFT' | 'PROCESSING' | 'COMPLETED' | 'FAILED';
+
+/**
+ * The asynchronous SALE status resource (ADR-018 §6) — the body of the 201
+ * draft, the 202 accepted submit, and every poll of the status endpoint. One
+ * shape for all three: a client that just submitted and a client that is
+ * polling are asking the same question — where is this sale?
+ */
+export interface OrderStatusResponse {
+  /** KR-12 public number. READ-ONLY: the client never generates, validates,
+   *  parses or derives meaning from it. */
+  readonly orderNumber: string;
+  /** The analyst's GNL_ST ORDER-domain short code: `WAIT` / `MIDLWARE` /
+   *  `CANCELLED`. Not a rendered label. */
+  readonly orderStatus: string;
+  readonly processingStatus: ProcessingStatus;
+  /** A catalog message key, present only on a terminal `FAILED` status.
+   *  Never an exception message or any other infrastructure detail. */
+  readonly failureMessageKey: string | null;
+  /** ISO instant of the last state change — what lets a poll loop tell
+   *  "still working" from "stuck". Not currently rendered. */
+  readonly updatedAt: string;
 }
 
 /** One line of the created order. `productId` is filled by the orchestration's
@@ -52,8 +90,9 @@ export interface OrderItemResponse {
 }
 
 /**
- * The order representation — identical for `POST /api/orders` (201) and
- * `GET /api/orders/{orderNumber}` (200).
+ * The order detail representation — `GET /api/orders/{orderNumber}` (200).
+ * Also the body of the deprecated `POST /api/orders` (ADR-018 §10), which
+ * this client no longer calls; kept for the still-live detail read.
  *
  * ⚠ It carries ONLY what `order_db` owns. Offer names, the campaign and the
  * service address are NOT echoed back (ADR-016 §3) — the client assembled the

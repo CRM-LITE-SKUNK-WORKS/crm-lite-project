@@ -184,7 +184,6 @@ describe('SaleBasketStore', () => {
       store.addCampaign(CAMPAIGN);
       store.setServiceAddressId(7);
       expect(store.toRequest()).toEqual({
-        accountNumber: '2240000015',
         serviceAddressId: 7,
         campaignId: 'CMP-ADSL-01',
         items: [

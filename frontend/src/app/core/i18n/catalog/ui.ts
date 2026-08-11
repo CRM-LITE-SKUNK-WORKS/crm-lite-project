@@ -491,6 +491,22 @@ export const UI = {
   // 2026-08-05: the wizard no longer has an in-place success state to label or
   // a manual way back — it navigates on 201 (scope §4.33).
 
+  // ---- Asynchronous SALE (ADR-018): the draft's Order Number, the
+  //      in-place processing state, and the terminal failure screen.
+  //      UI-SALE-PROCESSING-TITLE is the analyst's OWN MIDLWARE wording,
+  //      taken verbatim (OrderContract, ADR-018 §6); the rest are
+  //      PROJECT-AUTHORED — no analyst UX for this screen exists yet
+  //      (ADR-018 §6's "PROJECT INTERPRETATION PENDING the analyst's final
+  //      UX clarification"). ----
+  'UI-SALE-ORDER-NUMBER-PENDING': { en: 'Creating order…', tr: 'Sipariş oluşturuluyor…' },
+  'UI-SALE-PROCESSING-TITLE': { en: 'Order received, processing…', tr: 'Sipariş Alındı, İşleniyor…' },
+  'UI-SALE-PROCESSING-HINT': {
+    en: 'This can take a few moments. You may leave this page — the order will keep processing.',
+    tr: 'Bu işlem biraz zaman alabilir. Bu sayfadan çıkabilirsiniz — sipariş işlenmeye devam eder.',
+  },
+  'UI-SALE-FAILURE-TITLE': { en: 'Order could not be completed', tr: 'Sipariş tamamlanamadı' },
+  'UI-SALE-FAILURE-RETURN': { en: 'Return to Customer Info', tr: 'Müşteri Bilgisine Dön' },
+
   // Customer Info account-row entry point (AC-SALE-01-02: no billing account
   // ⇒ the action is not offered and the user is told to create one first).
   'UI-SALE-NO-ACCOUNT-HINT': {

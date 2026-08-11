@@ -532,8 +532,11 @@ Tam kontrat: `docs/api/customer-service.md`, `docs/api/authentication.md`,
 | **Hata** | `messageKey` kullanılır; backend'in `message` alanı **kullanıcıya asla gösterilmez** |
 | **Detay ≠ liste değil** | Detay endpoint'inde adres/iletişim **yok** → Customer Info 3 ayrı çağrı yapar |
 | **Satış uçları sayfalamaz** | `GET /api/offers`, `/api/campaigns`, `/api/offers/{id}/characteristics` düz dizi döndürür, query param almaz → filtreleme **istemcide** (scope §2B.4/§2B.14) |
-| **`POST /api/orders` idempotent DEĞİL** | İkinci istek İKİNCİ ürün kümesi yaratır (ADR-016 §5.3b). İstemci iki bağımsız kilit uygular: `OrderSubmitStore.locked()` + butonun kaldırılması. Başarılı submit **asla** kilidi açmaz |
-| **Sipariş yanıtı adı/adresi geri vermez** | `OrderItemResponse` yalnız `offerId`/`productId`/`amount` (ADR-016 §3) → Submit ekranı adları kendi sepetinden, tutarları `201`den okur |
+| **SATIŞ artık ASENKRON (ADR-018, 2026-08-11 frontend cutover)** | Tarayıcı artık `POST /api/orders`'ı **hiç çağırmıyor**. Canlı akış: `POST /api/orders/drafts` (201, WAIT + KR-12 numarası — Start New Sale'de HEMEN) → `POST /api/orders/{n}/submit` (202, saga başlar) → `GET /api/orders/{n}/status` poll (`processingStatus`: DRAFT/PROCESSING/COMPLETED/FAILED). İki BAĞIMSIZ `Idempotency-Key`: biri draft için, biri submit için — asla paylaşılmaz (ADR-018 §3) |
+| **Order Number artık em dash değil** | Analistin 2026-08-10 kararı (ADR-018 §1.1): kayıt Start New Sale'de oluşur, numara Submit'ten ÖNCE görünür. Eski "201'e kadar em dash" yorumu **geçersiz** — `OrderSubmitStore.orderNumber()` draft'tan gelir |
+| **Submit ile aynı isteğin İKİNCİ kez ateşlenmesi** | `OrderSubmitStore.locked()` = draft beklemede VEYA submit açık VEYA zaten kabul edilmiş. Kabul edildikten sonra (`accepted()`) Previous/Cancel de kilitlenir (`navigationLocked()`) — çalışan saga'ya iptalmiş gibi davranılmaz |
+| **İşleniyor ekranı bir PROJE YORUMU** | "Sipariş Alındı, İşleniyor…" (analistin MIDLWARE ifadesi, `OrderContract.java`) Submit ekranında YERINDE gösteriliyor — analistin son UX onayı bekleniyor (ADR-018 §6). Basitleştirmeye açık, mimariye gömülü değil |
+| **Sipariş yanıtı adı/adresi/tutarı geri vermez** | `OrderStatusResponse` sadece `orderNumber`/`orderStatus`/`processingStatus`/`failureMessageKey`/`updatedAt` taşır — kalem YOK. Submit ekranı adları/fiyatları HER ZAMAN sepetten okur (analist onaylı demo fiyatlar, ADR-018 §1.3); eski "sunucudan gelen `amount`'a geç" davranışı asenkron kontratta karşılığı yok |
 
 > **Dev proxy (FE-ADR-004 uygulandı, 2026-07-23).** `ng serve` artık
 > `proxy.conf.json` ile `/api`, `/oauth2`, `/login`, `/logout` prefix'lerini
@@ -692,12 +695,30 @@ ve `data-testid` sözleşmeleri yazıldı. Yazım sırası:
       bir `order → customer` kardeş yönü açılırdı (FE-ADR-003; scope §2B.9).
       **Sepet hiçbir yere yazılmaz** — Signal-only, wizard-kapsamlı store,
       akıştan çıkınca yok olur (AC-SALE-01-16); mock'un `eds_sale_*`
-      localStorage'ı taşınmadı. **Çift submit iki bağımsız kilitle** engelleniyor
-      (`POST /api/orders` idempotent DEĞİL — ADR-016 §5.3b). Order Number
-      submit'e kadar `—` (scope §3.6 seçenek (a)); başarı **yerinde** gösteriliyor
-      (§2B.8). Giriş noktası: genişleyen hesap satırında `LBL-START-NEW-SALE`,
-      Aktif hesapta etkin / Pasif hesapta disabled (AC-SALE-01-01/02).
-      Kayıtlar: scope §2B.9–2B.16
+      localStorage'ı taşınmadı. Giriş noktası: genişleyen hesap satırında
+      `LBL-START-NEW-SALE`, Aktif hesapta etkin / Pasif hesapta disabled
+      (AC-SALE-01-01/02). Kayıtlar: scope §2B.9–2B.16.
+      **2026-08-05 (#33):** başarı artık **yerinde değil** — `201`/kabul anında
+      doğrudan Customer Info'ya navigasyon (scope §4.33, §2B.8'in yerini alır).
+      **2026-08-11 — ASENKRON CUTOVER (ADR-018):** akış artık
+      `POST /api/orders`'ı **çağırmıyor**. `OrderSubmitStore` artık draft →
+      submit → poll'un TÜMÜNÜ yönetiyor: sihirbaz açılır açılmaz TEK bir WAIT
+      draft'ı oluşturuluyor (`startDraft`, effect yeniden çalışsa bile tekrar
+      yaratmaz), Order Number **submit'ten ÖNCE** gerçek KR-12 değeriyle
+      görünür (artık `—` değil — analistin 2026-08-10 kararı, ADR-018 §1.1).
+      Submit `202` kabul ettiğinde ekran "Sipariş Alındı, İşleniyor…" durumuna
+      geçer (analistin MIDLWARE ifadesi, ADR-018 §6 — **analistin son UX
+      onayı bekleyen bir proje yorumu**, `submit-order-step.ts` yorumunda
+      işaretli) ve Previous/Cancel/Submit kilitlenir; `COMPLETED` olduğunda
+      Customer Info'ya navigasyon (§4.33 ile aynı), `FAILED` olduğunda backend
+      `failureMessageKey`'i gösterip "Müşteri Bilgisine Dön" sunar — ikinci bir
+      sipariş asla otomatik açılmaz. Submit-öncesi `LBL-CANCEL` artık
+      `DELETE /api/orders/{n}/draft` çağırır (best-effort — WAIT draft'ın
+      kendiliğinden başlayamayacağı backend garantisi var, ADR-018 §6).
+      İki BAĞIMSIZ `Idempotency-Key` (draft/submit) — `OrderApiService`/
+      `OrderSubmitStore`'da. Eski `SubmitOrderRequest`/legacy `submit()`
+      silindi; `OrderResponse`/`getByNumber` (detay GET) hâlâ duruyor ama
+      sihirbaz artık onu kullanmıyor.
 
 ### 5.5 Container
 - [x] ~~`frontend/Dockerfile` (multi-stage) + `nginx.conf`~~ ✅ 2026-07-24

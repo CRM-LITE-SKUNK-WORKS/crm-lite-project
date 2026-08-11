@@ -2,7 +2,10 @@
 export type {
   CharacteristicValueRequest,
   OrderItemRequest,
-  SubmitOrderRequest,
+  CreateDraftRequest,
+  SubmitDraftRequest,
+  ProcessingStatus,
+  OrderStatusResponse,
   OrderItemResponse,
   OrderResponse,
   BasketItem,

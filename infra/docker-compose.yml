@@ -332,6 +332,11 @@ services:
       #   SPRING_PROFILES_ACTIVE=async-sale docker compose up -d --force-recreate \
       #       account-service product-service order-service
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      # The binder default (localhost:9092) resolves to the service's OWN container,
+      # where nothing listens. Without this the bindings never connect: no topic is
+      # created and the Outbox relay fails every attempt with "Dispatcher has no
+      # subscribers". Harmless when the eventing profile is down — nothing reads it.
+      KAFKA_BROKERS: kafka:9092
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8085' || exit 1"]
       interval: 5s
@@ -373,6 +378,8 @@ services:
       # ADR-018 — see account-service above. Empty by default; async-sale turns on the
       # broker, the Outbox and the three SALE command consumers.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      # See account-service above.
+      KAFKA_BROKERS: kafka:9092
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8086' || exit 1"]
       interval: 5s
@@ -417,6 +424,8 @@ services:
       # POST /api/orders/{n}/submit answers 503 MSG-SERVICE-UNAVAILABLE (fail closed)
       # and the deprecated synchronous POST /api/orders is the working route.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      # See account-service above.
+      KAFKA_BROKERS: kafka:9092
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/8087' || exit 1"]
       interval: 5s
@@ -575,7 +584,13 @@ services:
       # Two listeners on purpose: containers on crm-net reach kafka:9092, while a
       # service running from the IDE on the host reaches localhost:29092. A single
       # advertised listener would break one of those two, and both are normal here.
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,HOST://0.0.0.0:29092
+      # The controller listener binds to the routable container hostname, not
+      # 0.0.0.0: KRaft advertises the controller endpoint from `listeners` (it is
+      # deliberately absent from advertised.listeners below), and Kafka refuses to
+      # advertise the nonroutable meta-address — StorageTool fails before the log
+      # directory is even formatted. The broker listeners keep 0.0.0.0 because
+      # they have their own advertised values.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://kafka:9093,HOST://0.0.0.0:29092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,HOST://localhost:29092
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,HOST:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT

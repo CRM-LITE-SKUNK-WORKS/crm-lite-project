@@ -1,4 +1,4 @@
-import { Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { map } from 'rxjs';
@@ -140,44 +140,70 @@ export class SaleWizard {
    *  {@link goNext}. */
   protected readonly nextDisabled = computed(() => this.isOffer() && this.basket.isEmpty());
 
-  /** Submit is blocked while a request is open or once the order exists — the
-   *  UI half of the duplicate-submit guard (`OrderSubmitStore` is the other). */
+  /** Submit is blocked while no draft exists yet (still pending OR FAILED —
+   *  `locked()` alone only covers "pending", not "never got one"), a request
+   *  is open, or the sale has already been accepted — the UI half of the
+   *  duplicate-submit guard (`OrderSubmitStore` is the other). */
   protected readonly submitDisabled = computed(
-    () => this.submitStore.locked() || this.basket.isEmpty(),
+    () => this.submitStore.locked() || this.submitStore.orderNumber() === null || this.basket.isEmpty(),
   );
+
+  /** Previous/Cancel gate (ADR-018 §6): once the async submit has been
+   *  accepted, neither may act as though the draft were still editable —
+   *  Previous must not return to it and Cancel must not pretend to cancel the
+   *  running saga. */
+  protected readonly navigationLocked = computed(() => this.submitStore.navigationLocked());
 
   constructor() {
     effect(() => {
       const customerNumber = this.customerNumber();
       const accountNumber = this.accountNumber();
       if (customerNumber > 0 && accountNumber !== '') {
-        this.basket.setContext(customerNumber, accountNumber);
+        // `untracked`: without it, the signal reads INSIDE `startDraft`'s own
+        // guard (`draftInFlight`/`orderNumber`, on `OrderSubmitStore`) get
+        // picked up as dependencies of THIS effect — since they are read
+        // synchronously from within its tracked execution — so the draft's
+        // own state transitions (in flight → settled) would re-trigger the
+        // very effect that started it, firing a SECOND draft creation the
+        // instant the first one's response lands. `startDraft` is idempotent-
+        // safe against a genuine re-run of this effect (customerNumber/
+        // accountNumber changing); it must not be re-armed by its own result.
+        untracked(() => {
+          this.basket.setContext(customerNumber, accountNumber);
+          // ADR-018 §6: an order exists from Start New Sale onward — one WAIT
+          // draft per wizard session.
+          this.submitStore.startDraft(accountNumber);
+        });
       }
     });
 
-    // AC-SALE-01-15 success: LEAVE. The mock navigates back to Customer Info the
-    // moment the order exists, rather than parking the user on a dead screen
-    // behind a "Back to customer" button (scope §4.33, superseding §2B.8's
-    // in-place success state). The order number is not lost by leaving — it
-    // travels in the flash message and is announced by the toast.
+    // AC-SALE-01-15 success: LEAVE. The mock navigates back to Customer Info
+    // the moment the sale COMPLETES, rather than parking the user on a dead
+    // screen behind a "Back to customer" button (scope §4.33). The order
+    // number is not lost by leaving — it travels in the flash message and is
+    // announced by the toast.
     //
     // The products the order created are NOT carried across and NOT injected
     // client-side (the mock writes them into localStorage; we deliberately do
     // not — FE-ADR-013 §e). They exist in the backend, so Customer Info simply
     // re-reads them: GET /api/products?accountNumber= runs when the row expands.
     effect(() => {
-      const order = this.submitStore.order();
-      if (!order) return;
-      const count = order.items.length;
+      if (!this.submitStore.succeeded()) return;
+      const orderNumber = this.submitStore.orderNumber();
+      if (orderNumber === null) return;
+      const accountNumber = this.accountNumber();
+      const count = this.basket.count();
       // Choosing between two KEYS is not translating — the sender still never
       // resolves text, and singular/plural stays a catalogue concern
-      // (FE-ADR-012 §h.3: no plural engine).
+      // (FE-ADR-012 §h.3: no plural engine). `count`/`accountNumber` come
+      // from the basket/route context: the status resource carries no items
+      // (ADR-018 §6), and this is exactly the basket that was submitted.
       this.flash.set(
         count === 1 ? 'UI-SALE-TOAST-ORDER-SUBMITTED-ONE' : 'UI-SALE-TOAST-ORDER-SUBMITTED',
-        { orderNumber: order.orderNumber, count, accountNumber: order.accountNumber },
+        { orderNumber, count, accountNumber },
       );
       void this.router.navigate(['/customers', this.customerNumber()], {
-        queryParams: { tab: 'account', account: order.accountNumber },
+        queryParams: { tab: 'account', account: accountNumber },
       });
     });
   }
@@ -201,14 +227,24 @@ export class SaleWizard {
   }
 
   /** AC-SALE-01-13/14 — automatic: basket and configuration live in the store,
-   *  which outlives the step components. */
+   *  which outlives the step components. Refused once the async submit has
+   *  been accepted (ADR-018 §6): the button is disabled too, but a
+   *  side-effecting action gets its own guard, same reasoning as
+   *  {@link openConfirm}. */
   protected goPrevious(): void {
+    if (this.navigationLocked()) return;
     if (this.stepIndex() > 0) this.stepIndex.update((i) => i - 1);
   }
 
-  /** AC-SALE-01-16 `LBL-CANCEL`: leaving ends the sale. The store dies with this
-   *  component, so nothing survives to be processed later. */
+  /** AC-SALE-01-16 `LBL-CANCEL`: leaving ends the sale. Before Submit this
+   *  also abandons the WAIT draft (best-effort — `OrderSubmitStore` owns the
+   *  "never blocks on it" decision); once accepted, this is refused (the
+   *  button is disabled too) rather than pretending to cancel a running saga.
+   *  The store dies with this component either way, so nothing survives to be
+   *  processed later. */
   protected cancel(): void {
+    if (this.navigationLocked()) return;
+    this.submitStore.abandonDraft();
     void this.router.navigate(['/customers', this.customerNumber()]);
   }
 

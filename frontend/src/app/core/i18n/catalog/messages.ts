@@ -270,4 +270,26 @@ export const MESSAGES = {
     en: 'The order could not be created because a service is temporarily unavailable. Nothing was saved — please try again shortly.',
     tr: 'Bir servise geçici olarak ulaşılamadığı için sipariş oluşturulamadı. Hiçbir kayıt yapılmadı — lütfen biraz sonra tekrar deneyin.',
   },
+
+  // ---- order-service PROJECT-AUTHORED keys — asynchronous SALE (ADR-018
+  //      §1.4). The analyst approved a GENERAL failure message for
+  //      unavailable/failed SALE processing but named no key.
+  //      `MSG-SALE-FAILED` is the generic TERMINAL fallback and is used ONLY
+  //      when no more specific key applies — a rejected basket still comes
+  //      back as product-service's own MSG-SALE-*/MSG-VAL-CHAR-* (relayed
+  //      unchanged) and a genuine outage still comes back as
+  //      MSG-SERVICE-UNAVAILABLE. Backend-returned — the names are the
+  //      contract. ----
+  'MSG-SALE-FAILED': {
+    en: 'The order could not be completed. Nothing further was charged; please contact support if the issue persists.',
+    tr: 'Sipariş tamamlanamadı. Herhangi bir ek işlem yapılmadı; sorun sürerse lütfen destek ile iletişime geçin.',
+  },
+  'MSG-ORDER-NOT-DRAFT': {
+    en: 'This order has already been submitted and can no longer be changed or cancelled here.',
+    tr: 'Bu sipariş zaten gönderilmiş; burada artık değiştirilemez veya iptal edilemez.',
+  },
+  'MSG-SALE-DRAFT-ABANDONED': {
+    en: 'This order was cancelled before it was submitted.',
+    tr: 'Bu sipariş gönderilmeden önce iptal edildi.',
+  },
 } satisfies Catalog;

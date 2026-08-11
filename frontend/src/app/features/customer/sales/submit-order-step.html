@@ -5,13 +5,16 @@
   is the WIZARD's, exactly as the mock draws it.
 -->
 <div class="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto">
-  <!-- No in-place success state: a successful submit navigates to Customer
+  <!-- No in-place SUCCESS state: a successful submit navigates to Customer
        Info, where the toast announces the order number and the products are
-       re-read from the backend (scope §4.33, superseding §2B.8). The only
-       outcome this screen still renders is a FAILURE, which keeps the user
-       here with their basket intact. -->
+       re-read from the backend (scope §4.33). This screen instead renders
+       whichever of these is current (ADR-018 §6, at most one ever is):
+       a rejected draft/submit HTTP call, the in-place PROCESSING state while
+       the saga runs, or a terminal FAILED sale. -->
 
-  <!-- AC-SALE-01-18/19: the backend's messageKey, never its `message`. -->
+  <!-- AC-SALE-01-18/19: the backend's messageKey, never its `message`. Covers
+       a rejected draft creation (no order number yet) and a rejected submit
+       attempt (before acceptance) alike. -->
   @if (errorKey(); as key) {
     <div
       class="flex flex-col gap-2 rounded-md border border-danger-border bg-danger-surface p-4"
@@ -36,6 +39,60 @@
     </div>
   }
 
+  <!-- AC-SALE-01-15's "Sipariş Alındı, İşleniyor…" state (ADR-018 §6) — a
+       PROJECT INTERPRETATION pending the analyst's final UX confirmation
+       (FRONTEND_BRAIN.md), kept visible together with the Order Number while
+       the saga is still running. Submit/Previous/Cancel are locked by the
+       wizard footer, independently of this banner. -->
+  @if (processing()) {
+    <div
+      class="flex items-start gap-2 rounded-md border border-line bg-surface-subtle p-4"
+      role="status"
+      data-testid="sale-processing-banner"
+    >
+      <app-icon name="info" [size]="20" class="mt-0.5 shrink-0 text-ink-muted" />
+      <div class="flex flex-col gap-1">
+        <span class="text-body font-medium text-ink">{{ 'UI-SALE-PROCESSING-TITLE' | t }}</span>
+        <span class="text-body-sm text-ink-muted">{{ 'UI-SALE-PROCESSING-HINT' | t }}</span>
+      </div>
+    </div>
+  }
+
+  <!-- Terminal FAILED sale (ADR-018 §6): the Order Number stays visible above,
+       the backend's own failureMessageKey is rendered (never raw exception
+       text), and the only action offered is leaving — no retry, no second
+       order, no pretending the submitted order can still be cancelled. -->
+  @if (failed()) {
+    <div
+      class="flex flex-col gap-3 rounded-md border border-danger-border bg-danger-surface p-4"
+      role="alert"
+      data-testid="sale-processing-failed"
+    >
+      <div class="flex items-start gap-2">
+        <app-icon name="alert-circle" [size]="20" class="shrink-0 text-danger" />
+        <div class="flex flex-col gap-0.5">
+          <span class="text-body font-medium text-danger-fg">
+            {{ 'UI-SALE-FAILURE-TITLE' | t }}
+          </span>
+          @if (failureMessageKey(); as key) {
+            <span class="text-body-sm text-danger-fg" [attr.data-testid]="'sale-processing-failed-' + key">
+              {{ key | t }}
+            </span>
+          }
+        </div>
+      </div>
+      <div>
+        <app-button
+          variant="secondary"
+          testId="sale-return-to-customer-button"
+          (action)="returnToCustomer()"
+        >
+          {{ 'UI-SALE-FAILURE-RETURN' | t }}
+        </app-button>
+      </div>
+    </div>
+  }
+
   <section
     class="flex shrink-0 flex-col rounded-lg border border-line bg-surface"
     data-testid="sale-summary-card"
@@ -45,16 +102,28 @@
     </div>
 
     <div class="grid grid-cols-[160px_minmax(0,1fr)] items-start gap-x-6 gap-y-5 p-5">
-      <!-- Option (a) (scope §2B.7): the row is always here; the value is an em
-           dash until order-service mints the KR-12 number. The client never
-           generates, guesses or pre-formats one. -->
+      <!-- Analyst decision of 2026-08-10 (ADR-018 §1.1): the row is always
+           here and shows the REAL KR-12 number the WAIT draft was given at
+           Start New Sale — available BEFORE Submit, not an em dash and not a
+           client-invented placeholder. While the draft is still being
+           created this shows a loading label instead. -->
       <span class="pt-0.5 text-body-sm text-ink-muted">{{ 'UI-SALE-ORDER-NUMBER' | t }}</span>
-      <span
-        class="eds-tabular-nums text-body font-medium text-ink"
-        data-testid="sale-summary-order-number"
-      >
-        {{ orderNumber() }}
-      </span>
+      @if (draftPending()) {
+        <span
+          class="text-body text-ink-muted"
+          role="status"
+          data-testid="sale-summary-order-number-pending"
+        >
+          {{ 'UI-SALE-ORDER-NUMBER-PENDING' | t }}
+        </span>
+      } @else {
+        <span
+          class="eds-tabular-nums text-body font-medium text-ink"
+          data-testid="sale-summary-order-number"
+        >
+          {{ orderNumber() ?? '—' }}
+        </span>
+      }
 
       <span class="pt-2.5 text-body-sm text-ink-muted">{{ 'UI-SALE-ORDER-ITEMS' | t }}</span>
       <div class="overflow-hidden rounded-md border border-line" data-testid="sale-summary-items">

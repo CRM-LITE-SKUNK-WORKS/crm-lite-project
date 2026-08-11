@@ -81,6 +81,7 @@
         <app-button
           variant="secondary"
           iconLeading="arrow-left"
+          [disabled]="navigationLocked()"
           testId="sale-previous-button"
           (action)="goPrevious()"
         >
@@ -92,8 +93,15 @@
         <!-- The mock paints step 2's Cancel `ghost` and step 1/3's
              `secondary`. `shared/ui` has no ghost BUTTON variant (only
              IconButton has one), so all three render secondary rather than
-             inventing a variant outside the design system (FE-ADR-011 §b). -->
-        <app-button variant="secondary" testId="sale-cancel-button" (action)="cancel()">
+             inventing a variant outside the design system (FE-ADR-011 §b).
+             Disabled once the async submit is accepted (ADR-018 §6): Cancel
+             must not pretend to cancel a running saga. -->
+        <app-button
+          variant="secondary"
+          [disabled]="navigationLocked()"
+          testId="sale-cancel-button"
+          (action)="cancel()"
+        >
           {{ 'LBL-CANCEL' | t }}
         </app-button>
 
@@ -102,7 +110,7 @@
             variant="primary"
             iconLeading="check"
             [disabled]="submitDisabled()"
-            [loading]="submitStore.inFlight()"
+            [loading]="submitStore.submitting()"
             testId="sale-submit-button"
             (action)="openConfirm()"
           >
@@ -137,7 +145,7 @@
   [confirmLabel]="'LBL-YES' | t"
   [cancelLabel]="'LBL-NO' | t"
   [closeLabel]="'UI-COMMON-CLOSE' | t"
-  [busy]="submitStore.inFlight()"
+  [busy]="submitStore.submitting()"
   testId="sale-submit-confirm-dialog"
   (confirmed)="confirmSubmit()"
   (cancelled)="closeConfirm()"

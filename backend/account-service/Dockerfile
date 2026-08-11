@@ -12,6 +12,10 @@ RUN mvn -f backend/crm-security-starter/pom.xml install -DskipTests -B
 # as crm-security-starter above — not on Maven Central, must be installed here.
 COPY backend/crm-observability-starter backend/crm-observability-starter
 RUN mvn -f backend/crm-observability-starter/pom.xml install -DskipTests -B
+# crm-messaging-starter: same reasoning as the starters above — not on Maven
+# Central, must be installed here.
+COPY backend/crm-messaging-starter backend/crm-messaging-starter
+RUN mvn -f backend/crm-messaging-starter/pom.xml install -DskipTests -B
 COPY backend/account-service/pom.xml backend/account-service/pom.xml
 RUN mvn -f backend/account-service/pom.xml dependency:go-offline -B
 COPY backend/account-service/src backend/account-service/src

@@ -4,7 +4,7 @@ import {
   REQUIRED_SERVICE_TYPES,
   type BasketGroup,
   type BasketItem,
-  type SubmitOrderRequest,
+  type SubmitDraftRequest,
 } from '../model';
 
 /** What the basket is missing / has too many of, expressed as the message key
@@ -265,16 +265,23 @@ export class SaleBasketStore {
   }
 
   /**
-   * Build the wire request (AC-SALE-01-15). Returns `null` when the flow is not
-   * complete enough to submit — the caller keeps the button disabled rather
-   * than sending a request the server would certainly reject.
+   * Build the `POST .../submit` wire request (AC-SALE-01-15, ADR-018 §6).
+   * Returns `null` when the flow is not complete enough to submit — the
+   * caller keeps the button disabled rather than sending a request the
+   * server would certainly reject.
+   *
+   * No `accountNumber` here: the async draft fixed the account at Start New
+   * Sale, and the backend reads it from the draft rather than trusting it
+   * again on Submit. `accountNumber` is still required as a READINESS gate
+   * (the wizard cannot have a draft without one) — it is just not part of the
+   * body this method returns.
    *
    * Blank OPTIONAL values are omitted: persisting an empty `prod_char_val` row
    * would fabricate a configuration the user never made (the backend drops them
    * too). Blank MANDATORY values are still sent, so the server answers with
    * `MSG-VAL-CHAR-REQUIRED` and stays the single authority (FE-ADR-007 §3).
    */
-  toRequest(): SubmitOrderRequest | null {
+  toRequest(): SubmitDraftRequest | null {
     const mandatoryIds = this._mandatoryIds();
     const accountNumber = this._accountNumber();
     const serviceAddressId = this._serviceAddressId();
@@ -283,7 +290,6 @@ export class SaleBasketStore {
 
     const campaignId = this.campaignId();
     return {
-      accountNumber,
       serviceAddressId,
       ...(campaignId ? { campaignId } : {}),
       items: items.map((item) => {

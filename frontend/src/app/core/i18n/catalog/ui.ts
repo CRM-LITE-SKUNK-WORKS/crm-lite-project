@@ -63,6 +63,15 @@ export const UI = {
   'UI-COMMON-LOGOUT': { en: 'Log out', tr: 'Çıkış yap' },
   'UI-COMMON-USER-AVATAR': { en: 'Signed in user', tr: 'Oturum açan kullanıcı' },
 
+  // ---- Job titles (header, scope §2.20) ----
+  // The session carries a CODE (`titleCode: "SALES_REP"`), never display text, so
+  // the title localizes with TR/EN like everything else on screen. Exactly the
+  // §2.7 `gender` arrangement: the identity provider owns a stable value, this
+  // catalogue owns the words. Key shape: UI-TITLE-{CODE with _ as -}. A code with
+  // no entry here is rendered RAW rather than swallowed (see Shell.title) — this
+  // list is expected to grow, not to be exhaustive.
+  'UI-TITLE-SALES-REP': { en: 'Sales Representative', tr: 'Satış Temsilcisi' },
+
   // ---- Sidenav (mock-ui-analysis §4.2; only B2C is active — decision 2.21) ----
   'UI-NAV-GO-TO-SEARCH': { en: 'Go to customer search', tr: 'Müşteri aramaya git' },
   'UI-NAV-B2C': { en: 'B2C', tr: 'B2C' },

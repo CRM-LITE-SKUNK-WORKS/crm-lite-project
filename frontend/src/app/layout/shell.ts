@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 import { AuthService } from '../core/auth';
 import { I18nService, LANGUAGES, TranslatePipe, type Language } from '../core/i18n';
@@ -27,10 +27,38 @@ export class Shell {
   private readonly auth = inject(AuthService);
   private readonly i18n = inject(I18nService);
 
-  /** Real username from GET /api/session/me. The mock's
-   *  "Mobility · Resp. Sales Rep." is deliberately NOT rendered — no backend
-   *  source exists for it (decision 2.20 / FE-ADR-013 §a). */
+  /** Header identity, all from GET /api/session/me (decision 2.20, revised
+   *  2026-08-12): the display name with `username` as its fallback, and the job
+   *  title in its own segment left of the avatar, where mock §4.1 puts it. The
+   *  mock's "Mobility · Resp. Sales Rep." role text now HAS a backend source — a
+   *  Keycloak `titleCode` user attribute relayed through the ID token — so it is
+   *  rendered instead of dropped. `title()` is null on a realm that has not been
+   *  reconciled yet; the template then omits the segment entirely rather than
+   *  inventing text (FE-ADR-013 §a still forbids that). */
   readonly username = this.auth.username;
+  readonly fullName = this.auth.fullName;
+
+  /**
+   * The job title as TEXT: the session carries a code (`SALES_REP`) and this
+   * resolves it through the i18n catalogue, so the title switches with TR/EN like
+   * every other word on screen. Same division of labour as `displayGender`
+   * (scope §2.7) — the identity provider owns a stable value, the catalogue owns
+   * the wording.
+   *
+   * Reads `dictionary()` rather than `translate()` deliberately: `translate()`
+   * answers UI-ERROR-GENERIC for an unknown key, which would turn a title this
+   * catalogue has not learned yet into "Something went wrong" in the header. A
+   * miss falls back to the RAW code instead — honest, obviously untranslated, and
+   * a visible prompt to add the entry. Reading the signal also makes the title
+   * re-render the instant the language changes.
+   */
+  readonly title = computed<string | null>(() => {
+    const code = this.auth.titleCode();
+    if (!code) {
+      return null;
+    }
+    return this.i18n.dictionary()[`UI-TITLE-${code.toUpperCase().replace(/_/g, '-')}`] ?? code;
+  });
   readonly lang = this.i18n.lang;
   readonly languages = LANGUAGES;
 

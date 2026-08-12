@@ -36,10 +36,43 @@ describe('AuthService.logout', () => {
 
   function signIn(): void {
     auth.loadSession().subscribe();
-    httpMock
-      .expectOne('/api/session/me')
-      .flush({ authenticated: true, username: 'ayilmaz', subject: 'sub-1', roles: ['crm-user'] });
+    httpMock.expectOne('/api/session/me').flush({
+      authenticated: true,
+      username: 'ayilmaz',
+      subject: 'sub-1',
+      roles: ['crm-user'],
+      fullName: 'Ali Yilmaz',
+      titleCode: 'SALES_REP',
+    });
   }
+
+  /**
+   * The header's display identity comes from the probe and nowhere else
+   * (scope §2.20, revised 2026-08-12) — and both fields are legitimately absent,
+   * so the signals must normalise that to `null` instead of leaking `undefined`
+   * into the template.
+   *
+   * `titleCode` is exposed as the RAW CODE: localizing it belongs to the consumer
+   * (`Shell.title`), not here, so this service stays free of catalogue knowledge.
+   */
+  it('exposes the display name and title code from the session, null when absent', () => {
+    signIn();
+    expect(auth.fullName()).toBe('Ali Yilmaz');
+    expect(auth.titleCode()).toBe('SALES_REP');
+
+    auth.refreshSession().subscribe();
+    httpMock.expectOne('/api/session/me').flush({
+      authenticated: true,
+      username: 'ayilmaz',
+      subject: 'sub-1',
+      roles: ['crm-user'],
+      fullName: null,
+      titleCode: null,
+    });
+    expect(auth.fullName()).toBeNull();
+    expect(auth.titleCode()).toBeNull();
+    expect(auth.username()).toBe('ayilmaz');
+  });
 
   it('sends the logout as a POST so Angular attaches the CSRF header', () => {
     withStubbedLocation(() => {

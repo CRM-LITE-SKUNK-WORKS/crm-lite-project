@@ -180,11 +180,27 @@ services:
   # Idempotent (rewrites the same values), and nothing depends_on it, so if it ever
   # fails the rest of the stack still comes up exactly as before.
   #
+  # The flip side of that: because nothing depends_on it, a PARTIAL up naming only
+  # some services (`up -d postgres keycloak` — what docs/runbooks/auth-testing.md
+  # §2.1 has developers run) does NOT start it. Name it explicitly there, or use a
+  # bare `up -d`. Nothing errors when it is skipped; the realm just silently keeps
+  # its old settings.
+  #
   # Applied settings:
   #   1. realm loginTheme = crm-lite            (FR-AUTH-01 UI; ADR-006)
   #   2. crm-bff redirectUris / webOrigins      (FE-ADR-004: frontend on :4200 must
   #      / post.logout.redirect.uris             be a valid OAuth origin alongside
   #                                              the gateway's own :8080)
+  #   3. user profile unmanagedAttributePolicy, (header name/title, scope §2.20:
+  #      the fixtures' `titleCode` attribute and  Keycloak 26's declarative user
+  #      the crm-bff titleCode ID-token mapper    profile SILENTLY DROPS attributes
+  #                                               that are neither declared nor
+  #                                               unmanaged-enabled, so the policy
+  #                                               must be set BEFORE the attribute
+  #                                               writes. The mapper create is
+  #                                               guarded by a lookup: a second
+  #                                               create answers 409 and would
+  #                                               break the && chain on every up.)
   keycloak-init:
     image: quay.io/keycloak/keycloak:26.3.4
     container_name: keycloak-init
@@ -203,7 +219,20 @@ services:
         -s 'redirectUris=["http://localhost:8080/login/oauth2/code/keycloak","http://localhost:4200/login/oauth2/code/keycloak"]'
         -s 'webOrigins=["http://localhost:8080","http://localhost:4200"]'
         -s 'attributes."post.logout.redirect.uris"=http://localhost:8080/*##http://localhost:4200/*' &&
-        echo "keycloak-init: crm-bff redirect URIs applied (:8080 gateway + :4200 frontend)"
+        echo "keycloak-init: crm-bff redirect URIs applied (:8080 gateway + :4200 frontend)" &&
+        /opt/keycloak/bin/kcadm.sh update users/profile -r crm-lite -s unmanagedAttributePolicy=ENABLED &&
+        for U in ayilmaz edemir mkaya; do
+        USERID=$$(/opt/keycloak/bin/kcadm.sh get users -r crm-lite --query username=$$U --query exact=true --fields id --format csv --noquotes) &&
+        /opt/keycloak/bin/kcadm.sh update users/$$USERID -r crm-lite -s 'attributes.titleCode=["SALES_REP"]' || exit 1;
+        done &&
+        (/opt/keycloak/bin/kcadm.sh get clients/$$CID/protocol-mappers/models -r crm-lite --fields name --format csv --noquotes | grep -qx user-title-code-in-id-token ||
+        /opt/keycloak/bin/kcadm.sh create clients/$$CID/protocol-mappers/models -r crm-lite
+        -s name=user-title-code-in-id-token -s protocol=openid-connect
+        -s protocolMapper=oidc-usermodel-attribute-mapper
+        -s 'config."user.attribute"=titleCode' -s 'config."claim.name"=titleCode'
+        -s 'config."jsonType.label"=String' -s 'config."id.token.claim"=true'
+        -s 'config."access.token.claim"=false' -s 'config."userinfo.token.claim"=false') &&
+        echo "keycloak-init: titleCode attribute + mapper applied"
     depends_on:
       keycloak:
         condition: service_healthy

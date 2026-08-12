@@ -153,6 +153,11 @@ Keycloak realm's redirect URI points there) — don't run it while a local
 gateway instance, or anything else, is already bound to that port. The
 doctor script checks this.
 
+The most common "anything else" is **the compose `api-gateway` container**: a
+bare `podman compose -p crm-lite -f infra/docker-compose.yml up -d` starts the
+whole stack, and that service publishes host port 8080. `podman stop
+api-gateway` before the build, or start only the services you need.
+
 ## Troubleshooting order
 
 1. **Docker discovery failure** — `docker version`/`info`/`ps` fail, or
@@ -167,8 +172,13 @@ doctor script checks this.
 3. **Container readiness failure** — the container starts but its wait
    strategy times out (e.g. Keycloak not answering `/realms/crm-lite`
    within 3 minutes). Check container logs, not discovery logs.
-4. **Port conflict** — port 8080 already bound; identify the owning PID
-   from `netstat.exe -ano` and stop it yourself. Don't change the test's
+4. **Port conflict** — port 8080 already bound. Surefire reports this as
+   `ApplicationContext failure threshold (1) exceeded` on every test in the
+   class; the real cause is a single
+   `PortInUseException: Port 8080 is already in use` further up, so grep the
+   report for `Caused by` rather than reading the first stack trace. Check the
+   compose `api-gateway` container first (`podman ps`), then identify the owning
+   PID from `netstat.exe -ano` and stop it yourself. Don't change the test's
    port without reviewing the committed Keycloak redirect URI contract.
 5. **Application test assertion failure** — Docker and containers are
    fine; the test itself is failing on its actual assertions. This is an

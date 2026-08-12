@@ -47,14 +47,49 @@ All commands below assume Git Bash and the repository root as working directory
 ### 2.1 Infrastructure
 
 ```bash
-podman compose -p crm-lite -f infra/docker-compose.yml up -d postgres keycloak
+podman compose -p crm-lite -f infra/docker-compose.yml up -d postgres keycloak keycloak-init
 podman ps
 ```
 
 `-p crm-lite` is **mandatory**: without it the project name is derived from the
-`infra/` directory and can attach another project's volumes. Both containers
-must reach `Up ... (healthy)` before continuing. Keycloak imports the realm from
-`infra/keycloak/realm/crm-lite-realm.json` on first start.
+`infra/` directory and can attach another project's volumes. `postgres` and
+`keycloak` must reach `Up ... (healthy)` before continuing; `keycloak-init` is a
+one-shot that exits `0` and is expected to be gone from `podman ps`. Keycloak
+imports the realm from `infra/keycloak/realm/crm-lite-realm.json` on first start.
+
+**Name `keycloak-init` explicitly** — this is easy to get wrong and fails
+silently. Nothing `depends_on` it (deliberately: a failure there must not stop
+the stack), so `up -d postgres keycloak` does **not** start it. A bare
+`up -d` (no service names) does, which is why the container's own comment says
+"every up".
+
+> **Do not reach for a bare `up -d` just to get `keycloak-init`.** It also starts
+> the **`api-gateway` container, which publishes host port 8080** — and
+> `GatewayBffIntegrationTest` binds that exact port (the committed realm's
+> redirect URIs point there). `mvn verify` then fails with
+> `PortInUseException: Port 8080 is already in use`, in every test of the class,
+> behind a wall of `ApplicationContext failure threshold (1) exceeded` warnings
+> that say nothing about the real cause. Either name the three services as above,
+> or `podman stop api-gateway` before running the build.
+
+That matters because `--import-realm` runs **only when the realm is absent**: on
+an existing `keycloak_db`, every realm change — the login theme, the `:4200`
+redirect URIs, and since 2026-08-12 the header's `titleCode` attribute and its
+ID-token mapper — arrives *only* through `keycloak-init`. Confirm it landed:
+
+```bash
+podman logs keycloak-init | tail -1
+# keycloak-init: titleCode attribute + mapper applied
+```
+
+No database reset and no Admin Console clicking. If that line is missing, the
+stack still works — the affected settings just silently keep their old values
+(e.g. the header shows the username with no job title).
+
+**Already signed in? Log out and back in.** These fields ride in the **ID
+token**, which is minted once at login and not re-issued by the transparent
+access-token refresh, so a session that predates the mapper keeps answering
+`"titleCode": null` until a fresh authentication.
 
 Never run `podman compose down -v` — it destroys the databases.
 
@@ -125,7 +160,7 @@ cookie between test runs.
 |---|---|---|
 | 4.1 | Open `http://localhost:8080/api/session/me` while anonymous | `401` JSON with `"messageKey": "MSG-AUTH-UNAUTHORIZED"` |
 | 4.2 | Open `http://localhost:8080/oauth2/authorization/keycloak` | Redirect to Keycloak (`localhost:8180`) login page. The authorize URL contains `code_challenge_method=S256` |
-| 4.3 | Sign in as `ayilmaz` / `crm-dev` | Redirect back to the gateway; session JSON with `"authenticated": true`, `"username": "ayilmaz"`, a `subject` UUID and `"roles": ["crm-user"]` |
+| 4.3 | Sign in as `ayilmaz` / `crm-dev` | Redirect back to the gateway; session JSON with `"authenticated": true`, `"username": "ayilmaz"`, a `subject` UUID, `"roles": ["crm-user"]`, plus `"fullName": "Ali Yilmaz"` and `"titleCode": "SALES_REP"` — a CODE, which the SPA localizes to "Sales Representative" / "Satış Temsilcisi" (both `null` if `keycloak-init` has not run against this database — see §2.1) |
 | 4.4 | `GET /api/session/me` | Same payload. **No token of any kind in the body** |
 | 4.5 | DevTools (`F12`) → Application → Cookies → `http://localhost:8080` | Exactly two cookies: `JSESSIONID` (**HttpOnly ✓**, SameSite=Lax) and `XSRF-TOKEN` (readable by design). Neither value starts with `eyJ` |
 | 4.6 | Application → Local Storage and Session Storage | **Both empty** — nothing to steal via XSS |

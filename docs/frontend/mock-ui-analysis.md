@@ -1604,11 +1604,21 @@ Ayrıca `aria-current="page"` (aktif sayfa), `role="status"` (toast),
    yuvarlansın mı, yoksa yeni bir token mı tanımlansın?
 6. **Sidenav öğelerinin işlevi:** B2C/B2B/menu/thumbs-up mock'ta sadece görsel
    durum değiştiriyor (hedef sayfa yok). CRM Lite kapsamında bunlar ne yapacak?
-7. **Header'daki "Mobility · Resp. Sales Rep." rolü:** statik mi kalacak,
-   Keycloak token'ından mı gelecek? (`/api/session/me` yalnız `username`,
-   `subject`, `roles` döndürüyor — organizasyon bilgisi hiçbir yerde yok.)
-   → Header'daki **"EN" dil seçici kısmı KAPANDI**: AC-LANG-01-01 gereği
-   gerçek bir TR/EN değiştirici olacak (§7A).
+7. ~~**Header'daki "Mobility · Resp. Sales Rep." rolü:** statik mi kalacak,
+   Keycloak token'ından mı gelecek?~~ → ✅ **KAPANDI (12.08.2026):**
+   **Keycloak'tan gelecek.** Kullanıcıya bir `titleCode` attribute'u eklendi,
+   `crm-bff` mapper'ı ID token'a taşıyor ve `/api/session/me` artık `fullName`
+   ile `titleCode` da döndürüyor. Yerleşim **§4.1'deki sırayla birebir**: ünvan
+   avatarın solunda kendi bölümünde (body-sm, soluk), avatarın sağında `fullName`
+   (yoksa `username`). §4.1'deki `max-width: 120px` **uygulanmadı** — o ölçü mock'un
+   örnek metnine göreydi, gerçek değer sığmıyor (scope §2.20). Ünvan yoksa o bölüm
+   ve peşindeki ayraç hiç render edilmiyor. Statik metin **yazılmadı** —
+   23.07.2026'daki "kaldırılır" kararı revize edildi (scope §2.20,
+   FE-ADR-005 §Amendment). Oturum düz metin değil bir **kod** taşıdığı için
+   (`titleCode: "SALES_REP"`) görünen metin katalogdan geliyor ve §4.1'in dil
+   seçicisiyle birlikte değişiyor — §2.7'deki `gender` düzeninin aynısı.
+   → Header'daki **"EN" dil seçici kısmı** daha önce kapanmıştı: AC-LANG-01-01
+   gereği gerçek bir TR/EN değiştirici olacak (§7A).
 8. ~~**Inactive müşteriler**~~ → ✅ **KAPANDI:** backend zaten yalnız aktifleri
    döndürüyor (`status_id = ACTV AND deleted_date IS NULL`) — mock ile uyumlu.
 9. ~~**Login ekranı**~~ → ✅ **KAPANDI (23.07.2026):** Keycloak `crm-lite` teması

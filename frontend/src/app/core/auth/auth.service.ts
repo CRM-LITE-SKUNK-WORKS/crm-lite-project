@@ -43,6 +43,11 @@ export class AuthService {
   readonly session = this._session.asReadonly();
   readonly isAuthenticated = computed(() => this._session()?.authenticated === true);
   readonly username = computed<string | null>(() => this._session()?.username ?? null);
+  /** Display identity for the header. Both are legitimately absent (see
+   *  `SessionResponse`), so both normalise to `null` and callers must fall back.
+   *  `titleCode` is a CODE, not text — localizing it is the caller's job. */
+  readonly fullName = computed<string | null>(() => this._session()?.fullName ?? null);
+  readonly titleCode = computed<string | null>(() => this._session()?.titleCode ?? null);
   readonly roles = computed<readonly string[]>(() => this._session()?.roles ?? []);
 
   /** UX affordance only — the gateway enforces roles independently (FE-ADR-005 §P6). */

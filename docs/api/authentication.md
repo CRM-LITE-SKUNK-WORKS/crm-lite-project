@@ -57,11 +57,25 @@ application session is created.
 **`GET /api/session/me`** → `200`:
 
 ```json
-{"authenticated": true, "username": "ayilmaz", "subject": "<keycloak-sub-uuid>", "roles": ["crm-user", "..."]}
+{"authenticated": true, "username": "ayilmaz", "subject": "<keycloak-sub-uuid>", "roles": ["crm-user", "..."],
+ "fullName": "Ali Yilmaz", "titleCode": "SALES_REP"}
 ```
 
 - Call it after startup and after every login/logout transition: it reports the
   principal AND (re)issues the `XSRF-TOKEN` cookie.
+- `fullName` and `titleCode` are the header's display identity and are
+  **nullable**. `fullName` is the OIDC `name` claim (standard `profile` scope);
+  `titleCode` is the Keycloak `titleCode` user attribute, relayed to the ID token
+  by the `crm-bff` `user-title-code-in-id-token` mapper. A realm whose users
+  predate that attribute — or any principal that is not an `OidcUser` — yields
+  `null`, which consumers must treat as normal and fall back from (the shell
+  falls back to `username` and omits the title segment). `keycloak-init`
+  re-applies both on every `up`. Still **never a token of any kind** (ADR-007).
+- **`titleCode` is a CODE, not display text.** The gateway relays the claim
+  verbatim and never localizes it; the client resolves `SALES_REP` to
+  "Sales Representative" / "Satış Temsilcisi" through its own catalogue, the same
+  arrangement the wire value `"Male"` has. Do not render it at a user as-is, and
+  do not assume the set is closed — an unknown code must degrade gracefully.
 - Anonymous/expired session → `401` JSON (below). That 401 is Angular's signal
   to start the login redirect.
 

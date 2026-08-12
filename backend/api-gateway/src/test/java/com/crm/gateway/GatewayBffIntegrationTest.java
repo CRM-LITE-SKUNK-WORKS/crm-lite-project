@@ -284,6 +284,17 @@ class GatewayBffIntegrationTest {
         assertThat(me.statusCode()).isEqualTo(200);
         assertThat(me.body()).contains("\"username\":\"ayilmaz\"").contains("crm-user");
 
+        // The header's display identity (scope §2.20). Both come from the COMMITTED realm
+        // and nothing else — `fullName` from the standard profile scope's `name` claim,
+        // `titleCode` from the crm-bff user-title-code-in-id-token mapper reading the
+        // fixture's `titleCode` user attribute. This container never runs keycloak-init,
+        // so a realm file that lost either the mapper or the ENABLED
+        // unmanagedAttributePolicy (Keycloak 26 drops undeclared attributes silently)
+        // fails right here. The value is a CODE: the gateway never localizes it.
+        assertThat(me.body())
+                .contains("\"fullName\":\"Ali Yilmaz\"")
+                .contains("\"titleCode\":\"SALES_REP\"");
+
         // No token is ever exposed to the browser (ADR-007): cookies are only the
         // session id + readable XSRF token, and neither cookies nor the session
         // body carry anything JWT-shaped ("eyJ" base64-JSON prefix).

@@ -24,8 +24,11 @@ every `up` by the `keycloak-init` container).
 ### 1. Session state has exactly one source: `GET /api/session/me`
 ```json
 {"authenticated": true, "username": "ayilmaz",
- "subject": "<keycloak-sub-uuid>", "roles": ["crm-user", "..."]}
+ "subject": "<keycloak-sub-uuid>", "roles": ["crm-user", "..."],
+ "fullName": "Ali Yilmaz", "titleCode": "SALES_REP"}
 ```
+`fullName` and `titleCode` were added on **2026-08-12** (see §Amendment) and are
+**nullable**; everything else is unchanged.
 It is called at application startup and after every login/logout transition. It
 serves two purposes at once — it reports the principal **and** causes the
 gateway to (re)issue the `XSRF-TOKEN` cookie.
@@ -154,7 +157,12 @@ must never assume a guard has made an API call safe.
   frontend's origin and the realm's registered redirect URI must agree.
   Resolved 2026-07-23 — see FE-ADR-004 §Addendum: both `:4200` and `:8080` are
   registered on `crm-bff` and re-applied on every `up` by `keycloak-init`.
-- `/api/session/me` exposes only `username`, `subject` and `roles`. The mock
+- > ⚠️ **Superseded (2026-08-12) — see §Amendment.** The probe now also carries
+  > `fullName` and `title`, and the header renders both. The bullet is kept as
+  > accepted on 2026-07-23; its premise ("no backend source exists") is what
+  > changed, not its reasoning.
+
+  `/api/session/me` exposes only `username`, `subject` and `roles`. The mock
   header shows `"Mobility · Resp. Sales Rep."`, for which **no backend source
   exists**. Decided 2026-07-23: **that text is dropped**; the header shows the
   avatar plus the real `username` from the session probe. No Keycloak user
@@ -162,3 +170,109 @@ must never assume a guard has made an API call safe.
   value for data the system does not hold is exactly what FE-ADR-013 §a
   forbids. If organizational data is genuinely required later, ADR-011 §4
   already prescribes how it must be designed.
+
+---
+
+## Amendment (2026-08-12): the header shows the real name and title; the probe grows two fields
+
+### Status
+Accepted (2026-08-12, instructor-approved). Supersedes the last bullet of
+§Consequences and extends the §1 payload. Everything else in this ADR — the
+five prohibitions in particular — stands untouched: no token is involved, no
+claim is decoded in the browser, and the two new fields arrive the same way
+`username` and `roles` always have, through the session probe.
+
+### Context
+The 2026-07-23 decision dropped the mock's `"Mobility · Resp. Sales Rep."` line
+on a premise that was true then: `/api/session/me` had nothing to render it
+from, and FE-ADR-013 §a forbids inventing a display value. The premise was the
+*absence of a source*, not a judgement that the line was undesirable — the same
+shape as every other scope decision in this project, and the same way out of it:
+give it a real source.
+
+The source is now real. Keycloak already holds the fixtures' first and last
+names, and a **`title` user attribute** is a native user-model field — not a
+value the frontend makes up.
+
+### 1. The probe carries `fullName` and `titleCode`
+`SessionController.SessionResponse` gains both. `fullName` is
+`OidcUser.getFullName()` (the standard `name` claim, already delivered by the
+`profile` scope the gateway requests — no realm change was needed for it);
+`titleCode` is `getClaimAsString("titleCode")`, fed by a new `crm-bff` protocol
+mapper (`user-title-code-in-id-token`) reading the `titleCode` user attribute.
+Both land in the **ID token**, which is what the BFF session is built from;
+neither is added to the access token, so no resource server's contract changes.
+
+### 1a. The title travels as a CODE, and the catalogue owns the words
+`titleCode` carries `SALES_REP`, not `"Sales Representative"`. The frontend
+resolves it to `UI-TITLE-SALES-REP`, so the header's title switches with TR/EN
+like every other word on screen — this is the arrangement `displayGender` already
+uses for the wire value `"Male"` (scope §2.7), applied to a second field.
+
+**Why not store the localized text in Keycloak** (an obvious alternative — a
+second `titleTr` attribute, a second mapper, a second response field):
+- An identity provider is a source of identity *facts*, not of display copy. It
+  has no tooling for translations — no review, no missing-translation report, no
+  fallback rule — while the catalogue has all three plus `i18n.spec.ts`.
+- It scales per *language*, not per *word*: a third language would mean another
+  attribute, another mapper, another response field, another frontend branch, and
+  another value hand-typed on every user. In the catalogue it is one more column.
+- Two copies of one fact drift. Someone updates the title and forgets the Turkish
+  one, and nothing notices, because the English screen still looks right.
+- Renaming a title becomes a data migration across users instead of a one-line
+  catalogue edit.
+
+**The condition this rests on**, stated so a future reader can tell when it stops
+holding: the title set is a closed list this project governs. If titles ever
+arrive as free text from a federated HR source (LDAP `title`, SCIM), the code
+assumption is wrong and the honest answer is to display them untranslated rather
+than to fake an enumeration. The attribute is deliberately named `titleCode`, not
+`title`, so such a federated free-text `title` can arrive later without colliding
+with this one and without any consumer mistaking a code for display text.
+
+**An unknown code renders raw.** `Shell.title` reads `I18nService.dictionary()`
+instead of `translate()`, because `translate()` answers `UI-ERROR-GENERIC` for an
+unknown key — a title the catalogue has not learned yet would surface as
+"Something went wrong" in the header. Falling back to the code itself is honest,
+obviously untranslated, and asserted in `shell.spec.ts`.
+
+### 2. Both fields are nullable, by design and in practice
+A principal that is not an `OidcUser` has neither; a realm that has not been
+reconciled has no `titleCode`. The frontend types them optional-and-nullable, the
+header falls back to `username` for the name, and **omits the title segment
+entirely** — along with its divider — when there is no title. That last part is
+FE-ADR-013 §a still doing its job: the decision that changed is "there is no
+source", not "invent one".
+
+The title sits where `mock-ui-analysis.md` §4.1 puts it: its own segment to the
+left of the avatar, not a second line under the name. §4.1's `max-width: 120px`
+is deliberately not reproduced — that number was measured on the mock's own
+sample string and clipped the real value on every screen (recorded in scope
+§2.20).
+
+### 3. Realm reconciliation is part of the change, not a follow-up
+`--import-realm` only runs when the realm is absent, so the committed realm file
+alone would reach nobody who already has a `keycloak_db`. Both paths are
+therefore covered and both are verified:
+- the **committed realm** (`infra/keycloak/realm/crm-lite-realm.json`) carries
+  the attribute on all three fixtures, the mapper, **and** a declarative user
+  profile with `unmanagedAttributePolicy: ENABLED` — Keycloak 26.3's user
+  profile silently DROPS an attribute that is neither declared nor
+  unmanaged-enabled, so without that policy the import would look like it
+  worked and produce no claim. `GatewayBffIntegrationTest` asserts both fields
+  on a container built from this file alone, which is what keeps the file
+  honest;
+- `keycloak-init` re-applies the policy, the three attributes and the mapper on
+  every `up` (mapper creation guarded by a lookup — a second `create` answers
+  `409` and would break its `&&` chain).
+
+### Consequences
+- The header matches the mock's information design without any invented data,
+  and it is fully bilingual — the last untranslated string on the chrome is gone.
+- Adding a job title is a catalogue entry plus a Keycloak attribute value; it
+  touches no Java and no contract.
+- `docs/frontend/scope-and-conflicts.md` §2.20 is rewritten, and
+  `mock-ui-analysis.md` §9.7 closes.
+- One more thing the realm import owns; a developer who never reset their
+  database gets it from `keycloak-init` and can confirm it in one line of its
+  log (`keycloak-init: title attribute + mapper applied`).

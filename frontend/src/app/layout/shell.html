@@ -50,6 +50,29 @@
 
       <span class="h-6 w-px bg-white/20" aria-hidden="true"></span>
 
+      <!-- Job title — its own segment BEFORE the avatar, exactly where §4.1 puts
+           the mock's "Mobility · Resp. Sales Rep." (body-sm, faint).
+
+           §4.1's `max-width: 120px` is deliberately NOT reproduced: that number was
+           measured on the mock's own sample string, and the real value the session
+           carries ("Sales Representative") needs ~135px, so the cap clipped live
+           data on every screen. The segment is sized by its content instead and
+           only forbidden to wrap — the header has room to spare and nothing else in
+           the row is elastic. Recorded in scope §2.20.
+
+           The session carries a CODE (`titleCode`) and `Shell.title` resolves it
+           through the i18n catalogue (scope §2.20), so this text switches with
+           TR/EN like any label — the §2.7 `gender` arrangement. No title in the
+           session → neither this span NOR its trailing divider is rendered, which
+           keeps the mock's divider rhythm intact instead of leaving a double
+           separator. -->
+      @if (title(); as userTitle) {
+        <span class="whitespace-nowrap text-body-sm text-ink-faint" data-testid="app-user-title">
+          {{ userTitle }}
+        </span>
+        <span class="h-6 w-px bg-white/20" aria-hidden="true"></span>
+      }
+
       <div class="flex items-center gap-2" data-testid="app-user">
         <span
           class="flex size-7 items-center justify-center rounded-full bg-white/10"
@@ -69,8 +92,10 @@
             <circle cx="12" cy="7" r="4" />
           </svg>
         </span>
+        <!-- `fullName` falls back to `username`: a principal without a `name` claim
+             still has to be identifiable (scope §2.20). -->
         <span class="text-body font-medium text-on-inverse" data-testid="app-username">
-          {{ username() }}
+          {{ fullName() ?? username() }}
         </span>
       </div>
     </div>

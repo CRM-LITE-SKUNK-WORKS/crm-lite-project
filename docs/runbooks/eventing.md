@@ -266,6 +266,16 @@ SPRING_PROFILES_ACTIVE=async-sale docker compose up -d --force-recreate \
     account-service product-service order-service
 ```
 
+Or in one command, without typing the env var every time — `docker-compose.async-sale.yml`
+sets it for exactly those three services and nothing else, so a plain `docker compose up`
+(no `-f`, no `--profile`) is completely unaffected:
+
+```bash
+cd infra
+docker compose -f docker-compose.yml -f docker-compose.async-sale.yml \
+    --profile eventing up -d
+```
+
 The profile enables the **in-process relay**, so Kafka alone is enough and Kafka Connect
 is optional. If you register the Debezium connectors instead, set
 `crm.messaging.outbox.relay.enabled=false` in all three services first — running both

@@ -30,6 +30,10 @@ public class CrmSecurityProperties {
     /** Paths served without authentication by the default chain. */
     private List<String> permitPaths = new ArrayList<>(List.of("/actuator/health"));
 
+    /** Client-credentials service account for calls with no live user request to
+     *  borrow a token from (ADR-010 addendum) — see {@link ServiceAccount}. */
+    private final ServiceAccount serviceAccount = new ServiceAccount();
+
     public String getIssuer() {
         return issuer;
     }
@@ -76,5 +80,58 @@ public class CrmSecurityProperties {
 
     public void setPermitPaths(List<String> permitPaths) {
         this.permitPaths = permitPaths;
+    }
+
+    public ServiceAccount getServiceAccount() {
+        return serviceAccount;
+    }
+
+    /** Effective client-credentials token endpoint: explicit override, else the
+     *  Keycloak layout under the issuer (mirrors {@link #resolveJwkSetUri()} — the
+     *  canonical issuer is not reachable from inside a compose network either). */
+    public String resolveServiceAccountTokenUri() {
+        if (serviceAccount.tokenUri != null && !serviceAccount.tokenUri.isBlank()) {
+            return serviceAccount.tokenUri;
+        }
+        return issuer + "/protocol/openid-connect/token";
+    }
+
+    /**
+     * Unset (blank {@code clientId}) by default, so no service ever activates
+     * {@link ServiceAccountTokenProvider} unless it deliberately opts in. Today that
+     * is exactly account-service and product-service under the {@code async-sale}
+     * profile — their SALE saga command handlers run on a Kafka listener thread,
+     * where {@link BearerTokenPropagationInterceptor}'s normal request-bound path
+     * has no user token to find (ADR-010 addendum, 2026-08-13).
+     */
+    public static class ServiceAccount {
+
+        private String clientId;
+        private String clientSecret;
+        private String tokenUri;
+
+        public String getClientId() {
+            return clientId;
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public String getClientSecret() {
+            return clientSecret;
+        }
+
+        public void setClientSecret(String clientSecret) {
+            this.clientSecret = clientSecret;
+        }
+
+        public String getTokenUri() {
+            return tokenUri;
+        }
+
+        public void setTokenUri(String tokenUri) {
+            this.tokenUri = tokenUri;
+        }
     }
 }

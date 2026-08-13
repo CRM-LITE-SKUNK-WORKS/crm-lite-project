@@ -4,7 +4,60 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-10 (**ASENKRON SALE KESİMİ YAPILDI — taslak sipariş +
+> **Son güncelleme:** 2026-08-13 (**ASENKRON SALE'İN İKİ BAĞIMSIZ TIKANMA NOKTASI
+> GİDERİLDİ — saga artık gerçekten `COMPLETED`'e ulaşıyor:**
+> **ÖNCE ŞUNU OKU: `async-sale` profili artık gerçekten çalışıyor.** 10.08.2026'daki
+> ADR-018 kesimi doğruydu ama iki ayrı, birbirinden bağımsız altyapı hatası yüzünden
+> saga hiçbir zaman `COMPLETED`'e ulaşamıyordu — canlı ortamda ilk denemede ikisi de
+> ortaya çıktı, ikisi de düzeltildi.
+> **(1) Kök neden #1 — hiçbir saga consumer'ı hiç bağlanmıyordu.** Üç
+> `*-async-sale.yml` dosyasında (`account`, `product`, `order`-service) `function.definition`
+> `spring.cloud.stream.function` altına yazılmıştı — bu property GERÇEKTE
+> `spring.cloud.function.definition`; `stream:` altındaki hali sessizce YOK SAYILIYOR.
+> Sonuç: Kafka'da hiçbir consumer group hiç oluşmuyordu (doğrulandı —
+> `kafka-consumer-groups.sh --list` boştu), komutlar üretiliyor ama hiç tüketilmiyordu.
+> Submit ya doğrudan 503 dönüyordu (outbox kapalıyken) ya da saga
+> `AWAITING_ACCOUNT_CHECK`'te sonsuza kadar kalıp `SaleSagaRecoveryJob`'ın retry
+> bütçesini tüketip `MANUAL_INTERVENTION`'a yükseliyordu — daha önceki "hep işleniyor
+> kalıyor" gözlemi buydu. Fix: üç dosyada da `function:` bloğu `cloud:` altına,
+> `stream:` ile KARDEŞ seviyeye taşındı.
+> **(2) Kök neden #2 — saga'nın dış çağrıları 401 alıyordu.** #1 düzelince saga bir
+> sonraki adımda (`prepare`) tıkandı: product-service'in `doCreate()`'i (senkron
+> yoldakiyle AYNI metot) customer-service/lookup-service'e gidiyor, ama saga bir Kafka
+> listener thread'inde çalıştığı için `SecurityContextHolder`'da taşınacak bir kullanıcı
+> token'ı yok — `BearerTokenPropagationInterceptor` boş `Authorization` gönderiyor,
+> resource server 401 dönüyor. **ADR-010'un lookup-service maddesi bu senaryoyu zaten
+> "future work" olarak adlandırmıştı** ("genuine background/batch job... gets a
+> client-credentials service account"). Fix: yeni Keycloak client'ı `crm-saga-worker`
+> (client-credentials, `crm-user` rolü + `crm-api` audience — kullanıcı token'ıyla AYNI
+> zero-trust kontrolünden geçiyor), `ServiceAccountTokenProvider` (crm-security-starter,
+> önbellekli) ve `BearerTokenPropagationInterceptor`'a fallback: SecurityContext'te
+> kullanıcı token'ı YOKSA buna düşer. Yalnız `crm.security.service-account.client-id`
+> set'liyken aktif — bugün yalnız account/product-service'in `async-sale` profili;
+> request-bound hiçbir çağrı etkilenmedi (ADR-010'a addendum, testli).
+> **(3) Kolaylık — `docker-compose.async-sale.yml` (yeni).** `SPRING_PROFILES_ACTIVE=async-sale`'i
+> her seferinde elle yazmamak için override dosyası:
+> `docker compose -f docker-compose.yml -f docker-compose.async-sale.yml --profile eventing up -d`.
+> Düz `docker compose up` (CI'nin çalıştırdığı) DEĞİŞMEDİ.
+> **(4) Canlı doğrulandı, bir yan bulgu dahil.** config-server/account-service/product-service
+> imajları yeniden build edildi; `keycloak_db` sıfırlanıp realm yeniden import edildi
+> (yol boyunca bir hata daha bulundu: Keycloak'ın `CLIENT.DESCRIPTION` kolonu
+> `VARCHAR(255)` — uzun bir description import'u tamamen çökertiyor, kısaltıldı).
+> Art arda üç taze satış (`sale_saga`: 1261000150, 1261000168, 1261000176) tek
+> denemede, `retry_count=0` ile `COMPLETED`'e ulaştı. Fix'ten ÖNCEKİ 4 saga kalıcı
+> olarak `MANUAL_INTERVENTION` kaldı (terminal saga elle düzeltilmez — runbook kuralı,
+> bilerek dokunulmadı).
+> **(5) Bilinen, dokunulmamış bir yan bulgu:** `order-outbox-connector` (Debezium)
+> `FAILED` durumda — `occurred_at` alanı SMT'nin beklediği `INT64` tipinde değil. Şu an
+> ENGELLEYİCİ DEĞİL çünkü order-service'in in-process relay'i aynı satırları zaten
+> yayınlıyor, ama account/product-service'in Debezium connector'ları RUNNING iken
+> onların in-process relay'i de aktif — runbook'un açıkça uyardığı "aynı anda ikisini
+> de çalıştırma" durumu (çift yayın; şu an inbox dedup ile zararsız). §9.7'nin
+> "Debezium connector'ları canlı doğrulama" maddesine not düşüldü.
+> Test kanıtı: `crm-security-starter` **18/18** (2 yeni test: servis-hesabı fallback'i).
+> Detay: **ADR-010** (13.08.2026 eki), `docs/runbooks/eventing.md`,
+> `infra/docker-compose.async-sale.yml`, `infra/keycloak/realm/crm-lite-realm.json`.)
+> Önceki durum: 2026-08-10 (**ASENKRON SALE KESİMİ YAPILDI — taslak sipariş +
 > kalıcı saga orkestrasyonu CANLI (ADR-018, Accepted):**
 > **ÖNCE ŞUNU OKU: canlı satış yolu artık asenkron.** `POST /api/orders` **deprecated**
 > — build'de duruyor çünkü (a) mevcut merge edilmiş frontend hâlâ onu çağırıyor ve
@@ -577,7 +630,11 @@ crm-lite-project-dev/
 │   │       ├── KeycloakRealmRoleConverter.java  AudienceValidator.java
 │   │       ├── RestAuthenticationEntryPoint/RestAccessDeniedHandler (401/403 JSON kontratı)
 │   │       ├── JwtAuditorAware.java   (sub → audit; fallback "system")
-│   │       └── BearerTokenPropagationInterceptor.java   (opt-in, ADR-010)
+│   │       ├── BearerTokenPropagationInterceptor.java   (opt-in, ADR-010; kullanıcı token'ı
+│   │       │     yoksa ServiceAccountTokenProvider'a düşer — ADR-010 eki 13.08.2026)
+│   │       └── ServiceAccountTokenProvider.java   (client-credentials, önbellekli; sadece
+│   │             crm.security.service-account.client-id set'liyken bean olarak var olur —
+│   │             bugün yalnız account/product-service'in async-sale profili)
 │   └── customer-service/
 │       ├── pom.xml                # parent = com.crm:crm-lite-project + annotationProcessorPaths(lombok) fix
 │       ├── Dockerfile             # root context, maven base image
@@ -598,7 +655,9 @@ crm-lite-project-dev/
 │               └── db/migration/ (V1__create_customer_tables.sql, V2__seed_customer_data.sql)
 └── infra/
     ├── docker-compose.yml         # config + discovery + gateway + KEYCLOAK + postgres + lookup + mernis + customer
-    ├── keycloak/realm/crm-lite-realm.json   # ADR-006: realm import (client crm-bff, rol crm-user, dev kullanıcıları)
+    ├── keycloak/realm/crm-lite-realm.json   # ADR-006: realm import (client crm-bff, rol crm-user, dev
+    │                                         #   kullanıcıları; + client crm-saga-worker, service-account,
+    │                                         #   ADR-010 eki 13.08.2026 — async SALE saga'nın servis kimliği)
     └── postgres/init/01-create-databases.sql   # CREATE DATABASE customer_db + lookup_db + keycloak_db
 ```
 
@@ -706,6 +765,13 @@ crm-lite-project-dev/
 - **Servisler-arası (ADR-010):** customer→lookup kullanıcı token'ı taşır (sub korunur,
   `BearerTokenPropagationInterceptor`); customer→mernis **token TAŞIMAZ** (dış KPS simülasyonu).
   Kanıt: `OutboundBearerPropagationTest`.
+- **Servis hesabı — async SALE saga (ADR-010 eki, 13.08.2026):** account/product-service'in
+  saga handler'ları (Kafka listener thread'inde, kullanıcı isteği YOK) aynı customer-service/
+  lookup-service çağrılarını yapıyor ama taşıyacak token bulamıyordu (401, satış `prepare`
+  adımında sessizce tıkanıyordu). `crm-saga-worker` client-credentials client'ı (Keycloak) +
+  `ServiceAccountTokenProvider` fallback'i eklendi — `BearerTokenPropagationInterceptor`
+  SecurityContext'te kullanıcı token'ı bulamazsa buna düşer. Yalnız async-sale profilinde
+  account/product-service için aktif; request-bound çağrıların hiçbiri etkilenmedi.
 - **Audit (ADR-004 kapanışı):** `created/updated/deleted_by` artık JWT `sub`
   (`CurrentActorProvider`); Flyway seed satırları `system` kalır. Testli
   (`auditColumnsCarryKeycloakSubject`).
@@ -1822,6 +1888,15 @@ Temel UYGULANDI (§4.11). Kalanlar, **sırasıyla**:
   yapılandırması `docker compose config` ile geçerli ve connector JSON'ları yerinde,
   ancak **connector'lar çalışan bir Connect'e karşı henüz kaydedilmedi**; in-process
   relay yolu ise testlerle kanıtlı. Cutover adım 2'nin ön koşulu.
+  **GÜNCELLEME 13.08.2026:** artık kayıtlılar (`kafka-connect-init`) ve `account`/
+  `product-outbox-connector` RUNNING, ama **`order-outbox-connector` FAILED** —
+  `occurred_at` alanı Debezium'un outbox SMT'sinin beklediği `INT64` tipinde değil
+  (`curl localhost:8083/connectors/order-outbox-connector/status`). Şu an
+  ENGELLEYİCİ DEĞİL (order-service'in in-process relay'i aynı satırları zaten
+  yayınlıyor), ama account/product-service'te connector RUNNING iken in-process
+  relay de aktif — runbook §1'in uyardığı çift-yayın durumu, şimdilik inbox dedup
+  ile zararsız. Kök neden araştırılmadı; muhtemelen order_db'nin `outbox_message.occurred_at`
+  kolon tanımı account_db/product_db'ninkinden farklı (Flyway V4 vs V5/V6).
 - [ ] **Retry destination merdiveni.** İsimlendirme kuralı ve
   `Destinations.retry(dest, attempt)` var; otomatik escalation YOK ve binder retry'ı
   bilerek kapalı (`max-attempts: 1`). Tek retry yolu redelivery + Inbox. Cutover neyin

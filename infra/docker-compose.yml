@@ -360,6 +360,9 @@ services:
       #   docker compose --profile eventing up -d
       #   SPRING_PROFILES_ACTIVE=async-sale docker compose up -d --force-recreate \
       #       account-service product-service order-service
+      # Or skip typing the env var each time with docker-compose.async-sale.yml:
+      #   docker compose -f docker-compose.yml -f docker-compose.async-sale.yml \
+      #       --profile eventing up -d
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       # The binder default (localhost:9092) resolves to the service's OWN container,
       # where nothing listens. Without this the bindings never connect: no topic is

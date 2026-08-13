@@ -1,0 +1,23 @@
+# CRM Lite — async-sale override (ADR-018)
+#
+# Opt-in convenience layered ON TOP of docker-compose.yml: it does nothing but set
+# SPRING_PROFILES_ACTIVE=async-sale on the three SALE services, so the live saga flow
+# comes up without typing the env var by hand every time. It still needs the broker —
+# combine with the `eventing` Compose profile:
+#
+#   cd infra
+#   docker compose -f docker-compose.yml -f docker-compose.async-sale.yml --profile eventing up -d
+#
+# A plain `docker compose up` (no -f, no --profile) is completely unaffected — this file
+# is never picked up unless named explicitly, so CI and anyone not working on the sale
+# flow keeps getting today's synchronous-only default (docs/runbooks/eventing.md).
+services:
+  account-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: async-sale
+  product-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: async-sale
+  order-service:
+    environment:
+      SPRING_PROFILES_ACTIVE: async-sale

@@ -3,6 +3,7 @@ package com.crm.security.starter;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import java.io.IOException;
@@ -40,11 +41,16 @@ class BearerTokenPropagationInterceptorTest {
                 new JwtAuthenticationToken(jwt, List.of(new SimpleGrantedAuthority("ROLE_crm-user"))));
     }
 
-    private HttpHeaders interceptAndCaptureHeaders(MockClientHttpRequest request) throws IOException {
+    private static HttpHeaders intercept(BearerTokenPropagationInterceptor interceptor,
+                                         MockClientHttpRequest request) throws IOException {
         ClientHttpRequestExecution execution = mock(ClientHttpRequestExecution.class);
         when(execution.execute(any(), any())).thenReturn(mock(ClientHttpResponse.class));
         interceptor.intercept(request, new byte[0], execution);
         return request.getHeaders();
+    }
+
+    private HttpHeaders interceptAndCaptureHeaders(MockClientHttpRequest request) throws IOException {
+        return intercept(interceptor, request);
     }
 
     @Test
@@ -75,5 +81,34 @@ class BearerTokenPropagationInterceptorTest {
         HttpHeaders headers = interceptAndCaptureHeaders(request);
 
         assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer pre-set-token");
+    }
+
+    // --- ADR-010 addendum: the async SALE saga's service-account fallback -------
+
+    @Test
+    void fallsBackToTheServiceAccountTokenWhenNoUserAuthenticationIsPresent() throws IOException {
+        ServiceAccountTokenProvider serviceAccountTokenProvider = mock(ServiceAccountTokenProvider.class);
+        when(serviceAccountTokenProvider.getToken()).thenReturn("the-service-account-token");
+        BearerTokenPropagationInterceptor interceptor =
+                new BearerTokenPropagationInterceptor(serviceAccountTokenProvider);
+        MockClientHttpRequest request = new MockClientHttpRequest(HttpMethod.GET, "http://customer-service/api/customers/1001/addresses");
+
+        HttpHeaders headers = intercept(interceptor, request);
+
+        assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer the-service-account-token");
+    }
+
+    @Test
+    void prefersTheUserTokenOverTheServiceAccountWhenBothAreAvailable() throws IOException {
+        ServiceAccountTokenProvider serviceAccountTokenProvider = mock(ServiceAccountTokenProvider.class);
+        BearerTokenPropagationInterceptor interceptor =
+                new BearerTokenPropagationInterceptor(serviceAccountTokenProvider);
+        authenticateWithJwt("the-user-token");
+        MockClientHttpRequest request = new MockClientHttpRequest(HttpMethod.GET, "http://customer-service/api/customers/1001/addresses");
+
+        HttpHeaders headers = intercept(interceptor, request);
+
+        assertThat(headers.getFirst(HttpHeaders.AUTHORIZATION)).isEqualTo("Bearer the-user-token");
+        verifyNoInteractions(serviceAccountTokenProvider);
     }
 }

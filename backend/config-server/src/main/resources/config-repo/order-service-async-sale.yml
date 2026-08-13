@@ -13,13 +13,19 @@
 
 spring:
   cloud:
-    stream:
-      # Spring Cloud Stream auto-discovers a SINGLE function bean; with six consumers it
+    function:
+      # Spring Cloud Function auto-discovers a SINGLE function bean; with six consumers it
       # must be told which ones to bind. Missing or misspelling a name here is a binding
       # that silently never receives anything, so the list is exactly the six @Bean names
       # on SaleSagaStreamAdapter.
-      function:
-        definition: saleAccountChecked;saleProductsPrepared;saleProductsLinked;saleProductsActivated;saleProductsCompensated;saleInvolvementsCompensated
+      #
+      # This key is `spring.cloud.function.definition` — NOT `spring.cloud.stream.function
+      # .definition`, which reads naturally next to `stream:` below but is not a real
+      # property. Nesting it under `stream:` leaves every function unbound: no consumer
+      # group ever forms, replies sit un-consumed, and every saga stalls until retries
+      # exhaust.
+      definition: saleAccountChecked;saleProductsPrepared;saleProductsLinked;saleProductsActivated;saleProductsCompensated;saleInvolvementsCompensated
+    stream:
       kafka:
         bindings:
           # A message this build cannot parse or version is terminal (ADR-017 §8.3);

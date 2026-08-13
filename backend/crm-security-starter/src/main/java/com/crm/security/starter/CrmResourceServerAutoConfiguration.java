@@ -1,5 +1,6 @@
 package com.crm.security.starter;
 
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
@@ -81,8 +82,18 @@ public class CrmResourceServerAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public BearerTokenPropagationInterceptor bearerTokenPropagationInterceptor() {
-        return new BearerTokenPropagationInterceptor();
+    @ConditionalOnProperty(prefix = "crm.security.service-account", name = "client-id")
+    public ServiceAccountTokenProvider serviceAccountTokenProvider(CrmSecurityProperties properties) {
+        CrmSecurityProperties.ServiceAccount config = properties.getServiceAccount();
+        return new ServiceAccountTokenProvider(properties.resolveServiceAccountTokenUri(),
+                config.getClientId(), config.getClientSecret());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public BearerTokenPropagationInterceptor bearerTokenPropagationInterceptor(
+            ObjectProvider<ServiceAccountTokenProvider> serviceAccountTokenProvider) {
+        return new BearerTokenPropagationInterceptor(serviceAccountTokenProvider.getIfAvailable());
     }
 
     @Bean

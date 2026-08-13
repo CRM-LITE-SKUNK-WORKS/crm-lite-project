@@ -62,6 +62,12 @@
       "credentials": [{ "type": "password", "value": "crm-dev", "temporary": false }],
       "realmRoles": ["crm-user"],
       "requiredActions": []
+    },
+    {
+      "username": "service-account-crm-saga-worker",
+      "enabled": true,
+      "serviceAccountClientId": "crm-saga-worker",
+      "realmRoles": ["crm-user"]
     }
   ],
 
@@ -127,6 +133,32 @@
             "id.token.claim": "true",
             "access.token.claim": "false",
             "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "crm-saga-worker",
+      "name": "CRM Lite async SALE saga worker",
+      "description": "Client-credentials service account (ADR-010 addendum). account-service/product-service use it for SALE saga calls with no user token to propagate. Secret is local-dev seed data, not a real credential.",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": true,
+      "secret": "crm-saga-worker-dev-secret",
+      "protocolMappers": [
+        {
+          "name": "crm-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "included.custom.audience": "crm-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
           }
         }
       ]

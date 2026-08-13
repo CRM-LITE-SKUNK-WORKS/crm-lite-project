@@ -10,12 +10,17 @@
 
 spring:
   cloud:
-    stream:
+    function:
       # orderSubmitted is the pre-existing observe-only consumer from ADR-017; the three
-      # sale* ones are the saga commands. All four must be listed — Spring Cloud Stream
+      # sale* ones are the saga commands. All four must be listed — Spring Cloud Function
       # auto-discovers only a single function bean.
-      function:
-        definition: orderSubmitted;prepareSaleProducts;activateSaleProducts;compensateSaleProducts
+      #
+      # Spring Cloud FUNCTION reads this key — NOT `spring.cloud.stream.function.definition`,
+      # which reads naturally next to `stream:` below but is not a real property. Nesting it
+      # under `stream:` leaves every function unbound: no consumer group ever forms, commands
+      # sit un-consumed, and every saga stalls until retries exhaust.
+      definition: orderSubmitted;prepareSaleProducts;activateSaleProducts;compensateSaleProducts
+    stream:
       kafka:
         bindings:
           prepareSaleProducts-in-0:
@@ -51,6 +56,23 @@ spring:
             max-attempts: 1
 
 crm:
+  security:
+    # ADR-010 addendum (2026-08-13): prepare/activate/compensate above run on a Kafka
+    # listener thread, not inside an HTTP request — doCreate() still calls
+    # customer-service (address ownership) and lookup-service (status ids) exactly as
+    # the synchronous POST /api/products route does, but there is no user token there
+    # for those RestClients to propagate. This client-credentials identity is the
+    # fallback BearerTokenPropagationInterceptor reaches for when SecurityContextHolder
+    # has no JwtAuthenticationToken — every request-bound call ADR-010 already
+    # documents is completely unaffected. The secret is local-dev seed data
+    # (infra/keycloak/realm/crm-lite-realm.json), same as this realm's other seeded
+    # credentials — never a real one.
+    service-account:
+      client-id: crm-saga-worker
+      client-secret: crm-saga-worker-dev-secret
+      # Compose-internal, same reasoning as CRM_SECURITY_JWKSETURI in docker-compose.yml
+      # (ADR-006): the canonical issuer is not reachable from inside this container.
+      token-uri: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/token
   messaging:
     broker:
       enabled: true

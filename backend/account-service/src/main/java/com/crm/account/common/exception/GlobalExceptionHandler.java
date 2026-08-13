@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -135,6 +136,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body(HttpStatus.SERVICE_UNAVAILABLE,
                 MessageKeys.SERVICE_UNAVAILABLE,
                 "A required service is unavailable; the operation was not performed", request, null));
+    }
+
+    // A routing/protocol-level client error, not a server failure: without this it
+    // is a subtype of Exception and falls into the catch-all below, turning a
+    // routine unsupported-method call into a 500 with a logged stack trace.
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleMethodNotSupported(HttpRequestMethodNotSupportedException ex,
+                                                                   HttpServletRequest request) {
+        log.debug("Unsupported HTTP method {} on {}", request.getMethod(), request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body(HttpStatus.METHOD_NOT_ALLOWED,
+                MessageKeys.METHOD_NOT_ALLOWED, "HTTP method not supported for this endpoint", request, null));
     }
 
     @ExceptionHandler(Exception.class)

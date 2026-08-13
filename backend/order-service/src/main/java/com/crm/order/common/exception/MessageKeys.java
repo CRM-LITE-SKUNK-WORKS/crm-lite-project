@@ -56,4 +56,8 @@ public final class MessageKeys {
     // sale: fail closed — the order is CANCELLED and nothing the customer can see
     // was created (ADR-016 §5).
     public static final String SERVICE_UNAVAILABLE = "MSG-SERVICE-UNAVAILABLE";
+    // Unscoped routing/protocol key (same pattern as the gateway's MSG-NOT-FOUND):
+    // an unsupported HTTP method on an otherwise valid path is a client error, not
+    // a server failure — must not fall into the generic 500 handler below.
+    public static final String METHOD_NOT_ALLOWED = "MSG-METHOD-NOT-ALLOWED";
 }

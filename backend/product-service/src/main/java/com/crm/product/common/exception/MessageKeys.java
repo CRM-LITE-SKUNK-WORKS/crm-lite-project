@@ -53,4 +53,8 @@ public final class MessageKeys {
     // account-service (FR-PROD-01 composition) OR customer-service (service-address
     // resolution) unreachable: fail closed, never a fabricated partial answer.
     public static final String SERVICE_UNAVAILABLE = "MSG-SERVICE-UNAVAILABLE";
+    // Unscoped routing/protocol key (same pattern as the gateway's MSG-NOT-FOUND):
+    // an unsupported HTTP method on an otherwise valid path is a client error, not
+    // a server failure — must not fall into the generic 500 handler below.
+    public static final String METHOD_NOT_ALLOWED = "MSG-METHOD-NOT-ALLOWED";
 }

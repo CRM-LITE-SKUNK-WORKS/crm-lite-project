@@ -1,6 +1,7 @@
 package com.crm.account.account.dto.request;
 
 import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Positive;
 import java.util.List;
 import lombok.Getter;
@@ -28,7 +29,7 @@ import lombok.Setter;
 public class ProductInvolvementRequest {
 
     @NotEmpty
-    private List<@Positive Long> productIds;
+    private List<@NotNull @Positive Long> productIds;
 
     /**
      * The SALE saga that owns the rows this command creates — the KR-12 order number

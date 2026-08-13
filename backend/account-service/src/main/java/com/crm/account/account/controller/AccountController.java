@@ -7,6 +7,7 @@ import com.crm.account.account.dto.response.AccountResponse;
 import com.crm.account.account.dto.response.ProductInvolvementResponse;
 import com.crm.account.account.service.AccountService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -39,7 +40,8 @@ public class AccountController {
     private final AccountService accountService;
 
     @GetMapping
-    public ResponseEntity<List<AccountResponse>> list(@RequestParam("customerId") Long customerId) {
+    public ResponseEntity<List<AccountResponse>> list(
+            @RequestParam("customerId") @Positive Long customerId) {
         return ResponseEntity.ok(accountService.list(customerId));
     }
 

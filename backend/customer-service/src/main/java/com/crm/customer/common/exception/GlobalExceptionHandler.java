@@ -23,6 +23,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -331,6 +332,29 @@ public class GlobalExceptionHandler {
                 .path(request.getRequestURI())
                 .build();
         return ResponseEntity.badRequest().body(body);
+    }
+
+    // A Content-Type Spring cannot map to any registered message converter for this
+    // endpoint (e.g. text/plain instead of application/json) is a client contract
+    // violation, not a server fault. Spring resolves this to 415 on its own via
+    // DefaultHandlerExceptionResolver, but ExceptionHandlerExceptionResolver (which runs
+    // @ExceptionHandler methods, including the Exception.class catch-all below) always
+    // runs first — so without an explicit handler here it never reaches Spring's own
+    // 415 handling and falls through to the generic 500 handler instead.
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex,
+                                                                     HttpServletRequest request) {
+        String message = "Content type '" + ex.getContentType() + "' is not supported; expected one of "
+                + ex.getSupportedMediaTypes();
+        ErrorResponse body = ErrorResponse.builder()
+                .timestamp(Instant.now())
+                .status(HttpStatus.UNSUPPORTED_MEDIA_TYPE.value())
+                .error(HttpStatus.UNSUPPORTED_MEDIA_TYPE.getReasonPhrase())
+                .messageKey(MessageKeys.UNSUPPORTED_MEDIA_TYPE)
+                .message(message)
+                .path(request.getRequestURI())
+                .build();
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(body);
     }
 
     @ExceptionHandler(Exception.class)

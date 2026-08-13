@@ -14,8 +14,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JavaType;
 import tools.jackson.databind.exc.ValueInstantiationException;
@@ -80,6 +82,18 @@ class GlobalExceptionHandlerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody().getMessageKey()).isEqualTo(MessageKeys.CUST_DUP_NATID);
+    }
+
+    @Test
+    void unsupportedMediaType_mapsTo415WithClearMessage() {
+        HttpMediaTypeNotSupportedException ex = new HttpMediaTypeNotSupportedException(
+                MediaType.TEXT_PLAIN, java.util.List.of(MediaType.APPLICATION_JSON));
+
+        ResponseEntity<ErrorResponse> response = handler.handleUnsupportedMediaType(ex, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(response.getBody().getMessageKey()).isEqualTo(MessageKeys.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(response.getBody().getMessage()).contains("text/plain").contains("application/json");
     }
 
     @Test

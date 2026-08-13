@@ -29,6 +29,11 @@ public final class MessageKeys {
     public static final String FEATURE_NOT_IMPLEMENTED = "MSG-FEATURE-NOT-IMPLEMENTED";
     public static final String VALIDATION_ERROR = "MSG-VALIDATION-ERROR";
     public static final String INTERNAL_ERROR = "MSG-INTERNAL-ERROR";
+    // Unscoped routing/protocol key (same pattern as METHOD_NOT_ALLOWED in the other
+    // domain services): a Content-Type Spring cannot map to any registered message
+    // converter is a client contract violation, not a server failure — must not fall
+    // into the generic 500 handler below.
+    public static final String UNSUPPORTED_MEDIA_TYPE = "MSG-UNSUPPORTED-MEDIA-TYPE";
     // Shared catalog (ADR-002) unreachable: writes fail closed (MERNIS outages use the
     // catalog key MSG-MERNIS-UNAVAILABLE above).
     public static final String SERVICE_UNAVAILABLE = "MSG-SERVICE-UNAVAILABLE";

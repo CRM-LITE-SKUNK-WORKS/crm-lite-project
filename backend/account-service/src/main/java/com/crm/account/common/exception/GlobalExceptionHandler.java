@@ -19,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
@@ -147,6 +148,20 @@ public class GlobalExceptionHandler {
         log.debug("Unsupported HTTP method {} on {}", request.getMethod(), request.getRequestURI());
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(body(HttpStatus.METHOD_NOT_ALLOWED,
                 MessageKeys.METHOD_NOT_ALLOWED, "HTTP method not supported for this endpoint", request, null));
+    }
+
+    // A Content-Type Spring cannot map to any registered message converter for this
+    // endpoint (e.g. text/plain instead of application/json) is a client contract
+    // violation, not a server fault — same reasoning as handleMethodNotSupported above,
+    // for content negotiation instead of routing. Without this it falls through to the
+    // generic 500 handler below instead of a clean 415.
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedMediaType(HttpMediaTypeNotSupportedException ex,
+                                                                     HttpServletRequest request) {
+        String message = "Content type '" + ex.getContentType() + "' is not supported; expected one of "
+                + ex.getSupportedMediaTypes();
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(body(HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                MessageKeys.UNSUPPORTED_MEDIA_TYPE, message, request, null));
     }
 
     @ExceptionHandler(Exception.class)

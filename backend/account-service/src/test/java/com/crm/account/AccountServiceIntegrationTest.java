@@ -265,7 +265,7 @@ class AccountServiceIntegrationTest {
 
     @Test
     @Order(4)
-    @DisplayName("list: customerId is required and numeric; unknown customer -> empty list, no cross-service call")
+    @DisplayName("list: customerId is required, numeric and positive; unknown customer -> empty list, no cross-service call")
     void listValidation() {
         ResponseEntity<Map> missing = get("/api/accounts");
         assertThat(missing.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -274,6 +274,17 @@ class AccountServiceIntegrationTest {
         ResponseEntity<Map> nonNumeric = get("/api/accounts?customerId=abc");
         assertThat(nonNumeric.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(nonNumeric.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        // AC-ACCT-01-04: negative and zero customerId are structurally invalid (never a
+        // real business customer number) and must be rejected as 400, not treated like an
+        // unknown-but-well-formed customerId (which legitimately answers 200 + empty list).
+        ResponseEntity<Map> negative = get("/api/accounts?customerId=-3001");
+        assertThat(negative.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(negative.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
+
+        ResponseEntity<Map> zero = get("/api/accounts?customerId=0");
+        assertThat(zero.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(zero.getBody().get("messageKey")).isEqualTo("MSG-VALIDATION-ERROR");
 
         ResponseEntity<List> unknownCustomer = getList("/api/accounts?customerId=9999");
         assertThat(unknownCustomer.getStatusCode()).isEqualTo(HttpStatus.OK);

@@ -29,4 +29,8 @@ public final class MessageKeys {
     // an unsupported HTTP method on an otherwise valid path is a client error, not
     // a server failure — must not fall into the generic 500 handler below.
     public static final String METHOD_NOT_ALLOWED = "MSG-METHOD-NOT-ALLOWED";
+    // Same reasoning as METHOD_NOT_ALLOWED, for content negotiation instead of routing:
+    // a Content-Type Spring cannot map to any registered message converter is a client
+    // contract violation, not a server failure.
+    public static final String UNSUPPORTED_MEDIA_TYPE = "MSG-UNSUPPORTED-MEDIA-TYPE";
 }

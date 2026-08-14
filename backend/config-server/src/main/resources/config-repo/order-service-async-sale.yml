@@ -97,6 +97,23 @@ spring:
             max-attempts: 1
 
 crm:
+  security:
+    # ADR-010 addendum (2026-08-13): SaleSagaScheduler (draft-cleanup, saga recovery)
+    # and the six saga-reply Kafka consumers above all run on a background thread, not
+    # inside an HTTP request, so there is no user token for the lookupRestClient
+    # (HttpLookupCatalogClient) to propagate. This client-credentials identity is the
+    # fallback BearerTokenPropagationInterceptor reaches for when SecurityContextHolder
+    # has no JwtAuthenticationToken — every request-bound call ADR-010 already
+    # documents (account/product/lookup calls made from an HTTP-triggered submit) is
+    # completely unaffected. Mirrors account-service-async-sale.yml and
+    # product-service-async-sale.yml exactly — same client, same secret (local-dev seed
+    # data, infra/keycloak/realm/crm-lite-realm.json, never a real credential).
+    service-account:
+      client-id: crm-saga-worker
+      client-secret: crm-saga-worker-dev-secret
+      # Compose-internal, same reasoning as CRM_SECURITY_JWKSETURI in docker-compose.yml
+      # (ADR-006): the canonical issuer is not reachable from inside this container.
+      token-uri: http://keycloak:8180/realms/crm-lite/protocol/openid-connect/token
   messaging:
     broker:
       enabled: true

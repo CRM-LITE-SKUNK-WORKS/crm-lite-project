@@ -523,6 +523,22 @@ does not belong to this draft's account), `409 MSG-ACCT-NOT-ACTIVE`,
 `503 MSG-SERVICE-UNAVAILABLE` when asynchronous processing is not enabled in this
 environment (fail closed — see *Enabling it* below).
 
+**What this endpoint does NOT reject — and why a test that expects it to will always
+fail.** Two different kinds of invalid basket answer in two different places, and the
+split is a direct consequence of the 202 above: a request that never waits for
+product-service cannot report what product-service thinks of the basket.
+
+| Kind | Examples | Where it surfaces |
+|---|---|---|
+| **Shape** — this service's own Bean Validation | `items` empty or `[null]`, missing/absent `offerId`, missing or non-positive `serviceAddressId`, `characteristicId` absent | **Synchronously, here: `400 MSG-VALIDATION-ERROR`** |
+| **Business rules** — product-service's, on the saga's `prepare` step | no internet offer, more than one internet offer, the same offer twice, a passive offer, a mandatory characteristic left empty, a value that does not match its data type, a service address belonging to another customer | **`202` here — not rejected.** The verdict appears only on `GET .../status` as `processingStatus: FAILED` + the `MSG-SALE-*`/`MSG-VAL-CHAR-*` key |
+
+Under the deprecated synchronous `POST /api/orders`, **both** kinds answered in the same
+response with a 4xx. Any test carried over from that route that asserts on
+`response.code` for a row in the second group is asserting something this contract can
+never produce; it must poll the status resource and assert on `failureMessageKey`
+instead. The keys themselves are unchanged — only where they are read from.
+
 ### `GET /api/orders/{orderNumber}/status` → 200
 
 ```json
@@ -574,3 +590,14 @@ Outbox and one relay for order/product/account-service. Without it every messagi
 stays `false`, no binder is instantiated, the stack runs with **no Kafka at all**, and
 `POST .../submit` answers `503 MSG-SERVICE-UNAVAILABLE` rather than accepting a sale
 nothing can process. Operations: `docs/runbooks/eventing.md`.
+
+The same profile is what gives all three services the `crm-saga-worker` service account
+(ADR-010 addendum) their saga threads authenticate with — including **order-service**,
+whose saga-reply consumers and `SaleSagaScheduler` resolve GNL_ST status ids from
+lookup-service on a thread that has no user token. If that identity is missing or lacks
+the `crm-user` realm role, every reply fails to record, the recovery job reissues until
+its budget is spent, and a submitted sale sits at `PROCESSING` before ending as
+`FAILED` + the generic `MSG-SALE-FAILED` — never the real basket key. The
+`keycloak-init` one-shot creates the client and grants that role on every `up`, so a
+developer whose `keycloak_db` predates it needs no manual step (ADR-010 correction,
+2026-08-14).

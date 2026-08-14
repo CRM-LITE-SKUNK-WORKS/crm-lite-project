@@ -4,7 +4,50 @@
 > Hem projeye sonradan dönen geliştirici, hem de sıfırdan bağlam kuran bir AI agent bu dosyayı
 > okuyarak "nerede kaldık, neden böyle yapıldı, sırada ne var" sorularını cevaplayabilmelidir.
 >
-> **Son güncelleme:** 2026-08-13 (**ASENKRON SALE'İN İKİ BAĞIMSIZ TIKANMA NOKTASI
+> **Son güncelleme:** 2026-08-14 (**ÜÇÜNCÜ TIKANMA NOKTASI — REDDEDİLEN SEPET
+> HİÇBİR ZAMAN SONUÇ VERMİYORDU; order-service'in saga kimliği eksikti:**
+> **ÖNCE ŞUNU OKU: 13.08 doğrulaması yalnızca BAŞARILI satışları denemişti, bu yüzden
+> bu hata görünmedi.** Geçersiz bir sepet (aynı offer iki kez, pasif offer, zorunlu
+> karakteristik boş…) submit edildiğinde sipariş sonsuza kadar `PROCESSING`'te kalıyor,
+> retry bütçesi tükenince `MANUAL_INTERVENTION`'a yükselip dışarıya `FAILED` +
+> **genel `MSG-SALE-FAILED`** olarak yansıyordu — product-service'in gerçekte döndürdüğü
+> `MSG-SALE-DUP-OFFER` gibi anlamlı anahtar hiçbir zaman görünmüyordu.
+> **(1) Kök neden — `order-service-async-sale.yml`'de `crm.security.service-account`
+> bloğu YOKTU.** 13.08 eki (ADR-010) servis hesabını yalnız account/product-service'e
+> vermiş, order-service için *"never needs it (its saga transitions are local)"* demişti.
+> Bu gerekçe yanlıştı: order-service'in saga geçişleri gerçekten yalnız `order_db`'ye
+> yazıyor, **ama her geçişin GNL_ST status id'sini lookup-service'ten çözüyor** — ve bu,
+> tam da bu ekin var oluş sebebi olan thread'lerde oluyor (altı saga-reply Kafka
+> consumer'ı + `SaleSagaScheduler`). Kimlik olmayınca `Authorization` boş gidiyor,
+> resource server önce 401 (kimlik yok) veriyordu. Fix: diğer iki profildeki **birebir
+> aynı** blok `order-service-async-sale.yml`'e eklendi; **kod değişmedi**.
+> **(2) Neden 13.08'de fark edilmedi — iki katmanlı gizlenme.** `LookupCatalogService`
+> 15 dakikalık TTL cache kullanıyor; dahası **başarılı yolun ihtiyaç duyduğu bütün
+> status'ler (`NEWSALE`/`WAIT` draft'ta, `MIDLWARE`/`ACTV` submit'te) zaten HTTP
+> isteğinin kendi thread'inde** (kullanıcı token'ıyla) çözülüyor. `CANCELLED` ise tek bir
+> yerde — `OrderPersistence#cancel` — çözülüyor ve oraya **yalnızca başarısızlık yolu**
+> giriyor. 13.08'deki üç başarılı satış bu yüzden `COMPLETED`'e ulaştı; reddedilen her
+> sepet tıkandı. **Ders: yalnız happy-path doğrulaması bu sınıf hatayı yakalayamaz.**
+> **(3) İkinci yarısı — client realm JSON'da vardı ama kimsenin Keycloak'ında yoktu.**
+> `--import-realm` yalnızca realm HİÇ YOKSA çalışır; `crm-saga-worker` 13.08'de eklendiği
+> için `keycloak_db`'si daha eski olan hiçbir geliştiricide oluşmamıştı (`invalid_client`,
+> elle oluşturulduğunda ise rolsüz kaldığı için `403`). Fix: `keycloak-init` one-shot'ına
+> **4. uzlaştırma adımı** — client + `crm-api` audience mapper'ı yoksa oluştur, servis
+> hesabı kullanıcısına `crm-user` rolünü her `up`'ta ver. Login teması ve `crm-bff`
+> redirect URI'larıyla **aynı mekanizma** (FE-ADR-004 §3); ikinci bir mekanizma
+> icat edilmedi.
+> **(4) Canlı doğrulandı (14.08).** Restart sonrası 401/403 sayısı **0**; duplicate-offer
+> sepeti artık `Order 1261000077 cancelled: saga failed at product-preparation` ile
+> gerçek reddi alıyor. `keycloak-init` iki yönlü test edildi: client varken hiçbir şeyi
+> bozmuyor, client silinip çalıştırıldığında **eksiksiz** yeniden oluşturuyor (üretilen
+> token decode edilip `crm-user` rolü + `crm-api` audience doğrulandı).
+> **(5) Doküman etkisi:** ADR-010'a **Correction (2026-08-14)** eklendi (yanlış gerekçe
+> düzeltildi, iki gizlenme mekanizması kayda geçti); `docs/api/order-service.md`'ye
+> **submit'in NEYİ reddetmediği** tablosu eklendi — şekil hataları senkron 400, sepet iş
+> kuralları yalnız `GET .../status`'te `failureMessageKey`. Bu tablo, analist/QA test
+> koleksiyonlarının neden güncellenmesi gerektiğinin referansıdır.
+> Detay: **ADR-010** (14.08.2026 correction), `docs/api/order-service.md`.)
+> Önceki durum: 2026-08-13 (**ASENKRON SALE'İN İKİ BAĞIMSIZ TIKANMA NOKTASI
 > GİDERİLDİ — saga artık gerçekten `COMPLETED`'e ulaşıyor:**
 > **ÖNCE ŞUNU OKU: `async-sale` profili artık gerçekten çalışıyor.** 10.08.2026'daki
 > ADR-018 kesimi doğruydu ama iki ayrı, birbirinden bağımsız altyapı hatası yüzünden
@@ -33,7 +76,9 @@
 > zero-trust kontrolünden geçiyor), `ServiceAccountTokenProvider` (crm-security-starter,
 > önbellekli) ve `BearerTokenPropagationInterceptor`'a fallback: SecurityContext'te
 > kullanıcı token'ı YOKSA buna düşer. Yalnız `crm.security.service-account.client-id`
-> set'liyken aktif — bugün yalnız account/product-service'in `async-sale` profili;
+> set'liyken aktif — o gün yalnız account/product-service'in `async-sale` profili
+> (**14.08'de order-service de eklendi — yukarıdaki (1)'e bak; bu satırdaki
+> "order-service'e gerek yok" varsayımı yanlıştı**);
 > request-bound hiçbir çağrı etkilenmedi (ADR-010'a addendum, testli).
 > **(3) Kolaylık — `docker-compose.async-sale.yml` (yeni).** `SPRING_PROFILES_ACTIVE=async-sale`'i
 > her seferinde elle yazmamak için override dosyası:

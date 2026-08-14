@@ -232,7 +232,25 @@ services:
         -s 'config."user.attribute"=titleCode' -s 'config."claim.name"=titleCode'
         -s 'config."jsonType.label"=String' -s 'config."id.token.claim"=true'
         -s 'config."access.token.claim"=false' -s 'config."userinfo.token.claim"=false') &&
-        echo "keycloak-init: titleCode attribute + mapper applied"
+        echo "keycloak-init: titleCode attribute + mapper applied" &&
+        SAGAID=$$(/opt/keycloak/bin/kcadm.sh get clients -r crm-lite --query clientId=crm-saga-worker --fields id --format csv --noquotes) &&
+        if [ -z "$$SAGAID" ]; then
+        /opt/keycloak/bin/kcadm.sh create clients -r crm-lite
+        -s clientId=crm-saga-worker -s 'name=CRM Lite async SALE saga worker'
+        -s enabled=true -s protocol=openid-connect -s publicClient=false
+        -s standardFlowEnabled=false -s directAccessGrantsEnabled=false
+        -s implicitFlowEnabled=false -s serviceAccountsEnabled=true
+        -s secret=crm-saga-worker-dev-secret &&
+        SAGAID=$$(/opt/keycloak/bin/kcadm.sh get clients -r crm-lite --query clientId=crm-saga-worker --fields id --format csv --noquotes) &&
+        /opt/keycloak/bin/kcadm.sh create clients/$$SAGAID/protocol-mappers/models -r crm-lite
+        -s name=crm-api-audience -s protocol=openid-connect
+        -s protocolMapper=oidc-audience-mapper
+        -s 'config."included.custom.audience"=crm-api'
+        -s 'config."access.token.claim"=true' -s 'config."id.token.claim"=false';
+        fi &&
+        /opt/keycloak/bin/kcadm.sh add-roles -r crm-lite
+        --uusername service-account-crm-saga-worker --rolename crm-user &&
+        echo "keycloak-init: crm-saga-worker client + crm-user service-account role applied"
     depends_on:
       keycloak:
         condition: service_healthy
